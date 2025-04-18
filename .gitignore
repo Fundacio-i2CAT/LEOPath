@@ -4,3 +4,5 @@ data_to_match
 figures_help_test_understanding
 temp_dynamic_state_gen_data
 temp_gen_data
+.coverage
+cov.xml
