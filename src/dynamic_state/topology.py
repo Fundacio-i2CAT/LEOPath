@@ -136,8 +136,12 @@ class LEOTopology:
         Get a satellite by its ID.
         :param id: Satellite ID
         :return: Satellite object
+        :raises KeyError: if satellite with the given ID is not found.
         """
-        return self.constellation_data.satellites[id]
+        for satellite in self.constellation_data.satellites:
+            if satellite.id == id:
+                return satellite
+        raise KeyError(f"Satellite with ID {id} not found in constellation data.")
 
     def get_ground_stations(self) -> list[GroundStation]:
         """
@@ -151,5 +155,9 @@ class LEOTopology:
         Get a ground station by its ID.
         :param gid: Ground station ID
         :return: Ground station object
+        :raises KeyError: if ground station with the given ID is not found.
         """
-        return self.ground_stations[gid]
+        for gs in self.ground_stations:
+            if gs.id == gid:
+                return gs
+        raise KeyError(f"Ground station with ID {gid} not found.")
