@@ -21,8 +21,8 @@
 # SOFTWARE.
 
 import ephem
-from astropy.time import Time
 from astropy import units as u
+from astropy.time import Time
 
 
 def read_tles(filename_tles):
@@ -40,7 +40,7 @@ def read_tles(filename_tles):
               }
     """
     satellites = []
-    with open(filename_tles, 'r') as f:
+    with open(filename_tles, "r") as f:
         n_orbits, n_sats_per_orbit = [int(n) for n in f.readline().split()]
         universal_epoch = None
         i = 0
@@ -62,7 +62,9 @@ def read_tles(filename_tles):
             # See also: https://www.celestrak.com/columns/v04n03/#FAQ04
             epoch_year = tles_line_2[18:20]
             epoch_day = float(tles_line_2[20:32])
-            epoch = Time("20" + epoch_year + "-01-01 00:00:00", scale="tdb") + (epoch_day - 1) * u.day
+            epoch = (
+                Time("20" + epoch_year + "-01-01 00:00:00", scale="tdb") + (epoch_day - 1) * u.day
+            )
             if universal_epoch is None:
                 universal_epoch = epoch
             if epoch != universal_epoch:
@@ -75,13 +77,13 @@ def read_tles(filename_tles):
         "n_orbits": n_orbits,
         "n_sats_per_orbit": n_sats_per_orbit,
         "epoch": epoch,
-        "satellites": satellites
+        "satellites": satellites,
     }
 
 
 def satellite_ephem_to_str(satellite_ephem):
     res = "EphemSatellite {\n"
-    res += "  name = \"" + str(satellite_ephem.name) + "\",\n"
+    res += '  name = "' + str(satellite_ephem.name) + '",\n'
     res += "  _ap = " + str(satellite_ephem._ap) + ",\n"
     res += "  _decay = " + str(satellite_ephem._decay) + ",\n"
     res += "  _drag = " + str(satellite_ephem._drag) + ",\n"

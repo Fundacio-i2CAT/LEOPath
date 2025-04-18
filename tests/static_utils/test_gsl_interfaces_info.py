@@ -20,22 +20,17 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import src
-import unittest
 import os
+import unittest
+
+import src
 
 
 class TestGslInterfacesInfo(unittest.TestCase):
 
     def test_simple(self):
         src.generate_simple_gsl_interfaces_info(
-            "gsl_interfaces_info.txt.tmp",
-            33,
-            55,
-            3,
-            5,
-            7.0,
-            10.0
+            "gsl_interfaces_info.txt.tmp", 33, 55, 3, 5, 7.0, 10.0
         )
         gsl_interfaces_info = src.read_gsl_interfaces_info("gsl_interfaces_info.txt.tmp", 33, 55)
         self.assertEqual(33 + 55, len(gsl_interfaces_info))

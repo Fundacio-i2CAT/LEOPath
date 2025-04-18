@@ -20,12 +20,13 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import src
-import unittest
 import math
 import os
+import unittest
+
 import exputil
 
+import src
 
 # WGS72 value; taken from https://geographiclib.sourceforge.io/html/NET/NETGeographicLib_8h_source.html
 EARTH_RADIUS = 6378135.0
@@ -37,7 +38,9 @@ NICE_NAME = "Kuiper-630"
 
 # KUIPER 630
 
-ECCENTRICITY = 0.0000001  # Circular orbits are zero, but pyephem does not permit 0, so lowest possible value
+ECCENTRICITY = (
+    0.0000001  # Circular orbits are zero, but pyephem does not permit 0, so lowest possible value
+)
 ARG_OF_PERIGEE_DEGREE = 0.0
 PHASE_DIFF = True
 
@@ -55,7 +58,9 @@ SATELLITE_CONE_RADIUS_M = ALTITUDE_M / math.tan(math.radians(30.0))
 MAX_GSL_LENGTH_M = math.sqrt(math.pow(SATELLITE_CONE_RADIUS_M, 2) + math.pow(ALTITUDE_M, 2))
 
 # ISLs are not allowed to dip below 80 km altitude in order to avoid weather conditions
-MAX_ISL_LENGTH_M = 2 * math.sqrt(math.pow(EARTH_RADIUS + ALTITUDE_M, 2) - math.pow(EARTH_RADIUS + 80000, 2))
+MAX_ISL_LENGTH_M = 2 * math.sqrt(
+    math.pow(EARTH_RADIUS + ALTITUDE_M, 2) - math.pow(EARTH_RADIUS + 80000, 2)
+)
 
 NUM_ORBS = 34
 NUM_SATS_PER_ORB = 34
@@ -74,7 +79,7 @@ class TestEndToEnd(unittest.TestCase):
         # Both dynamic state algorithms should yield the same path and RTT
         for dynamic_state_algorithm in [
             "algorithm_free_one_only_over_isls",
-            "algorithm_free_gs_one_sat_many_only_over_isls"
+            "algorithm_free_gs_one_sat_many_only_over_isls",
         ]:
 
             # Specific outcomes
@@ -95,13 +100,17 @@ class TestEndToEnd(unittest.TestCase):
 
             # Ground stations
             print("Generating ground stations...")
-            with open(output_generated_data_dir + "/" + name + "/ground_stations.basic.txt", "w+") as f_out:
+            with open(
+                output_generated_data_dir + "/" + name + "/ground_stations.basic.txt", "w+"
+            ) as f_out:
                 f_out.write("0,Manila,14.6042,120.9822,0\n")  # Originally no. 17
                 f_out.write("1,Dalian,38.913811,121.602322,0\n")  # Originally no. 85
-                f_out.write("2,Sankt-Peterburg-(Saint-Petersburg),59.929858,30.326228,0\n")  # Originally no. 73
+                f_out.write(
+                    "2,Sankt-Peterburg-(Saint-Petersburg),59.929858,30.326228,0\n"
+                )  # Originally no. 73
             src.extend_ground_stations(
                 output_generated_data_dir + "/" + name + "/ground_stations.basic.txt",
-                output_generated_data_dir + "/" + name + "/ground_stations.txt"
+                output_generated_data_dir + "/" + name + "/ground_stations.txt",
             )
 
             # Path trace we base this test on:
@@ -161,20 +170,25 @@ class TestEndToEnd(unittest.TestCase):
                 INCLINATION_DEGREE,
                 ECCENTRICITY,
                 ARG_OF_PERIGEE_DEGREE,
-                MEAN_MOTION_REV_PER_DAY
+                MEAN_MOTION_REV_PER_DAY,
             )
             with open(output_generated_data_dir + "/" + name + "/tles_complete.txt", "r") as f_in:
                 with open(output_generated_data_dir + "/" + name + "/tles.txt", "w+") as f_out:
-                    f_out.write("1 %d\n" % len(list_of_satellites))  # Pretend its one orbit with N satellites simply
+                    f_out.write(
+                        "1 %d\n" % len(list_of_satellites)
+                    )  # Pretend its one orbit with N satellites simply
                     i = 0
                     for line in f_in:
                         line = line.strip()
                         if int(math.floor((i - 1) / 3.0)) in list_of_satellites:
                             if (i - 1) % 3 == 0:
-                                f_out.write("%s %d\n" % (
-                                    line.split(" ")[0],
-                                    original_sat_id_to_new_sat_id[int(line.split(" ")[1])]
-                                ))
+                                f_out.write(
+                                    "%s %d\n"
+                                    % (
+                                        line.split(" ")[0],
+                                        original_sat_id_to_new_sat_id[int(line.split(" ")[1])],
+                                    )
+                                )
                             else:
                                 f_out.write("%s\n" % line)
                         i += 1
@@ -186,21 +200,25 @@ class TestEndToEnd(unittest.TestCase):
                 NUM_ORBS,
                 NUM_SATS_PER_ORB,
                 isl_shift=0,
-                idx_offset=0
+                idx_offset=0,
             )
             with open(output_generated_data_dir + "/" + name + "/isls.txt", "w+") as f_out:
                 for isl in complete_list_isls:
                     if isl[0] in list_of_satellites and isl[1] in list_of_satellites:
-                        f_out.write("%d %d\n" % (
-                            original_sat_id_to_new_sat_id[isl[0]], original_sat_id_to_new_sat_id[isl[1]]
-                        ))
+                        f_out.write(
+                            "%d %d\n"
+                            % (
+                                original_sat_id_to_new_sat_id[isl[0]],
+                                original_sat_id_to_new_sat_id[isl[1]],
+                            )
+                        )
 
             # Description
             print("Generating description...")
             src.generate_description(
                 output_generated_data_dir + "/" + name + "/description.txt",
                 MAX_GSL_LENGTH_M,
-                MAX_ISL_LENGTH_M
+                MAX_ISL_LENGTH_M,
             )
 
             # Extended ground stations
@@ -225,7 +243,7 @@ class TestEndToEnd(unittest.TestCase):
                 gsl_interfaces_per_satellite,  # GSL interfaces per satellite
                 1,  # (GSL) Interfaces per ground station
                 gsl_satellite_max_agg_bandwidth,  # Aggregate max. bandwidth satellite (unit unspecified)
-                1   # Aggregate max. bandwidth ground station (same unspecified unit)
+                1,  # Aggregate max. bandwidth ground station (same unspecified unit)
             )
 
             # Forwarding state
@@ -240,7 +258,7 @@ class TestEndToEnd(unittest.TestCase):
                     MAX_GSL_LENGTH_M,
                     MAX_ISL_LENGTH_M,
                     dynamic_state_algorithm,
-                    False
+                    False,
                 )
 
             # Clean slate start
@@ -249,11 +267,7 @@ class TestEndToEnd(unittest.TestCase):
             output_analysis_data_dir = "temp_analysis_data"
 
             # Check the path and RTT for each pair
-            new_gs_id_to_old_node_id = {
-                0: 1173,
-                1: 1241,
-                2: 1229
-            }
+            new_gs_id_to_old_node_id = {0: 1173, 1: 1241, 2: 1229}
             old_node_id_to_new_node_id = {
                 1173: len(list_of_satellites) + 0,
                 1241: len(list_of_satellites) + 1,
@@ -261,14 +275,7 @@ class TestEndToEnd(unittest.TestCase):
             }
             min_rtts = []
             max_rtts = []
-            for (src, dst) in [
-                (0, 1),
-                (0, 2),
-                (1, 0),
-                (1, 2),
-                (2, 0),
-                (2, 1)
-            ]:
+            for src, dst in [(0, 1), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1)]:
 
                 # Find node identifiers
                 src_node_id = len(list_of_satellites) + src
@@ -284,19 +291,21 @@ class TestEndToEnd(unittest.TestCase):
                     duration_s,
                     src_node_id,
                     dst_node_id,
-                    ""
+                    "",
                 )
 
                 # Now, we just want to see that the output path matches
                 with open(
-                        output_analysis_data_dir + "/" + name + "/data/networkx_path_%d_to_%d.txt"
-                        % (src_node_id, dst_node_id),
-                        "r"
+                    output_analysis_data_dir
+                    + "/"
+                    + name
+                    + "/data/networkx_path_%d_to_%d.txt" % (src_node_id, dst_node_id),
+                    "r",
                 ) as f_in1:
                     with open(
-                            "tests/data_to_match/kuiper_630/networkx_path_%d_to_%d.txt"
-                            % (old_src_node_id, old_dst_node_id),
-                            "r"
+                        "tests/data_to_match/kuiper_630/networkx_path_%d_to_%d.txt"
+                        % (old_src_node_id, old_dst_node_id),
+                        "r",
                     ) as f_in2:
                         lines1 = []
                         for line in f_in1:
@@ -321,26 +330,29 @@ class TestEndToEnd(unittest.TestCase):
                                 new_node_list2 = []
                                 for j in range(len(node_list2)):
                                     if j == 0 or j == len(node_list2) - 1:
-                                        new_node_list2.append(old_node_id_to_new_node_id[node_list2[j]])
+                                        new_node_list2.append(
+                                            old_node_id_to_new_node_id[node_list2[j]]
+                                        )
                                     else:
-                                        new_node_list2.append(original_sat_id_to_new_sat_id[node_list2[j]])
-                                self.assertEqual(
-                                    node_list1,
-                                    new_node_list2
-                                )
+                                        new_node_list2.append(
+                                            original_sat_id_to_new_sat_id[node_list2[j]]
+                                        )
+                                self.assertEqual(node_list1, new_node_list2)
 
                 # ... and the RTT
                 lowest_rtt_ns = 100000000000
                 highest_rtt_ns = 0
                 with open(
-                        output_analysis_data_dir + "/" + name + "/data/networkx_rtt_%d_to_%d.txt"
-                        % (src_node_id, dst_node_id),
-                        "r"
+                    output_analysis_data_dir
+                    + "/"
+                    + name
+                    + "/data/networkx_rtt_%d_to_%d.txt" % (src_node_id, dst_node_id),
+                    "r",
                 ) as f_in1:
                     with open(
-                            "tests/data_to_match/kuiper_630/networkx_rtt_%d_to_%d.txt"
-                            % (old_src_node_id, old_dst_node_id),
-                            "r"
+                        "tests/data_to_match/kuiper_630/networkx_rtt_%d_to_%d.txt"
+                        % (old_src_node_id, old_dst_node_id),
+                        "r",
                     ) as f_in2:
                         lines1 = []
                         for line in f_in1:
@@ -391,14 +403,18 @@ class TestEndToEnd(unittest.TestCase):
                 output_generated_data_dir + "/" + name,
                 default_time_step_ms,
                 duration_s,
-                ""
+                "",
             )
 
             # Number of path changes per pair
             columns = exputil.read_csv_direct_in_columns(
-                output_analysis_data_dir + "/" + name +
-                "/" + name + "/100ms_for_200s/path/data/ecdf_pairs_num_path_changes.txt",
-                "float,pos_float"
+                output_analysis_data_dir
+                + "/"
+                + name
+                + "/"
+                + name
+                + "/100ms_for_200s/path/data/ecdf_pairs_num_path_changes.txt",
+                "float,pos_float",
             )
             self.assertEqual(4, len(columns[0]))
             for i in range(len(columns[0])):
@@ -407,9 +423,9 @@ class TestEndToEnd(unittest.TestCase):
                 if i == 0:
                     self.assertEqual(columns[1][i], 0)
                 elif i == 1:
-                    self.assertAlmostEqual(columns[1][i], 1.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 1.0 / 3.0, delta=0.0001)
                 elif i == 2:
-                    self.assertAlmostEqual(columns[1][i], 2.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 2.0 / 3.0, delta=0.0001)
                 else:
                     self.assertEqual(columns[1][i], 1.0)
 
@@ -425,9 +441,13 @@ class TestEndToEnd(unittest.TestCase):
 
             # Max minus min hop count per pair
             columns = exputil.read_csv_direct_in_columns(
-                output_analysis_data_dir + "/" + name +
-                "/" + name + "/100ms_for_200s/path/data/ecdf_pairs_max_minus_min_hop_count.txt",
-                "float,pos_float"
+                output_analysis_data_dir
+                + "/"
+                + name
+                + "/"
+                + name
+                + "/100ms_for_200s/path/data/ecdf_pairs_max_minus_min_hop_count.txt",
+                "float,pos_float",
             )
             self.assertEqual(4, len(columns[0]))
             for i in range(len(columns[0])):
@@ -436,9 +456,9 @@ class TestEndToEnd(unittest.TestCase):
                 if i == 0:
                     self.assertEqual(columns[1][i], 0)
                 elif i == 1:
-                    self.assertAlmostEqual(columns[1][i], 1.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 1.0 / 3.0, delta=0.0001)
                 elif i == 2:
-                    self.assertAlmostEqual(columns[1][i], 2.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 2.0 / 3.0, delta=0.0001)
                 else:
                     self.assertEqual(columns[1][i], 1.0)
 
@@ -454,9 +474,13 @@ class TestEndToEnd(unittest.TestCase):
 
             # Max divided by min hop count per pair
             columns = exputil.read_csv_direct_in_columns(
-                output_analysis_data_dir + "/" + name +
-                "/" + name + "/100ms_for_200s/path/data/ecdf_pairs_max_hop_count_to_min_hop_count.txt",
-                "float,pos_float"
+                output_analysis_data_dir
+                + "/"
+                + name
+                + "/"
+                + name
+                + "/100ms_for_200s/path/data/ecdf_pairs_max_hop_count_to_min_hop_count.txt",
+                "float,pos_float",
             )
             self.assertEqual(4, len(columns[0]))
             for i in range(len(columns[0])):
@@ -465,9 +489,9 @@ class TestEndToEnd(unittest.TestCase):
                 if i == 0:
                     self.assertEqual(columns[1][i], 0)
                 elif i == 1:
-                    self.assertAlmostEqual(columns[1][i], 1.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 1.0 / 3.0, delta=0.0001)
                 elif i == 2:
-                    self.assertAlmostEqual(columns[1][i], 2.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 2.0 / 3.0, delta=0.0001)
                 else:
                     self.assertEqual(columns[1][i], 1.0)
 
@@ -475,9 +499,9 @@ class TestEndToEnd(unittest.TestCase):
                 if i == 0:
                     self.assertEqual(columns[0][i], float("-inf"))
                 elif i == 1:
-                    self.assertAlmostEqual(columns[0][i], 9.0/8.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[0][i], 9.0 / 8.0, delta=0.0001)
                 elif i == 2:
-                    self.assertAlmostEqual(columns[0][i], 9.0/8.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[0][i], 9.0 / 8.0, delta=0.0001)
                 else:
                     self.assertEqual(columns[0][i], 2.0)
 
@@ -515,9 +539,13 @@ class TestEndToEnd(unittest.TestCase):
 
             # For all pairs, the distribution how many times they changed path in a time step
             columns = exputil.read_csv_direct_in_columns(
-                output_analysis_data_dir + "/" + name +
-                "/" + name + "/100ms_for_200s/path/data/ecdf_time_step_num_path_changes.txt",
-                "float,pos_float"
+                output_analysis_data_dir
+                + "/"
+                + name
+                + "/"
+                + name
+                + "/100ms_for_200s/path/data/ecdf_time_step_num_path_changes.txt",
+                "float,pos_float",
             )
             start_cumulative = 0.0
             for i in range(len(columns[0])):
@@ -546,14 +574,18 @@ class TestEndToEnd(unittest.TestCase):
                 output_generated_data_dir + "/" + name,
                 default_time_step_ms,
                 duration_s,
-                ""
+                "",
             )
 
             # Min. RTT
             columns = exputil.read_csv_direct_in_columns(
-                output_analysis_data_dir + "/" + name +
-                "/" + name + "/100ms_for_200s/rtt/data/ecdf_pairs_min_rtt_ns.txt",
-                "float,pos_float"
+                output_analysis_data_dir
+                + "/"
+                + name
+                + "/"
+                + name
+                + "/100ms_for_200s/rtt/data/ecdf_pairs_min_rtt_ns.txt",
+                "float,pos_float",
             )
             self.assertEqual(4, len(columns[0]))
             sorted_min_rtts = sorted(min_rtts)
@@ -563,9 +595,9 @@ class TestEndToEnd(unittest.TestCase):
                 if i == 0:
                     self.assertEqual(columns[1][i], 0)
                 elif i == 1:
-                    self.assertAlmostEqual(columns[1][i], 1.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 1.0 / 3.0, delta=0.0001)
                 elif i == 2:
-                    self.assertAlmostEqual(columns[1][i], 2.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 2.0 / 3.0, delta=0.0001)
                 else:
                     self.assertEqual(columns[1][i], 1.0)
 
@@ -577,9 +609,13 @@ class TestEndToEnd(unittest.TestCase):
 
             # Max. RTT
             columns = exputil.read_csv_direct_in_columns(
-                output_analysis_data_dir + "/" + name +
-                "/" + name + "/100ms_for_200s/rtt/data/ecdf_pairs_max_rtt_ns.txt",
-                "float,pos_float"
+                output_analysis_data_dir
+                + "/"
+                + name
+                + "/"
+                + name
+                + "/100ms_for_200s/rtt/data/ecdf_pairs_max_rtt_ns.txt",
+                "float,pos_float",
             )
             self.assertEqual(4, len(columns[0]))
             sorted_max_rtts = sorted(max_rtts)
@@ -589,9 +625,9 @@ class TestEndToEnd(unittest.TestCase):
                 if i == 0:
                     self.assertEqual(columns[1][i], 0)
                 elif i == 1:
-                    self.assertAlmostEqual(columns[1][i], 1.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 1.0 / 3.0, delta=0.0001)
                 elif i == 2:
-                    self.assertAlmostEqual(columns[1][i], 2.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 2.0 / 3.0, delta=0.0001)
                 else:
                     self.assertEqual(columns[1][i], 1.0)
 
@@ -603,21 +639,27 @@ class TestEndToEnd(unittest.TestCase):
 
             # Max. - Min. RTT
             columns = exputil.read_csv_direct_in_columns(
-                output_analysis_data_dir + "/" + name +
-                "/" + name + "/100ms_for_200s/rtt/data/ecdf_pairs_max_minus_min_rtt_ns.txt",
-                "float,pos_float"
+                output_analysis_data_dir
+                + "/"
+                + name
+                + "/"
+                + name
+                + "/100ms_for_200s/rtt/data/ecdf_pairs_max_minus_min_rtt_ns.txt",
+                "float,pos_float",
             )
             self.assertEqual(4, len(columns[0]))
-            sorted_max_minus_min_rtts = sorted(list(map(lambda x: max_rtts[x] - min_rtts[x], list(range(3)))))
+            sorted_max_minus_min_rtts = sorted(
+                list(map(lambda x: max_rtts[x] - min_rtts[x], list(range(3))))
+            )
             for i in range(len(columns[0])):
 
                 # Cumulative y-axis check
                 if i == 0:
                     self.assertEqual(columns[1][i], 0)
                 elif i == 1:
-                    self.assertAlmostEqual(columns[1][i], 1.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 1.0 / 3.0, delta=0.0001)
                 elif i == 2:
-                    self.assertAlmostEqual(columns[1][i], 2.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 2.0 / 3.0, delta=0.0001)
                 else:
                     self.assertEqual(columns[1][i], 1.0)
 
@@ -625,25 +667,33 @@ class TestEndToEnd(unittest.TestCase):
                 if i == 0:
                     self.assertEqual(columns[0][i], float("-inf"))
                 else:
-                    self.assertAlmostEqual(columns[0][i], sorted_max_minus_min_rtts[i - 1], delta=100)
+                    self.assertAlmostEqual(
+                        columns[0][i], sorted_max_minus_min_rtts[i - 1], delta=100
+                    )
 
             # Max. / Min. RTT
             columns = exputil.read_csv_direct_in_columns(
-                output_analysis_data_dir + "/" + name +
-                "/" + name + "/100ms_for_200s/rtt/data/ecdf_pairs_max_rtt_to_min_rtt_slowdown.txt",
-                "float,pos_float"
+                output_analysis_data_dir
+                + "/"
+                + name
+                + "/"
+                + name
+                + "/100ms_for_200s/rtt/data/ecdf_pairs_max_rtt_to_min_rtt_slowdown.txt",
+                "float,pos_float",
             )
             self.assertEqual(4, len(columns[0]))
-            sorted_max_divided_min_rtts = sorted(list(map(lambda x: max_rtts[x] / min_rtts[x], list(range(3)))))
+            sorted_max_divided_min_rtts = sorted(
+                list(map(lambda x: max_rtts[x] / min_rtts[x], list(range(3))))
+            )
             for i in range(len(columns[0])):
 
                 # Cumulative y-axis check
                 if i == 0:
                     self.assertEqual(columns[1][i], 0)
                 elif i == 1:
-                    self.assertAlmostEqual(columns[1][i], 1.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 1.0 / 3.0, delta=0.0001)
                 elif i == 2:
-                    self.assertAlmostEqual(columns[1][i], 2.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 2.0 / 3.0, delta=0.0001)
                 else:
                     self.assertEqual(columns[1][i], 1.0)
 
@@ -651,37 +701,44 @@ class TestEndToEnd(unittest.TestCase):
                 if i == 0:
                     self.assertEqual(columns[0][i], float("-inf"))
                 else:
-                    self.assertAlmostEqual(columns[0][i], sorted_max_divided_min_rtts[i - 1], delta=0.01)
+                    self.assertAlmostEqual(
+                        columns[0][i], sorted_max_divided_min_rtts[i - 1], delta=0.01
+                    )
 
             # Geodesic slowdown
             columns = exputil.read_csv_direct_in_columns(
-                output_analysis_data_dir + "/" + name +
-                "/" + name + "/100ms_for_200s/rtt/data/ecdf_pairs_max_rtt_to_geodesic_slowdown.txt",
-                "float,pos_float"
+                output_analysis_data_dir
+                + "/"
+                + name
+                + "/"
+                + name
+                + "/100ms_for_200s/rtt/data/ecdf_pairs_max_rtt_to_geodesic_slowdown.txt",
+                "float,pos_float",
             )
             # From Google search
             # Distance Manila to Dalian is 2,703 km according to Google Maps
             # Distance St. Petersburg to Manila  is 8,635 km according to Google Maps
             # Distance St. Petersburg to Dalian is 6,406 km according to Google Maps
             self.assertEqual(4, len(columns[0]))
-            geodesic_expected_distance = [
-                2703,
-                8635,
-                6406
-            ]
-            sorted_max_divided_geodesic_rtts = sorted(list(map(
-                    lambda x: max_rtts[x] / (2 * geodesic_expected_distance[x] * 1000.0 / 0.299792),
-                    list(range(3))
-            )))
+            geodesic_expected_distance = [2703, 8635, 6406]
+            sorted_max_divided_geodesic_rtts = sorted(
+                list(
+                    map(
+                        lambda x: max_rtts[x]
+                        / (2 * geodesic_expected_distance[x] * 1000.0 / 0.299792),
+                        list(range(3)),
+                    )
+                )
+            )
             for i in range(len(columns[0])):
 
                 # Cumulative y-axis check
                 if i == 0:
                     self.assertEqual(columns[1][i], 0)
                 elif i == 1:
-                    self.assertAlmostEqual(columns[1][i], 1.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 1.0 / 3.0, delta=0.0001)
                 elif i == 2:
-                    self.assertAlmostEqual(columns[1][i], 2.0/3.0, delta=0.0001)
+                    self.assertAlmostEqual(columns[1][i], 2.0 / 3.0, delta=0.0001)
                 else:
                     self.assertEqual(columns[1][i], 1.0)
 
@@ -689,23 +746,31 @@ class TestEndToEnd(unittest.TestCase):
                 if i == 0:
                     self.assertEqual(columns[0][i], float("-inf"))
                 else:
-                    self.assertAlmostEqual(columns[0][i], sorted_max_divided_geodesic_rtts[i - 1], delta=0.01)
+                    self.assertAlmostEqual(
+                        columns[0][i], sorted_max_divided_geodesic_rtts[i - 1], delta=0.01
+                    )
 
             # Analyze time step paths
             src.post_analysis.analyze_time_step_path(
                 output_analysis_data_dir + "/" + name,
                 output_generated_data_dir + "/" + name,
                 all_time_step_ms,
-                duration_s
+                duration_s,
             )
 
             # Missed path changes
             for time_step_ms in all_time_step_ms:
                 columns = exputil.read_csv_direct_in_columns(
-                    output_analysis_data_dir + "/" + name +
-                    "/" + name + "/200s/path/data/"
-                    + "ecdf_pairs_" + str(time_step_ms) + "ms_missed_path_changes.txt",
-                    "float,pos_float"
+                    output_analysis_data_dir
+                    + "/"
+                    + name
+                    + "/"
+                    + name
+                    + "/200s/path/data/"
+                    + "ecdf_pairs_"
+                    + str(time_step_ms)
+                    + "ms_missed_path_changes.txt",
+                    "float,pos_float",
                 )
                 for i in range(len(columns[0])):
 
@@ -713,9 +778,9 @@ class TestEndToEnd(unittest.TestCase):
                     if i == 0:
                         self.assertEqual(columns[1][i], 0)
                     elif i == 1:
-                        self.assertAlmostEqual(columns[1][i], 1.0/3.0, delta=0.0001)
+                        self.assertAlmostEqual(columns[1][i], 1.0 / 3.0, delta=0.0001)
                     elif i == 2:
-                        self.assertAlmostEqual(columns[1][i], 2.0/3.0, delta=0.0001)
+                        self.assertAlmostEqual(columns[1][i], 2.0 / 3.0, delta=0.0001)
                     else:
                         self.assertEqual(columns[1][i], 1.0)
 
@@ -743,10 +808,14 @@ class TestEndToEnd(unittest.TestCase):
 
             # Time between path changes
             columns = exputil.read_csv_direct_in_columns(
-                output_analysis_data_dir + "/" + name +
-                "/" + name + "/200s/path/data/"
+                output_analysis_data_dir
+                + "/"
+                + name
+                + "/"
+                + name
+                + "/200s/path/data/"
                 + "ecdf_overall_time_between_path_change.txt",
-                "float,pos_float"
+                "float,pos_float",
             )
             # Total 18 path changes, but only 15 of them are not from epoch (plus one for (0, -inf))
             self.assertEqual(len(columns[0]), 16)
@@ -756,7 +825,9 @@ class TestEndToEnd(unittest.TestCase):
                 if i == 0:
                     self.assertEqual(columns[1][i], 0)
                 else:
-                    self.assertAlmostEqual(columns[1][i], i / float(len(columns[0]) - 1), delta=0.00001)
+                    self.assertAlmostEqual(
+                        columns[1][i], i / float(len(columns[0]) - 1), delta=0.00001
+                    )
 
                 # Gap values
                 if i == 0:

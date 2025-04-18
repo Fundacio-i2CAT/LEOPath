@@ -21,6 +21,7 @@
 # SOFTWARE.
 
 import math
+
 import ephem
 from geopy.distance import great_circle
 
@@ -61,7 +62,9 @@ def distance_m_between_satellites(sat1, sat2, epoch_str, date_str):
     # c^2 = a^2 + b^2 - 2 * a * b * cos(C)
     #
     # This gives us side c, the distance between the two satellites
-    return math.sqrt(sat1.range ** 2 + sat2.range ** 2 - (2 * sat1.range * sat2.range * math.cos(angle_radians)))
+    return math.sqrt(
+        sat1.range**2 + sat2.range**2 - (2 * sat1.range * sat2.range * math.cos(angle_radians))
+    )
 
 
 def distance_m_ground_station_to_satellite(ground_station, satellite, epoch_str, date_str):
@@ -80,8 +83,12 @@ def distance_m_ground_station_to_satellite(ground_station, satellite, epoch_str,
     observer = ephem.Observer()
     observer.epoch = epoch_str
     observer.date = date_str
-    observer.lat = str(ground_station["latitude_degrees_str"])   # Very important: string argument is in degrees.
-    observer.lon = str(ground_station["longitude_degrees_str"])  # DO NOT pass a float as it is interpreted as radians
+    observer.lat = str(
+        ground_station["latitude_degrees_str"]
+    )  # Very important: string argument is in degrees.
+    observer.lon = str(
+        ground_station["longitude_degrees_str"]
+    )  # DO NOT pass a float as it is interpreted as radians
     observer.elevation = ground_station["elevation_m_float"]
 
     # Compute distance from satellite to observer
@@ -105,9 +112,15 @@ def geodesic_distance_m_between_ground_stations(ground_station_1, ground_station
     earth_radius_km = 6378.135  # 6378135.0 meters
 
     return great_circle(
-        (float(ground_station_1["latitude_degrees_str"]), float(ground_station_1["longitude_degrees_str"])),
-        (float(ground_station_2["latitude_degrees_str"]), float(ground_station_2["longitude_degrees_str"])),
-        radius=earth_radius_km
+        (
+            float(ground_station_1["latitude_degrees_str"]),
+            float(ground_station_1["longitude_degrees_str"]),
+        ),
+        (
+            float(ground_station_2["latitude_degrees_str"]),
+            float(ground_station_2["longitude_degrees_str"]),
+        ),
+        radius=earth_radius_km,
     ).m
 
 
@@ -126,8 +139,7 @@ def straight_distance_m_between_ground_stations(ground_station_1, ground_station
 
     # First get the angle between the two ground stations from the Earth's core
     fraction_of_earth_circumference = geodesic_distance_m_between_ground_stations(
-        ground_station_1,
-        ground_station_2
+        ground_station_1, ground_station_2
     ) / (earth_radius_m * 2.0 * math.pi)
     angle_radians = fraction_of_earth_circumference * 2 * math.pi
 

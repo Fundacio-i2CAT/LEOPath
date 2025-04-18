@@ -1,6 +1,7 @@
-import pytest
 import networkx as nx
-from src.dynamic_state.topology import Satellite, GroundStation
+import pytest
+
+from src.dynamic_state.topology import GroundStation, Satellite
 from src.dynamic_state.utils.graph import validate_no_satellite_to_gs_links
 
 
@@ -63,9 +64,7 @@ def test_validate_no_satellite_to_gs_links_invalid_graph():
     graph.add_edge(0, 1)  # Satellite-to-GS
 
     # Validate the graph and expect a ValueError
-    with pytest.raises(
-        ValueError, match="Invalid edge between satellite 0 and ground station 1"
-    ):
+    with pytest.raises(ValueError, match="Invalid edge between satellite 0 and ground station 1"):
         validate_no_satellite_to_gs_links(graph, satellites, ground_stations)
 
 

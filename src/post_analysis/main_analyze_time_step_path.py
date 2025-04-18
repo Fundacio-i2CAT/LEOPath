@@ -22,6 +22,7 @@
 
 
 import sys
+
 from src.post_analysis.analyze_time_step_path import analyze_time_step_path
 
 
@@ -29,15 +30,14 @@ def main():
     args = sys.argv[1:]
     if len(args) != 4:
         print("Must supply exactly four arguments")
-        print("Usage: python  -m src.post_analysis.analyze_step_changes.py [output_data_dir] "
-              "[satellite_network_dir] [dynamic_state_update_interval_ms: e.g., 100,1000] [end_time_s]")
+        print(
+            "Usage: python  -m src.post_analysis.analyze_step_changes.py [output_data_dir] "
+            "[satellite_network_dir] [dynamic_state_update_interval_ms: e.g., 100,1000] [end_time_s]"
+        )
         exit(1)
     else:
         analyze_time_step_path(
-            args[0],
-            args[1],
-            list(map(lambda x: int(x), args[2].split(","))),
-            int(args[3])
+            args[0], args[1], list(map(lambda x: int(x), args[2].split(","))), int(args[3])
         )
 
 

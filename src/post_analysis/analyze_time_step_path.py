@@ -20,15 +20,21 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from .graph_tools import *
-from src.ground_stations import *
-from src.tles import *
 import exputil
 from statsmodels.distributions.empirical_distribution import ECDF
 
+from src.ground_stations import *
+from src.tles import *
 
-def analyze_time_step_path(output_data_dir, satellite_network_dir,
-                           multiple_dynamic_state_update_interval_ms, simulation_end_time_s):
+from .graph_tools import *
+
+
+def analyze_time_step_path(
+    output_data_dir,
+    satellite_network_dir,
+    multiple_dynamic_state_update_interval_ms,
+    simulation_end_time_s,
+):
 
     # Variables (load in for each thread such that they don't interfere)
     ground_stations = read_ground_stations_extended(satellite_network_dir + "/ground_stations.txt")
@@ -39,7 +45,9 @@ def analyze_time_step_path(output_data_dir, satellite_network_dir,
     local_shell = exputil.LocalShell()
     core_network_folder_name = satellite_network_dir.split("/")[-1]
     base_output_dir = "%s/%s/%ds/path" % (
-        output_data_dir, core_network_folder_name, simulation_end_time_s
+        output_data_dir,
+        core_network_folder_name,
+        simulation_end_time_s,
     )
     pdf_dir = base_output_dir + "/pdf"
     data_dir = base_output_dir + "/data"
@@ -54,8 +62,11 @@ def analyze_time_step_path(output_data_dir, satellite_network_dir,
         configs.append(
             (
                 multiple_dynamic_state_update_interval_ms[i],
-                "%s/dynamic_state_%dms_for_%ds" % (
-                    satellite_network_dir, multiple_dynamic_state_update_interval_ms[i], simulation_end_time_s
+                "%s/dynamic_state_%dms_for_%ds"
+                % (
+                    satellite_network_dir,
+                    multiple_dynamic_state_update_interval_ms[i],
+                    simulation_end_time_s,
                 ),
             )
         )
@@ -102,12 +113,17 @@ def analyze_time_step_path(output_data_dir, satellite_network_dir,
                             path = get_path(src_node_id, dst_node_id, fstate)
                             path_list_per_pair = per_dyn_state_path_list_per_pair[c_idx]
                             if path is None:
-                                if len(path_list_per_pair[src][dst]) == 0 or [] != path_list_per_pair[src][dst][-1][0]:
+                                if (
+                                    len(path_list_per_pair[src][dst]) == 0
+                                    or [] != path_list_per_pair[src][dst][-1][0]
+                                ):
                                     path_list_per_pair[src][dst].append(([], t))
 
                             else:
-                                if len(path_list_per_pair[src][dst]) == 0 \
-                                        or path != path_list_per_pair[src][dst][-1][0]:
+                                if (
+                                    len(path_list_per_pair[src][dst]) == 0
+                                    or path != path_list_per_pair[src][dst][-1][0]
+                                ):
                                     path_list_per_pair[src][dst].append((path, t))
 
             c_idx += 1
@@ -125,11 +141,17 @@ def analyze_time_step_path(output_data_dir, satellite_network_dir,
     for src in range(len(ground_stations)):
         for dst in range(src + 1, len(ground_stations)):
             base_path_list = per_dyn_state_path_list_per_pair[0][src][dst]
-            for j in range(2, len(base_path_list)):  # First change is from epoch, which is not representative
-                time_between_path_change_ns_list.append(base_path_list[j][1] - base_path_list[j - 1][1])
+            for j in range(
+                2, len(base_path_list)
+            ):  # First change is from epoch, which is not representative
+                time_between_path_change_ns_list.append(
+                    base_path_list[j][1] - base_path_list[j - 1][1]
+                )
             for c_idx in range(0, len(configs)):
                 worse_path_list = per_dyn_state_path_list_per_pair[c_idx][src][dst]
-                per_config_pair_missed_path_changes_list[c_idx].append(len(base_path_list) - len(worse_path_list))
+                per_config_pair_missed_path_changes_list[c_idx].append(
+                    len(base_path_list) - len(worse_path_list)
+                )
 
     #################################################
 
@@ -149,7 +171,10 @@ def analyze_time_step_path(output_data_dir, satellite_network_dir,
 
         # Write and plot ECDFs
         for element in [
-            ("ecdf_pairs_%dms_missed_path_changes" % config[0], ECDF(per_config_pair_missed_path_changes_list[c_idx])),
+            (
+                "ecdf_pairs_%dms_missed_path_changes" % config[0],
+                ECDF(per_config_pair_missed_path_changes_list[c_idx]),
+            ),
         ]:
             name = element[0]
             ecdf = element[1]
@@ -166,7 +191,7 @@ def analyze_time_step_path(output_data_dir, satellite_network_dir,
         for c_idx in range(1, len(configs)):
             config = configs[c_idx]
             f_out.write(str(config[0]) + "ms")
-            counter = [0]*100
+            counter = [0] * 100
             for a in per_config_pair_missed_path_changes_list[c_idx]:
                 counter[a] += 1
             for x in counter:

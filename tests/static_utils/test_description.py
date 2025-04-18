@@ -20,9 +20,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from src.description import generate_description
-import unittest
 import os
+import unittest
+
+from src.description import generate_description
 
 
 class TestDescription(unittest.TestCase):
@@ -35,9 +36,7 @@ class TestDescription(unittest.TestCase):
                 if i == 0:
                     self.assertEqual("max_gsl_length_m=19229.2424219420", line.strip())
                 elif i == 1:
-                    self.assertEqual(
-                        "max_isl_length_m=1828282.2290193001", line.strip()
-                    )
+                    self.assertEqual("max_isl_length_m=1828282.2290193001", line.strip())
                 else:
                     self.fail()
                 i += 1

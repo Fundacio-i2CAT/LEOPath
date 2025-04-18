@@ -20,14 +20,16 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from src.isls import *
-from src.ground_stations import *
-from src.tles import *
-from src.interfaces import *
-from .generate_dynamic_state import generate_dynamic_state
-import os
 import math
+import os
 from multiprocessing.dummy import Pool as ThreadPool
+
+from src.ground_stations import *
+from src.interfaces import *
+from src.isls import *
+from src.tles import *
+
+from .generate_dynamic_state import generate_dynamic_state
 
 
 def worker(args):
@@ -46,8 +48,8 @@ def worker(args):
         max_gsl_length_m,
         max_isl_length_m,
         dynamic_state_algorithm,
-        print_logs
-     ) = args
+        print_logs,
+    ) = args
 
     # Generate dynamic state
     generate_dynamic_state(
@@ -63,22 +65,37 @@ def worker(args):
         max_gsl_length_m,
         max_isl_length_m,
         dynamic_state_algorithm,  # Options:
-                                  # "algorithm_free_one_only_gs_relays"
-                                  # "algorithm_free_one_only_over_isls"
-                                  # "algorithm_free_gs_one_sat_many_only_over_isls"
-                                  # "algorithm_paired_many_only_over_isls"
-        print_logs
+        # "algorithm_free_one_only_gs_relays"
+        # "algorithm_free_one_only_over_isls"
+        # "algorithm_free_gs_one_sat_many_only_over_isls"
+        # "algorithm_paired_many_only_over_isls"
+        print_logs,
     )
 
 
 def help_dynamic_state(
-        output_generated_data_dir, num_threads, name, time_step_ms, duration_s,
-        max_gsl_length_m, max_isl_length_m, dynamic_state_algorithm, print_logs
+    output_generated_data_dir,
+    num_threads,
+    name,
+    time_step_ms,
+    duration_s,
+    max_gsl_length_m,
+    max_isl_length_m,
+    dynamic_state_algorithm,
+    print_logs,
 ):
 
     # Directory
-    output_dynamic_state_dir = output_generated_data_dir + "/" + name + "/dynamic_state_" + str(time_step_ms) \
-                               + "ms_for_" + str(duration_s) + "s"
+    output_dynamic_state_dir = (
+        output_generated_data_dir
+        + "/"
+        + name
+        + "/dynamic_state_"
+        + str(time_step_ms)
+        + "ms_for_"
+        + str(duration_s)
+        + "s"
+    )
     if not os.path.isdir(output_dynamic_state_dir):
         os.makedirs(output_dynamic_state_dir)
 
@@ -101,39 +118,43 @@ def help_dynamic_state(
             num_time_steps += 1
 
         # Variables (load in for each thread such that they don't interfere)
-        ground_stations = read_ground_stations_extended(output_generated_data_dir + "/" + name + "/ground_stations.txt")
+        ground_stations = read_ground_stations_extended(
+            output_generated_data_dir + "/" + name + "/ground_stations.txt"
+        )
         tles = read_tles(output_generated_data_dir + "/" + name + "/tles.txt")
         satellites = tles["satellites"]
         list_isls = read_isls(output_generated_data_dir + "/" + name + "/isls.txt", len(satellites))
         list_gsl_interfaces_info = read_gsl_interfaces_info(
             output_generated_data_dir + "/" + name + "/gsl_interfaces_info.txt",
             len(satellites),
-            len(ground_stations)
+            len(ground_stations),
         )
         epoch = tles["epoch"]
 
         # Print goal
-        print("Thread %d does interval [%.2f ms, %.2f ms]" % (
-            i,
-            (current * time_step_ns) / 1e6,
-            ((current + num_time_steps) * time_step_ns) / 1e6
-        ))
+        print(
+            "Thread %d does interval [%.2f ms, %.2f ms]"
+            % (i, (current * time_step_ns) / 1e6, ((current + num_time_steps) * time_step_ns) / 1e6)
+        )
 
-        list_args.append((
-            output_dynamic_state_dir,
-            epoch,
-            (current + num_time_steps) * time_step_ns + (time_step_ns if (i + 1) != num_threads else 0),
-            time_step_ns,
-            current * time_step_ns,
-            satellites,
-            ground_stations,
-            list_isls,
-            list_gsl_interfaces_info,
-            max_gsl_length_m,
-            max_isl_length_m,
-            dynamic_state_algorithm,
-            print_logs
-        ))
+        list_args.append(
+            (
+                output_dynamic_state_dir,
+                epoch,
+                (current + num_time_steps) * time_step_ns
+                + (time_step_ns if (i + 1) != num_threads else 0),
+                time_step_ns,
+                current * time_step_ns,
+                satellites,
+                ground_stations,
+                list_isls,
+                list_gsl_interfaces_info,
+                max_gsl_length_m,
+                max_isl_length_m,
+                dynamic_state_algorithm,
+                print_logs,
+            )
+        )
 
         current += num_time_steps
 

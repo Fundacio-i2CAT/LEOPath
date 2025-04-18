@@ -33,7 +33,7 @@ def read_isls(filename_isls, num_satellites):
     :return: List of all undirected ISL edges
     """
     isls_list = []
-    with open(filename_isls, 'r') as f:
+    with open(filename_isls, "r") as f:
         isls_set = set()
         for line in f:
             line_spl = line.split()
@@ -46,7 +46,9 @@ def read_isls(filename_isls, num_satellites):
             if b >= num_satellites:
                 raise ValueError("Satellite does not exist: %d" % b)
             if b <= a:
-                raise ValueError("The second satellite index must be strictly larger than the first")
+                raise ValueError(
+                    "The second satellite index must be strictly larger than the first"
+                )
             if (a, b) in isls_set:
                 raise ValueError("Duplicate ISL: (%d, %d)" % (a, b))
             isls_set.add((a, b))

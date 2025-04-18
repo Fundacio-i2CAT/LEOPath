@@ -20,16 +20,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import exputil
 import unittest
+
+import exputil
+
 from src.dynamic_state.fstate_calculation import *
 
 
-def calculate_fstate_for(
-        num_satellites,
-        num_ground_stations,
-        edges
-):
+def calculate_fstate_for(num_satellites, num_ground_stations, edges):
     local_shell = exputil.LocalShell()
 
     sat_net_graph_only_isls = nx.Graph()
@@ -52,23 +50,15 @@ def calculate_fstate_for(
     sat_neighbor_to_if = {}
     for e in edges:
         if e[0] < num_satellites and e[1] < num_satellites:
-            sat_net_graph_only_isls.add_edge(
-                e[0], e[1], weight=e[2]
-            )
-            sat_net_graph_complete.add_edge(
-                e[0], e[1], weight=e[2]
-            )
+            sat_net_graph_only_isls.add_edge(e[0], e[1], weight=e[2])
+            sat_net_graph_complete.add_edge(e[0], e[1], weight=e[2])
             sat_neighbor_to_if[(e[0], e[1])] = num_isls_per_sat[e[0]]
             sat_neighbor_to_if[(e[1], e[0])] = num_isls_per_sat[e[1]]
             num_isls_per_sat[e[0]] += 1
             num_isls_per_sat[e[1]] += 1
         if e[0] >= num_satellites or e[1] >= num_satellites:
-            sat_net_graph_only_gsls.add_edge(
-                e[0], e[1], weight=e[2]
-            )
-            sat_net_graph_complete.add_edge(
-                e[0], e[1], weight=e[2]
-            )
+            sat_net_graph_only_gsls.add_edge(e[0], e[1], weight=e[2])
+            sat_net_graph_complete.add_edge(e[0], e[1], weight=e[2])
             ground_station_satellites_in_range[max(e[0], e[1]) - num_satellites].append(
                 (e[2], min(e[0], e[1]))
             )
@@ -102,7 +92,7 @@ def calculate_fstate_for(
             ground_station_satellites_in_range,
             sat_neighbor_to_if,
             prev_fstate,
-            enable_verbose_logs
+            enable_verbose_logs,
         ),
         "only_gs_relays": calculate_fstate_shortest_path_with_gs_relaying(
             output_dynamic_state_dir,
@@ -114,7 +104,7 @@ def calculate_fstate_for(
             gid_to_sat_gsl_if_idx,
             sat_neighbor_to_if,
             prev_fstate,
-            enable_verbose_logs
+            enable_verbose_logs,
         ),
         "combined": calculate_fstate_shortest_path_with_gs_relaying(
             output_dynamic_state_dir,
@@ -126,8 +116,8 @@ def calculate_fstate_for(
             gid_to_sat_gsl_if_idx,
             sat_neighbor_to_if,
             prev_fstate,
-            enable_verbose_logs
-        )
+            enable_verbose_logs,
+        ),
     }
 
     # Remove the temporary directory afterwards
@@ -147,9 +137,7 @@ class TestFstateCalculation(unittest.TestCase):
         num_satellites = 1
         num_ground_stations = 2
 
-        edges = [
-            (0, 1, 1000), (0, 2, 1000)
-        ]
+        edges = [(0, 1, 1000), (0, 2, 1000)]
 
         output = calculate_fstate_for(num_satellites, num_ground_stations, edges)
 
@@ -177,11 +165,7 @@ class TestFstateCalculation(unittest.TestCase):
         num_satellites = 2
         num_ground_stations = 2
 
-        edges = [
-            (0, 1, 1000),
-            (0, 2, 1000),
-            (1, 3, 1000)
-        ]
+        edges = [(0, 1, 1000), (0, 2, 1000), (1, 3, 1000)]
 
         output = calculate_fstate_for(num_satellites, num_ground_stations, edges)
 
@@ -215,13 +199,7 @@ class TestFstateCalculation(unittest.TestCase):
         num_satellites = 2
         num_ground_stations = 3
 
-        edges = [
-            (0, 1, 1000),
-            (0, 2, 500),
-            (0, 3, 200),
-            (1, 3, 100),
-            (1, 4, 400)
-        ]
+        edges = [(0, 1, 1000), (0, 2, 500), (0, 3, 200), (1, 3, 100), (1, 4, 400)]
 
         output = calculate_fstate_for(num_satellites, num_ground_stations, edges)
 

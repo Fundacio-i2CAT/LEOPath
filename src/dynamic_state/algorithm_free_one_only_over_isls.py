@@ -20,8 +20,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from src.dynamic_state.topology import ConstellationData, GroundStation, LEOTopology
+
 from .fstate_calculation import *
-from src.dynamic_state.topology import GroundStation, LEOTopology, ConstellationData
 from .utils import graph as graph_utils
 
 
@@ -29,21 +30,14 @@ def _check_graph_is_valid(topology: LEOTopology):
     """
     Check if the graph is valid by ensuring that all nodes are satellites and that there are no ground stations.
     """
-    if (
-        topology.graph.number_of_nodes()
-        != topology.constellation_data.number_of_satellites
-    ):
-        raise ValueError(
-            "Number of nodes in the graph does not match the number of satellites"
-        )
+    if topology.graph.number_of_nodes() != topology.constellation_data.number_of_satellites:
+        raise ValueError("Number of nodes in the graph does not match the number of satellites")
     graph_utils.validate_no_satellite_to_gs_links(
         topology.graph, topology.constellation_data.satellites, topology.ground_stations
     )
 
 
-def algorithm_free_one_only_over_isls(
-    output_dynamic_state_dir, time_since_epoch_ns, prev_output
-):
+def algorithm_free_one_only_over_isls(output_dynamic_state_dir, time_since_epoch_ns, prev_output):
     """
     FREE-ONE ONLY OVER INTER-SATELLITE LINKS ALGORITHM
 
@@ -70,10 +64,7 @@ def algorithm_free_one_only_over_isls(
 
     # There is only one GSL interface for each node (pre-condition), which as-such will get the entire bandwidth
     output_filename = (
-        output_dynamic_state_dir
-        + "/gsl_if_bandwidth_"
-        + str(time_since_epoch_ns)
-        + ".txt"
+        output_dynamic_state_dir + "/gsl_if_bandwidth_" + str(time_since_epoch_ns) + ".txt"
     )
     if enable_verbose_logs:
         print("  > Writing interface bandwidth state to: " + output_filename)
@@ -88,9 +79,7 @@ def algorithm_free_one_only_over_isls(
                         list_gsl_interfaces_info[node_id]["aggregate_max_bandwidth"],
                     )
                 )
-            for node_id in range(
-                len(satellites), len(satellites) + len(ground_stations)
-            ):
+            for node_id in range(len(satellites), len(satellites) + len(ground_stations)):
                 f_out.write(
                     "%d,%d,%f\n"
                     % (

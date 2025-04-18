@@ -1,5 +1,5 @@
-import networkx as nx
 import ephem
+import networkx as nx
 
 
 class ConstellationData:
@@ -52,9 +52,7 @@ class Satellite:
     :param ephem_obj_direct: Object representing the direct ephemeris data.
     """
 
-    def __init__(
-        self, id: int, ephem_obj_manual: ephem.Body, ephem_obj_direct: ephem.Body
-    ):
+    def __init__(self, id: int, ephem_obj_manual: ephem.Body, ephem_obj_direct: ephem.Body):
         # NOTE Position is not 100% accurate because ephemeris data contains also velocity, but in the code gets more readable
         self.position = SatelliteEphemeris(ephem_obj_manual, ephem_obj_direct)
         self.number_isls = 0

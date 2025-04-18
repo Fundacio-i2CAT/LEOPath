@@ -20,16 +20,18 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import math
+import os
+import unittest
+
+import ephem
+from astropy.time import Time
+
 from src.tles.generate_tles_from_scratch import (
     generate_tles_from_scratch_manual,
     generate_tles_from_scratch_with_sgp,
 )
 from src.tles.read_tles import read_tles, satellite_ephem_to_str
-import unittest
-import os
-from astropy.time import Time
-import math
-import ephem
 
 
 class TestTles(unittest.TestCase):
@@ -117,9 +119,7 @@ class TestTles(unittest.TestCase):
             self.assertEqual(tles_manual["satellites"][i]._decay, 0)
             self.assertEqual(tles_manual["satellites"][i]._drag, 0)
             self.assertAlmostEqual(tles_manual["satellites"][i]._e, eccentricity, 5)
-            self.assertEqual(
-                tles_manual["satellites"][i]._epoch, ephem.Date("2000-01-01 00:00:00")
-            )
+            self.assertEqual(tles_manual["satellites"][i]._epoch, ephem.Date("2000-01-01 00:00:00"))
             self.assertAlmostEqual(
                 tles_manual["satellites"][i]._inc, math.radians(inclination_degree), 5
             )

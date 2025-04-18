@@ -20,11 +20,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from .graph_tools import *
+import tempfile
+
+import exputil
+
 from src.isls import *
 from src.tles import *
-import exputil
-import tempfile
+
+from .graph_tools import *
 
 
 def print_routes_and_rtt(
@@ -54,9 +57,7 @@ def print_routes_and_rtt(
     local_shell.make_full_dir(data_dir)
 
     # Variables (load in for each thread such that they don't interfere)
-    ground_stations = read_ground_stations_extended(
-        satellite_network_dir + "/ground_stations.txt"
-    )
+    ground_stations = read_ground_stations_extended(satellite_network_dir + "/ground_stations.txt")
     tles = read_tles(satellite_network_dir + "/tles.txt")
     satellites = tles["satellites"]
     list_isls = read_isls(satellite_network_dir + "/isls.txt", len(satellites))
@@ -75,9 +76,7 @@ def print_routes_and_rtt(
 
     # Write data file
 
-    data_path_filename = (
-        data_dir + "/networkx_path_" + str(src) + "_to_" + str(dst) + ".txt"
-    )
+    data_path_filename = data_dir + "/networkx_path_" + str(src) + "_to_" + str(dst) + ".txt"
     with open(data_path_filename, "w+") as data_path_file:
 
         # For each time moment
@@ -121,9 +120,7 @@ def print_routes_and_rtt(
                         max_isl_length_m,
                     )
                     rtt_ns = (
-                        (length_src_to_dst_m + length_dst_to_src_m)
-                        * 1000000000.0
-                        / 299792458.0
+                        (length_src_to_dst_m + length_dst_to_src_m) * 1000000000.0 / 299792458.0
                     )
                 else:
                     length_src_to_dst_m = 0.0
@@ -141,9 +138,7 @@ def print_routes_and_rtt(
                     current_path = new_path
 
                     # Write change nicely to the console
-                    print(
-                        "Change at t=" + str(t) + " ns (= " + str(t / 1e9) + " seconds)"
-                    )
+                    print("Change at t=" + str(t) + " ns (= " + str(t / 1e9) + " seconds)")
                     print(
                         "  > Path..... "
                         + (
@@ -152,11 +147,7 @@ def print_routes_and_rtt(
                             else "Unreachable"
                         )
                     )
-                    print(
-                        "  > Length... "
-                        + str(length_src_to_dst_m + length_dst_to_src_m)
-                        + " m"
-                    )
+                    print("  > Length... " + str(length_src_to_dst_m + length_dst_to_src_m) + " m")
                     print("  > RTT...... %.2f ms" % (rtt_ns / 1e6))
                     print("")
 
@@ -173,17 +164,13 @@ def print_routes_and_rtt(
                     )
 
         # Write data file
-        data_filename = (
-            data_dir + "/networkx_rtt_" + str(src) + "_to_" + str(dst) + ".txt"
-        )
+        data_filename = data_dir + "/networkx_rtt_" + str(src) + "_to_" + str(dst) + ".txt"
         with open(data_filename, "w+") as data_file:
             for i in range(len(rtt_ns_list)):
                 data_file.write("%d,%.10f\n" % (rtt_ns_list[i][0], rtt_ns_list[i][1]))
 
         # Make plot
-        pdf_filename = (
-            pdf_dir + "/time_vs_networkx_rtt_" + str(src) + "_to_" + str(dst) + ".pdf"
-        )
+        pdf_filename = pdf_dir + "/time_vs_networkx_rtt_" + str(src) + "_to_" + str(dst) + ".pdf"
         tf = tempfile.NamedTemporaryFile(delete=False)
         tf.close()
         local_shell.copy_file(

@@ -21,8 +21,10 @@
 # SOFTWARE.
 
 
-import exputil
 import unittest
+
+import exputil
+
 from src.dynamic_state.helper_dynamic_state import help_dynamic_state
 
 
@@ -75,9 +77,7 @@ class TestDynamicState(unittest.TestCase):
         )
 
         # ISLs
-        local_shell.write_file(
-            temp_gen_data + "/" + name + "/isls.txt", ("0 1\n" "1 2\n" "2 3")
-        )
+        local_shell.write_file(temp_gen_data + "/" + name + "/isls.txt", ("0 1\n" "1 2\n" "2 3"))
 
         # GSL interfaces info
         # Number of ground-to-satellite link (GSL) interfaces per each node (both satellites and ground stations)
@@ -184,10 +184,7 @@ class TestDynamicState(unittest.TestCase):
         # GSL interface bandwidth
         gsl_if_bandwidth = {}
         with open(
-            temp_gen_data
-            + "/"
-            + name
-            + "/dynamic_state_1000ms_for_1s/gsl_if_bandwidth_0.txt",
+            temp_gen_data + "/" + name + "/dynamic_state_1000ms_for_1s/gsl_if_bandwidth_0.txt",
             "r",
         ) as f_in:
             for line in f_in:

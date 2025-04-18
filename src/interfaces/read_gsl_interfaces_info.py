@@ -23,7 +23,9 @@
 import exputil
 
 
-def read_gsl_interfaces_info(filename_gsl_interfaces_info, number_of_satellites, number_of_ground_stations):
+def read_gsl_interfaces_info(
+    filename_gsl_interfaces_info, number_of_satellites, number_of_ground_stations
+):
     """
     Read for each node the GSL interface information
 
@@ -41,13 +43,15 @@ def read_gsl_interfaces_info(filename_gsl_interfaces_info, number_of_satellites,
     """
     list_gsl_interfaces_info = []
     node_id = 0
-    with open(filename_gsl_interfaces_info, 'r') as f:
+    with open(filename_gsl_interfaces_info, "r") as f:
         for line in f:
-            split = line.split(',')
+            split = line.split(",")
 
             if len(split) != 3:
-                raise ValueError("Must have three columns: "
-                                 "<node id>,<number of interfaces>,<aggregate max. bandwidth>")
+                raise ValueError(
+                    "Must have three columns: "
+                    "<node id>,<number of interfaces>,<aggregate max. bandwidth>"
+                )
 
             if int(split[0]) != node_id:
                 raise ValueError("Node id must increment each line")
@@ -60,12 +64,16 @@ def read_gsl_interfaces_info(filename_gsl_interfaces_info, number_of_satellites,
             if aggregate_max_bandwidth == 0:
                 raise ValueError("Aggregate max. bandwidth cannot be zero")
 
-            list_gsl_interfaces_info.append({
-                "number_of_interfaces": num_interfaces,
-                "aggregate_max_bandwidth": aggregate_max_bandwidth
-            })
+            list_gsl_interfaces_info.append(
+                {
+                    "number_of_interfaces": num_interfaces,
+                    "aggregate_max_bandwidth": aggregate_max_bandwidth,
+                }
+            )
 
             node_id += 1
         if node_id != number_of_satellites + number_of_ground_stations:
-            raise ValueError("Number of nodes defined does not match up with number of satellites and ground stations")
+            raise ValueError(
+                "Number of nodes defined does not match up with number of satellites and ground stations"
+            )
     return list_gsl_interfaces_info

@@ -20,23 +20,30 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from .graph_tools import *
-from src.ground_stations import *
-from src.tles import *
 import exputil
 import numpy as np
-from .print_routes_and_rtt import print_routes_and_rtt
 from statsmodels.distributions.empirical_distribution import ECDF
+
+from src.ground_stations import *
+from src.tles import *
+
+from .graph_tools import *
+from .print_routes_and_rtt import print_routes_and_rtt
 
 
 def analyze_path(
-        output_data_dir, satellite_network_dir, dynamic_state_update_interval_ms,
-        simulation_end_time_s, srcpy_dir_with_ending_slash
+    output_data_dir,
+    satellite_network_dir,
+    dynamic_state_update_interval_ms,
+    simulation_end_time_s,
+    srcpy_dir_with_ending_slash,
 ):
 
     # Variables (load in for each thread such that they don't interfere)
     satellite_network_dynamic_state_dir = "%s/dynamic_state_%dms_for_%ds" % (
-        satellite_network_dir, dynamic_state_update_interval_ms, simulation_end_time_s
+        satellite_network_dir,
+        dynamic_state_update_interval_ms,
+        simulation_end_time_s,
     )
     ground_stations = read_ground_stations_extended(satellite_network_dir + "/ground_stations.txt")
     tles = read_tles(satellite_network_dir + "/tles.txt")
@@ -46,7 +53,10 @@ def analyze_path(
     local_shell = exputil.LocalShell()
     core_network_folder_name = satellite_network_dir.split("/")[-1]
     base_output_dir = "%s/%s/%dms_for_%ds/path" % (
-        output_data_dir, core_network_folder_name, dynamic_state_update_interval_ms, simulation_end_time_s
+        output_data_dir,
+        core_network_folder_name,
+        dynamic_state_update_interval_ms,
+        simulation_end_time_s,
     )
     pdf_dir = base_output_dir + "/pdf"
     data_dir = base_output_dir + "/data"
@@ -96,11 +106,17 @@ def analyze_path(
                     dst_node_id = len(satellites) + dst
                     path = get_path(src_node_id, dst_node_id, fstate)
                     if path is None:
-                        if len(path_list_per_pair[src][dst]) == 0 or path_list_per_pair[src][dst][-1] != []:
+                        if (
+                            len(path_list_per_pair[src][dst]) == 0
+                            or path_list_per_pair[src][dst][-1] != []
+                        ):
                             path_list_per_pair[src][dst].append([])
                             num_path_changes += 1
                     else:
-                        if len(path_list_per_pair[src][dst]) == 0 or path != path_list_per_pair[src][dst][-1]:
+                        if (
+                            len(path_list_per_pair[src][dst]) == 0
+                            or path != path_list_per_pair[src][dst][-1]
+                        ):
                             path_list_per_pair[src][dst].append(path)
                             num_path_changes += 1
 
@@ -119,7 +135,9 @@ def analyze_path(
     hop_count_list_per_pair = []
     for src in range(len(ground_stations)):
         temp_list = []
-        for dst in range(len(ground_stations)):  # The one until src are empty, but those are ignored later
+        for dst in range(
+            len(ground_stations)
+        ):  # The one until src are empty, but those are ignored later
             r = []
             for x in path_list_per_pair[src][dst]:
                 if len(x) != 0:
@@ -143,7 +161,9 @@ def analyze_path(
             max_hop_count = np.max(hop_count_list_per_pair[src][dst])
             list_max_hop_count_to_min_hop_count.append(float(max_hop_count) / float(min_hop_count))
             list_max_minus_min_hop_count.append(max_hop_count - min_hop_count)
-            list_num_path_changes.append(len(path_list_per_pair[src][dst]) - 1)  # First path is not a change, so - 1
+            list_num_path_changes.append(
+                len(path_list_per_pair[src][dst]) - 1
+            )  # First path is not a change, so - 1
 
     # Write and plot ECDFs
     for element in [
@@ -168,8 +188,9 @@ def analyze_path(
             for dst in range(src + 1, len(ground_stations)):
                 min_hop_count = np.min(hop_count_list_per_pair[src][dst])
                 max_hop_count = np.max(hop_count_list_per_pair[src][dst])
-                largest_hop_count_delta_list.append((max_hop_count - min_hop_count, min_hop_count, max_hop_count,
-                                                     src, dst))
+                largest_hop_count_delta_list.append(
+                    (max_hop_count - min_hop_count, min_hop_count, max_hop_count, src, dst)
+                )
         largest_hop_count_delta_list = sorted(largest_hop_count_delta_list, reverse=True)
         f_out.write("LARGEST HOP-COUNT DELTA TOP-10 WITHOUT DUPLICATE NODES (EXCL. UNREACHABLE)\n")
         f_out.write("------------------------------------------------------------------\n")
@@ -177,20 +198,30 @@ def analyze_path(
         already_plotted_nodes = set()
         num_plotted = 0
         for i in range(len(largest_hop_count_delta_list)):
-            if largest_hop_count_delta_list[i][3] not in already_plotted_nodes \
-                    and largest_hop_count_delta_list[i][4] not in already_plotted_nodes:
-                f_out.write("%-3d    %-4d -> %4d       %8d     %-8d          %-8d\n" % (
-                    i + 1,
+            if (
+                largest_hop_count_delta_list[i][3] not in already_plotted_nodes
+                and largest_hop_count_delta_list[i][4] not in already_plotted_nodes
+            ):
+                f_out.write(
+                    "%-3d    %-4d -> %4d       %8d     %-8d          %-8d\n"
+                    % (
+                        i + 1,
+                        len(satellites) + largest_hop_count_delta_list[i][3],
+                        len(satellites) + largest_hop_count_delta_list[i][4],
+                        largest_hop_count_delta_list[i][0],
+                        largest_hop_count_delta_list[i][1],
+                        largest_hop_count_delta_list[i][2],
+                    )
+                )
+                print_routes_and_rtt(
+                    base_output_dir,
+                    satellite_network_dir,
+                    dynamic_state_update_interval_ms,
+                    simulation_end_time_s,
                     len(satellites) + largest_hop_count_delta_list[i][3],
                     len(satellites) + largest_hop_count_delta_list[i][4],
-                    largest_hop_count_delta_list[i][0],
-                    largest_hop_count_delta_list[i][1],
-                    largest_hop_count_delta_list[i][2],
-                ))
-                print_routes_and_rtt(base_output_dir, satellite_network_dir, dynamic_state_update_interval_ms,
-                                     simulation_end_time_s, len(satellites) + largest_hop_count_delta_list[i][3],
-                                     len(satellites) + largest_hop_count_delta_list[i][4],
-                                     srcpy_dir_with_ending_slash)
+                    srcpy_dir_with_ending_slash,
+                )
                 already_plotted_nodes.add(largest_hop_count_delta_list[i][3])
                 already_plotted_nodes.add(largest_hop_count_delta_list[i][4])
                 num_plotted += 1
@@ -212,19 +243,28 @@ def analyze_path(
         already_plotted_nodes = set()
         num_plotted = 0
         for i in range(len(most_path_changes_list)):
-            if most_path_changes_list[i][1] not in already_plotted_nodes \
-                    and most_path_changes_list[i][2] not in already_plotted_nodes:
-                f_out.write("%-3d    %-4d -> %4d   %d\n" % (
-                    i + 1,
+            if (
+                most_path_changes_list[i][1] not in already_plotted_nodes
+                and most_path_changes_list[i][2] not in already_plotted_nodes
+            ):
+                f_out.write(
+                    "%-3d    %-4d -> %4d   %d\n"
+                    % (
+                        i + 1,
+                        len(satellites) + most_path_changes_list[i][1],
+                        len(satellites) + most_path_changes_list[i][2],
+                        most_path_changes_list[i][0],
+                    )
+                )
+                print_routes_and_rtt(
+                    base_output_dir,
+                    satellite_network_dir,
+                    dynamic_state_update_interval_ms,
+                    simulation_end_time_s,
                     len(satellites) + most_path_changes_list[i][1],
                     len(satellites) + most_path_changes_list[i][2],
-                    most_path_changes_list[i][0]
-                ))
-                print_routes_and_rtt(base_output_dir, satellite_network_dir,
-                                     dynamic_state_update_interval_ms, simulation_end_time_s,
-                                     len(satellites) + most_path_changes_list[i][1],
-                                     len(satellites) + most_path_changes_list[i][2],
-                                     srcpy_dir_with_ending_slash)
+                    srcpy_dir_with_ending_slash,
+                )
                 already_plotted_nodes.add(most_path_changes_list[i][1])
                 already_plotted_nodes.add(most_path_changes_list[i][2])
                 num_plotted += 1

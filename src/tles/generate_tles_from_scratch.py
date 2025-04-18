@@ -21,21 +21,21 @@
 # SOFTWARE.
 
 import math
+
+from sgp4.api import WGS72, Satrec, jday
 from sgp4.exporter import export_tle
-from sgp4.api import Satrec, WGS72
-from sgp4.api import jday
 
 
 def generate_tles_from_scratch_with_sgp(
-        filename_out,
-        constellation_name,
-        num_orbits,
-        num_sats_per_orbit,
-        phase_diff,
-        inclination_degree,
-        eccentricity,
-        arg_of_perigee_degree,
-        mean_motion_rev_per_day
+    filename_out,
+    constellation_name,
+    num_orbits,
+    num_sats_per_orbit,
+    phase_diff,
+    inclination_degree,
+    eccentricity,
+    arg_of_perigee_degree,
+    mean_motion_rev_per_day,
 ):
 
     with open(filename_out, "w+") as f_out:
@@ -76,20 +76,22 @@ def generate_tles_from_scratch_with_sgp(
 
                 # Based on: https://pypi.org/project/sgp4/
                 sat_sgp4.sgp4init(
-                    WGS72,                  # Gravity model [1]
-                    'i',                    # Operating mode (a = old AFPSC mode, i = improved mode)
+                    WGS72,  # Gravity model [1]
+                    "i",  # Operating mode (a = old AFPSC mode, i = improved mode)
                     satellite_counter + 1,  # satnum:  satellite number
                     (jd + fr) - 2433281.5,  # epoch:   days since 1949 December 31 00:00 UT [2]
-                    0.0,                    # bstar:   drag coefficient (kg/m2er)
-                    0.0,                    # ndot:    ballistic coefficient (revs/day)
-                    0.0,                    # nndot:   second derivative of mean motion (revs/day^3)
-                    eccentricity,           # ecco:    eccentricity
-                    math.radians(arg_of_perigee_degree),              # argpo:   argument or perigee (radians)
-                    math.radians(inclination_degree),                 # inclo:    inclination(radians)
-                    math.radians(mean_anomaly_degree),                # mo:       mean anomaly (radians)
-                    mean_motion_rev_per_day * 60 / 13750.9870831397,  # no_kazai: mean motion (radians/minute) [3]
-                    math.radians(raan_degree)                         # nodeo:    right ascension of
-                                                                      #           ascending node (radians)
+                    0.0,  # bstar:   drag coefficient (kg/m2er)
+                    0.0,  # ndot:    ballistic coefficient (revs/day)
+                    0.0,  # nndot:   second derivative of mean motion (revs/day^3)
+                    eccentricity,  # ecco:    eccentricity
+                    math.radians(arg_of_perigee_degree),  # argpo:   argument or perigee (radians)
+                    math.radians(inclination_degree),  # inclo:    inclination(radians)
+                    math.radians(mean_anomaly_degree),  # mo:       mean anomaly (radians)
+                    mean_motion_rev_per_day
+                    * 60
+                    / 13750.9870831397,  # no_kazai: mean motion (radians/minute) [3]
+                    math.radians(raan_degree),  # nodeo:    right ascension of
+                    #           ascending node (radians)
                 )
 
                 # Side notes:
@@ -113,13 +115,19 @@ def generate_tles_from_scratch_with_sgp(
                 tle_line2 = line2
 
                 # Check that the checksum is correct
-                if len(tle_line1) != 69 or calculate_tle_line_checksum(tle_line1[:68]) != int(tle_line1[68]):
+                if len(tle_line1) != 69 or calculate_tle_line_checksum(tle_line1[:68]) != int(
+                    tle_line1[68]
+                ):
                     raise ValueError("TLE line 1 checksum failed")
-                if len(tle_line2) != 69 or calculate_tle_line_checksum(tle_line2[:68]) != int(tle_line2[68]):
+                if len(tle_line2) != 69 or calculate_tle_line_checksum(tle_line2[:68]) != int(
+                    tle_line2[68]
+                ):
                     raise ValueError("TLE line 2 checksum failed")
 
                 # Write TLE to file
-                f_out.write(constellation_name + " " + str(orbit * num_sats_per_orbit + n_sat) + "\n")
+                f_out.write(
+                    constellation_name + " " + str(orbit * num_sats_per_orbit + n_sat) + "\n"
+                )
                 f_out.write(tle_line1 + "\n")
                 f_out.write(tle_line2 + "\n")
 
@@ -128,15 +136,15 @@ def generate_tles_from_scratch_with_sgp(
 
 
 def generate_tles_from_scratch_manual(
-        filename_out,
-        constellation_name,
-        num_orbits,
-        num_sats_per_orbit,
-        phase_diff,
-        inclination_degree,
-        eccentricity,
-        arg_of_perigee_degree,
-        mean_motion_rev_per_day
+    filename_out,
+    constellation_name,
+    num_orbits,
+    num_sats_per_orbit,
+    phase_diff,
+    inclination_degree,
+    eccentricity,
+    arg_of_perigee_degree,
+    mean_motion_rev_per_day,
 ):
 
     with open(filename_out, "w+") as f_out:
@@ -169,8 +177,9 @@ def generate_tles_from_scratch_manual(
 
                 # Epoch is 2000-01-01 00:00:00, which is 00001 in ddyyy format
                 # See also: https://www.celestrak.com/columns/v04n03/#FAQ04
-                tle_line1 = "1 %05dU 00000ABC 00001.00000000  .00000000  00000-0  00000+0 0    0" % (
-                    satellite_counter + 1
+                tle_line1 = (
+                    "1 %05dU 00000ABC 00001.00000000  .00000000  00000-0  00000+0 0    0"
+                    % (satellite_counter + 1)
                 )
 
                 tle_line2 = "2 %05d %s %s %s %s %s %s    0" % (
@@ -188,7 +197,9 @@ def generate_tles_from_scratch_manual(
                 tle_line2 = tle_line2 + str(calculate_tle_line_checksum(tle_line2))
 
                 # Write TLE to file
-                f_out.write(constellation_name + " " + str(orbit * num_sats_per_orbit + n_sat) + "\n")
+                f_out.write(
+                    constellation_name + " " + str(orbit * num_sats_per_orbit + n_sat) + "\n"
+                )
                 f_out.write(tle_line1 + "\n")
                 f_out.write(tle_line2 + "\n")
 

@@ -31,9 +31,9 @@ def read_ground_stations_basic(filename_ground_stations_basic):
     """
     ground_stations_basic = []
     gid = 0
-    with open(filename_ground_stations_basic, 'r') as f:
+    with open(filename_ground_stations_basic, "r") as f:
         for line in f:
-            split = line.split(',')
+            split = line.split(",")
             if len(split) != 5:
                 raise ValueError("Basic ground station file has 5 columns")
             if int(split[0]) != gid:
@@ -60,9 +60,9 @@ def read_ground_stations_extended(filename_ground_stations_extended):
     """
     ground_stations_extended = []
     gid = 0
-    with open(filename_ground_stations_extended, 'r') as f:
+    with open(filename_ground_stations_extended, "r") as f:
         for line in f:
-            split = line.split(',')
+            split = line.split(",")
             if len(split) != 8:
                 raise ValueError("Extended ground station file has 8 columns: " + line)
             if int(split[0]) != gid:

@@ -20,11 +20,13 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import src
+import os
 import unittest
 from math import floor
-import os
+
 import exputil
+
+import src
 
 
 class TestIsls(unittest.TestCase):
@@ -49,18 +51,20 @@ class TestIsls(unittest.TestCase):
                 orbit_of_i = int(floor(i / float(num_sat_per_orbit)))
 
                 # Links in same orbit
-                neighbor_1 = orbit_of_i * num_sat_per_orbit + (i + num_sat_per_orbit + 1) % num_sat_per_orbit
-                neighbor_2 = orbit_of_i * num_sat_per_orbit + (i + num_sat_per_orbit - 1) % num_sat_per_orbit
+                neighbor_1 = (
+                    orbit_of_i * num_sat_per_orbit + (i + num_sat_per_orbit + 1) % num_sat_per_orbit
+                )
+                neighbor_2 = (
+                    orbit_of_i * num_sat_per_orbit + (i + num_sat_per_orbit - 1) % num_sat_per_orbit
+                )
 
                 # Links to different orbits
-                neighbor_3 = (
-                    ((orbit_of_i + num_orbits - 1) % num_orbits)
-                    * num_sat_per_orbit + (i + num_sat_per_orbit - isl_shift) % num_sat_per_orbit
-                )
-                neighbor_4 = (
-                    ((orbit_of_i + num_orbits + 1) % num_orbits)
-                    * num_sat_per_orbit + (i + num_sat_per_orbit + isl_shift) % num_sat_per_orbit
-                )
+                neighbor_3 = ((orbit_of_i + num_orbits - 1) % num_orbits) * num_sat_per_orbit + (
+                    i + num_sat_per_orbit - isl_shift
+                ) % num_sat_per_orbit
+                neighbor_4 = ((orbit_of_i + num_orbits + 1) % num_orbits) * num_sat_per_orbit + (
+                    i + num_sat_per_orbit + isl_shift
+                ) % num_sat_per_orbit
 
                 # All of them must be present
                 self.assertTrue((min(i, neighbor_1), max(i, neighbor_1)) in isls_list)
@@ -91,10 +95,7 @@ class TestIsls(unittest.TestCase):
         local_shell = exputil.LocalShell()
 
         # Invalid left index
-        local_shell.write_file(
-            "isls.txt.tmp",
-            "2 3\n5 6\n9 0"
-        )
+        local_shell.write_file("isls.txt.tmp", "2 3\n5 6\n9 0")
         try:
             src.read_isls("isls.txt.tmp", 9)
             self.fail()
@@ -103,10 +104,7 @@ class TestIsls(unittest.TestCase):
         os.remove("isls.txt.tmp")
 
         # Invalid right index
-        local_shell.write_file(
-            "isls.txt.tmp",
-            "2 3\n5 6\n6 9\n3 99"
-        )
+        local_shell.write_file("isls.txt.tmp", "2 3\n5 6\n6 9\n3 99")
         try:
             src.read_isls("isls.txt.tmp", 50)
             self.fail()
@@ -115,10 +113,7 @@ class TestIsls(unittest.TestCase):
         os.remove("isls.txt.tmp")
 
         # Invalid left index
-        local_shell.write_file(
-            "isls.txt.tmp",
-            "2 3\n5 6\n6 8\n-3 3"
-        )
+        local_shell.write_file("isls.txt.tmp", "2 3\n5 6\n6 8\n-3 3")
         try:
             src.read_isls("isls.txt.tmp", 50)
             self.fail()
@@ -127,10 +122,7 @@ class TestIsls(unittest.TestCase):
         os.remove("isls.txt.tmp")
 
         # Invalid right index
-        local_shell.write_file(
-            "isls.txt.tmp",
-            "2 3\n5 6\n1 -3\n6 8"
-        )
+        local_shell.write_file("isls.txt.tmp", "2 3\n5 6\n1 -3\n6 8")
         try:
             src.read_isls("isls.txt.tmp", 50)
             self.fail()
@@ -139,10 +131,7 @@ class TestIsls(unittest.TestCase):
         os.remove("isls.txt.tmp")
 
         # Left is larger than right
-        local_shell.write_file(
-            "isls.txt.tmp",
-            "6 5"
-        )
+        local_shell.write_file("isls.txt.tmp", "6 5")
         try:
             src.read_isls("isls.txt.tmp", 10)
             self.fail()
@@ -151,10 +140,7 @@ class TestIsls(unittest.TestCase):
         os.remove("isls.txt.tmp")
 
         # Left is equal to right
-        local_shell.write_file(
-            "isls.txt.tmp",
-            "5 5"
-        )
+        local_shell.write_file("isls.txt.tmp", "5 5")
         try:
             src.read_isls("isls.txt.tmp", 10)
             self.fail()
@@ -163,10 +149,7 @@ class TestIsls(unittest.TestCase):
         os.remove("isls.txt.tmp")
 
         # Duplicate
-        local_shell.write_file(
-            "isls.txt.tmp",
-            "2 3\n5 6\n3 9\n5 6\n2 9"
-        )
+        local_shell.write_file("isls.txt.tmp", "2 3\n5 6\n3 9\n5 6\n2 9")
         try:
             src.read_isls("isls.txt.tmp", 10)
             self.fail()

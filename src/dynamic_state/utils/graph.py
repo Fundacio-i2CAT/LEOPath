@@ -14,6 +14,4 @@ def validate_no_satellite_to_gs_links(graph, satellites, ground_stations):
         if (u in satellite_ids and v in ground_station_ids) or (
             u in ground_station_ids and v in satellite_ids
         ):
-            raise ValueError(
-                f"Invalid edge between satellite {u} and ground station {v}"
-            )
+            raise ValueError(f"Invalid edge between satellite {u} and ground station {v}")

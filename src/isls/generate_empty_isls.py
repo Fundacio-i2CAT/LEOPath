@@ -27,7 +27,7 @@ def generate_empty_isls(output_filename_isls):
 
     :param output_filename_isls     Output filename
     """
-    with open(output_filename_isls, 'w+') as f:
+    with open(output_filename_isls, "w+") as f:
         f.write("")
 
     return []

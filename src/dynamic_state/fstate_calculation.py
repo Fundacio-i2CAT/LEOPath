@@ -1,4 +1,5 @@
 import math
+
 import networkx as nx
 
 
@@ -20,17 +21,13 @@ def calculate_fstate_shortest_path_without_gs_relaying(
     if enable_verbose_logs:
         print("  > Calculating Floyd-Warshall for graph without ground-station relays")
     # (Note: Numpy has a deprecation warning here because of how networkx uses matrices)
-    dist_sat_net_without_gs = nx.floyd_warshall_numpy(
-        sat_net_graph_only_satellites_with_isls
-    )
+    dist_sat_net_without_gs = nx.floyd_warshall_numpy(sat_net_graph_only_satellites_with_isls)
 
     # Forwarding state
     fstate = {}
 
     # Now write state to file for complete graph
-    output_filename = (
-        output_dynamic_state_dir + "/fstate_" + str(time_since_epoch_ns) + ".txt"
-    )
+    output_filename = output_dynamic_state_dir + "/fstate_" + str(time_since_epoch_ns) + ".txt"
     if enable_verbose_logs:
         print("  > Writing forwarding state to: " + output_filename)
     with open(output_filename, "w+") as f_out:
@@ -45,17 +42,11 @@ def calculate_fstate_shortest_path_without_gs_relaying(
 
                 # Among the satellites in range of the destination ground station,
                 # find the one which promises the shortest distance
-                possible_dst_sats = ground_station_satellites_in_range_candidates[
-                    dst_gid
-                ]
+                possible_dst_sats = ground_station_satellites_in_range_candidates[dst_gid]
                 possibilities = []
                 for b in possible_dst_sats:
-                    if not math.isinf(
-                        dist_sat_net_without_gs[(curr, b[1])]
-                    ):  # Must be reachable
-                        possibilities.append(
-                            (dist_sat_net_without_gs[(curr, b[1])] + b[0], b[1])
-                        )
+                    if not math.isinf(dist_sat_net_without_gs[(curr, b[1])]):  # Must be reachable
+                        possibilities.append((dist_sat_net_without_gs[(curr, b[1])] + b[0], b[1]))
                 possibilities = list(sorted(possibilities))
 
                 # By default, if there is no satellite in range for the
@@ -72,13 +63,11 @@ def calculate_fstate_shortest_path_without_gs_relaying(
                         # Among its neighbors, find the one which promises the
                         # lowest distance to reach the destination satellite
                         best_distance_m = 1000000000000000
-                        for (
-                            neighbor_id
-                        ) in sat_net_graph_only_satellites_with_isls.neighbors(curr):
+                        for neighbor_id in sat_net_graph_only_satellites_with_isls.neighbors(curr):
                             distance_m = (
-                                sat_net_graph_only_satellites_with_isls.edges[
-                                    (curr, neighbor_id)
-                                ]["weight"]
+                                sat_net_graph_only_satellites_with_isls.edges[(curr, neighbor_id)][
+                                    "weight"
+                                ]
                                 + dist_sat_net_without_gs[(neighbor_id, dst_sat)]
                             )
                             if distance_m < best_distance_m:
@@ -104,10 +93,7 @@ def calculate_fstate_shortest_path_without_gs_relaying(
                 )
 
                 # Write to forwarding state
-                if (
-                    not prev_fstate
-                    or prev_fstate[(curr, dst_gs_node_id)] != next_hop_decision
-                ):
+                if not prev_fstate or prev_fstate[(curr, dst_gs_node_id)] != next_hop_decision:
                     f_out.write(
                         "%d,%d,%d,%d,%d\n"
                         % (
@@ -130,9 +116,7 @@ def calculate_fstate_shortest_path_without_gs_relaying(
 
                     # Among the satellites in range of the source ground station,
                     # find the one which promises the shortest distance
-                    possible_src_sats = ground_station_satellites_in_range_candidates[
-                        src_gid
-                    ]
+                    possible_src_sats = ground_station_satellites_in_range_candidates[src_gid]
                     possibilities = []
                     for a in possible_src_sats:
                         best_distance_offered_m = dist_satellite_to_ground_station[
@@ -150,15 +134,13 @@ def calculate_fstate_shortest_path_without_gs_relaying(
                         next_hop_decision = (
                             src_sat_id,
                             0,
-                            num_isls_per_sat[src_sat_id]
-                            + gid_to_sat_gsl_if_idx[src_gid],
+                            num_isls_per_sat[src_sat_id] + gid_to_sat_gsl_if_idx[src_gid],
                         )
 
                     # Update forwarding state
                     if (
                         not prev_fstate
-                        or prev_fstate[(src_gs_node_id, dst_gs_node_id)]
-                        != next_hop_decision
+                        or prev_fstate[(src_gs_node_id, dst_gs_node_id)] != next_hop_decision
                     ):
                         f_out.write(
                             "%d,%d,%d,%d,%d\n"
@@ -191,9 +173,7 @@ def calculate_fstate_shortest_path_with_gs_relaying(
 
     # Calculate shortest paths
     if enable_verbose_logs:
-        print(
-            "  > Calculating Floyd-Warshall for graph including ground-station relays"
-        )
+        print("  > Calculating Floyd-Warshall for graph including ground-station relays")
     # (Note: Numpy has a deprecation warning here because of how networkx uses matrices)
     dist_sat_net = nx.floyd_warshall_numpy(sat_net_graph)
 
@@ -201,9 +181,7 @@ def calculate_fstate_shortest_path_with_gs_relaying(
     fstate = {}
 
     # Now write state to file for complete graph
-    output_filename = (
-        output_dynamic_state_dir + "/fstate_" + str(time_since_epoch_ns) + ".txt"
-    )
+    output_filename = output_dynamic_state_dir + "/fstate_" + str(time_since_epoch_ns) + ".txt"
     if enable_verbose_logs:
         print("  > Writing forwarding state to: " + output_filename)
     with open(output_filename, "w+") as f_out:
@@ -228,9 +206,7 @@ def calculate_fstate_shortest_path_with_gs_relaying(
 
                         # Calculate distance = next-hop + distance the next hop node promises
                         distance_m = (
-                            sat_net_graph.edges[(current_node_id, neighbor_id)][
-                                "weight"
-                            ]
+                            sat_net_graph.edges[(current_node_id, neighbor_id)]["weight"]
                             + dist_sat_net[(neighbor_id, dst_gs_node_id)]
                         )
                         if (
@@ -241,39 +217,28 @@ def calculate_fstate_shortest_path_with_gs_relaying(
                             # Check node identifiers to determine what are the
                             # correct interface identifiers
                             if (
-                                current_node_id >= num_satellites
-                                and neighbor_id < num_satellites
+                                current_node_id >= num_satellites and neighbor_id < num_satellites
                             ):  # GS to sat.
                                 my_if = 0
                                 next_hop_if = (
                                     num_isls_per_sat[neighbor_id]
-                                    + gid_to_sat_gsl_if_idx[
-                                        current_node_id - num_satellites
-                                    ]
+                                    + gid_to_sat_gsl_if_idx[current_node_id - num_satellites]
                                 )
 
                             elif (
-                                current_node_id < num_satellites
-                                and neighbor_id >= num_satellites
+                                current_node_id < num_satellites and neighbor_id >= num_satellites
                             ):  # Sat. to GS
                                 my_if = (
                                     num_isls_per_sat[current_node_id]
-                                    + gid_to_sat_gsl_if_idx[
-                                        neighbor_id - num_satellites
-                                    ]
+                                    + gid_to_sat_gsl_if_idx[neighbor_id - num_satellites]
                                 )
                                 next_hop_if = 0
 
                             elif (
-                                current_node_id < num_satellites
-                                and neighbor_id < num_satellites
+                                current_node_id < num_satellites and neighbor_id < num_satellites
                             ):  # Sat. to sat.
-                                my_if = sat_neighbor_to_if[
-                                    (current_node_id, neighbor_id)
-                                ]
-                                next_hop_if = sat_neighbor_to_if[
-                                    (neighbor_id, current_node_id)
-                                ]
+                                my_if = sat_neighbor_to_if[(current_node_id, neighbor_id)]
+                                next_hop_if = sat_neighbor_to_if[(neighbor_id, current_node_id)]
 
                             else:  # GS to GS
                                 raise ValueError("GS-to-GS link cannot exist")
@@ -291,8 +256,7 @@ def calculate_fstate_shortest_path_with_gs_relaying(
                     # Write to forwarding state
                     if (
                         not prev_fstate
-                        or prev_fstate[(current_node_id, dst_gs_node_id)]
-                        != next_hop_decision
+                        or prev_fstate[(current_node_id, dst_gs_node_id)] != next_hop_decision
                     ):
                         f_out.write(
                             "%d,%d,%d,%d,%d\n"

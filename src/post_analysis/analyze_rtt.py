@@ -20,16 +20,17 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from .graph_tools import *
-from src.distance_tools import *
-from src.isls import *
-from src.ground_stations import *
-from src.tles import *
 import exputil
 import numpy as np
-from .print_routes_and_rtt import print_routes_and_rtt
 from statsmodels.distributions.empirical_distribution import ECDF
 
+from src.distance_tools import *
+from src.ground_stations import *
+from src.isls import *
+from src.tles import *
+
+from .graph_tools import *
+from .print_routes_and_rtt import print_routes_and_rtt
 
 SPEED_OF_LIGHT_M_PER_S = 299792458.0
 
@@ -37,20 +38,28 @@ GEODESIC_ECDF_PLOT_CUTOFF_KM = 500
 
 
 def analyze_rtt(
-        output_data_dir, satellite_network_dir, dynamic_state_update_interval_ms,
-        simulation_end_time_s, srcpy_dir_with_ending_slash
+    output_data_dir,
+    satellite_network_dir,
+    dynamic_state_update_interval_ms,
+    simulation_end_time_s,
+    srcpy_dir_with_ending_slash,
 ):
 
     # Dynamic state directory
     satellite_network_dynamic_state_dir = "%s/dynamic_state_%dms_for_%ds" % (
-        satellite_network_dir, dynamic_state_update_interval_ms, simulation_end_time_s
+        satellite_network_dir,
+        dynamic_state_update_interval_ms,
+        simulation_end_time_s,
     )
 
     # Local shell
     local_shell = exputil.LocalShell()
     core_network_folder_name = satellite_network_dir.split("/")[-1]
     base_output_dir = "%s/%s/%dms_for_%ds/rtt" % (
-        output_data_dir, core_network_folder_name, dynamic_state_update_interval_ms, simulation_end_time_s
+        output_data_dir,
+        core_network_folder_name,
+        dynamic_state_update_interval_ms,
+        simulation_end_time_s,
     )
     pdf_dir = base_output_dir + "/pdf"
     data_dir = base_output_dir + "/data"
@@ -70,8 +79,12 @@ def analyze_rtt(
     # Derivatives
     simulation_end_time_ns = simulation_end_time_s * 1000 * 1000 * 1000
     dynamic_state_update_interval_ns = dynamic_state_update_interval_ms * 1000 * 1000
-    max_gsl_length_m = exputil.parse_positive_float(description.get_property_or_fail("max_gsl_length_m"))
-    max_isl_length_m = exputil.parse_positive_float(description.get_property_or_fail("max_isl_length_m"))
+    max_gsl_length_m = exputil.parse_positive_float(
+        description.get_property_or_fail("max_gsl_length_m")
+    )
+    max_isl_length_m = exputil.parse_positive_float(
+        description.get_property_or_fail("max_isl_length_m")
+    )
 
     # Analysis
     rtt_list_per_pair = []
@@ -98,8 +111,9 @@ def analyze_rtt(
                 fstate[(current, destination)] = next_hop
 
             # Given we are going to graph often, we can pre-compute the edge lengths
-            graph_with_distance = construct_graph_with_distances(epoch, t, satellites, ground_stations,
-                                                                 list_isls, max_gsl_length_m, max_isl_length_m)
+            graph_with_distance = construct_graph_with_distances(
+                epoch, t, satellites, ground_stations, list_isls, max_gsl_length_m, max_isl_length_m
+            )
 
             # Go over each pair of ground stations and calculate the length
             for src in range(len(ground_stations)):
@@ -111,7 +125,9 @@ def analyze_rtt(
                         unreachable_per_pair[(src, dst)] += 1
                     else:
                         length_path_m = compute_path_length_with_graph(path, graph_with_distance)
-                        rtt_list_per_pair[src][dst].append((2 * length_path_m) * 1000000000.0 / SPEED_OF_LIGHT_M_PER_S)
+                        rtt_list_per_pair[src][dst].append(
+                            (2 * length_path_m) * 1000000000.0 / SPEED_OF_LIGHT_M_PER_S
+                        )
 
         # Show progress a bit
         print("%d / %d" % (it, num_iterations))
@@ -138,8 +154,7 @@ def analyze_rtt(
             list_max_minus_min_rtt_ns.append(max_rtt_ns - min_rtt_ns)
             list_max_rtt_to_min_rtt_slowdown.append(max_rtt_slowdown)
             geodesic_distance_m = geodesic_distance_m_between_ground_stations(
-                ground_stations[src],
-                ground_stations[dst]
+                ground_stations[src], ground_stations[dst]
             )
             # If the geodesic is under 500km, we do not consider it,
             # as one would use terrestrial networks vs. expending the effort to go up and down
@@ -171,7 +186,9 @@ def analyze_rtt(
             for dst in range(src + 1, len(ground_stations)):
                 min_rtt_ns = np.min(rtt_list_per_pair[src][dst])
                 max_rtt_ns = np.max(rtt_list_per_pair[src][dst])
-                largest_rtt_delta_list.append((max_rtt_ns - min_rtt_ns, min_rtt_ns, max_rtt_ns, src, dst))
+                largest_rtt_delta_list.append(
+                    (max_rtt_ns - min_rtt_ns, min_rtt_ns, max_rtt_ns, src, dst)
+                )
         largest_rtt_delta_list = sorted(largest_rtt_delta_list, reverse=True)
         f_out.write("LARGEST RTT DELTA TOP-10 WITHOUT DUPLICATE NODES\n")
         f_out.write("---------------------------------------------------------------\n")
@@ -179,19 +196,30 @@ def analyze_rtt(
         already_plotted_nodes = set()
         num_plotted = 0
         for i in range(len(largest_rtt_delta_list)):
-            if largest_rtt_delta_list[i][3] not in already_plotted_nodes \
-                    and largest_rtt_delta_list[i][4] not in already_plotted_nodes:
-                f_out.write("%-3d    %-4d -> %4d   %-8.2f     %-8.2f        %-8.2f\n" % (
-                    i + 1,
+            if (
+                largest_rtt_delta_list[i][3] not in already_plotted_nodes
+                and largest_rtt_delta_list[i][4] not in already_plotted_nodes
+            ):
+                f_out.write(
+                    "%-3d    %-4d -> %4d   %-8.2f     %-8.2f        %-8.2f\n"
+                    % (
+                        i + 1,
+                        len(satellites) + largest_rtt_delta_list[i][3],
+                        len(satellites) + largest_rtt_delta_list[i][4],
+                        largest_rtt_delta_list[i][0] / 1e6,
+                        largest_rtt_delta_list[i][1] / 1e6,
+                        largest_rtt_delta_list[i][2] / 1e6,
+                    )
+                )
+                print_routes_and_rtt(
+                    base_output_dir,
+                    satellite_network_dir,
+                    dynamic_state_update_interval_ms,
+                    simulation_end_time_s,
                     len(satellites) + largest_rtt_delta_list[i][3],
                     len(satellites) + largest_rtt_delta_list[i][4],
-                    largest_rtt_delta_list[i][0] / 1e6,
-                    largest_rtt_delta_list[i][1] / 1e6,
-                    largest_rtt_delta_list[i][2] / 1e6,
-                ))
-                print_routes_and_rtt(base_output_dir, satellite_network_dir, dynamic_state_update_interval_ms,
-                                     simulation_end_time_s, len(satellites) + largest_rtt_delta_list[i][3],
-                                     len(satellites) + largest_rtt_delta_list[i][4], srcpy_dir_with_ending_slash)
+                    srcpy_dir_with_ending_slash,
+                )
                 already_plotted_nodes.add(largest_rtt_delta_list[i][3])
                 already_plotted_nodes.add(largest_rtt_delta_list[i][4])
                 num_plotted += 1
@@ -213,17 +241,28 @@ def analyze_rtt(
         already_plotted_nodes = set()
         num_plotted = 0
         for i in range(len(most_unreachable_list)):
-            if most_unreachable_list[i][1] not in already_plotted_nodes \
-                    and most_unreachable_list[i][2] not in already_plotted_nodes:
-                f_out.write("%-3d    %-4d -> %4d   %d\n" % (
-                    i + 1,
+            if (
+                most_unreachable_list[i][1] not in already_plotted_nodes
+                and most_unreachable_list[i][2] not in already_plotted_nodes
+            ):
+                f_out.write(
+                    "%-3d    %-4d -> %4d   %d\n"
+                    % (
+                        i + 1,
+                        len(satellites) + most_unreachable_list[i][1],
+                        len(satellites) + most_unreachable_list[i][2],
+                        most_unreachable_list[i][0],
+                    )
+                )
+                print_routes_and_rtt(
+                    base_output_dir,
+                    satellite_network_dir,
+                    dynamic_state_update_interval_ms,
+                    simulation_end_time_s,
                     len(satellites) + most_unreachable_list[i][1],
                     len(satellites) + most_unreachable_list[i][2],
-                    most_unreachable_list[i][0]
-                ))
-                print_routes_and_rtt(base_output_dir, satellite_network_dir, dynamic_state_update_interval_ms,
-                                     simulation_end_time_s, len(satellites) + most_unreachable_list[i][1],
-                                     len(satellites) + most_unreachable_list[i][2], srcpy_dir_with_ending_slash)
+                    srcpy_dir_with_ending_slash,
+                )
                 already_plotted_nodes.add(most_unreachable_list[i][1])
                 already_plotted_nodes.add(most_unreachable_list[i][2])
                 num_plotted += 1

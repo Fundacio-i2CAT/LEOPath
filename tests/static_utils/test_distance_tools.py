@@ -21,24 +21,24 @@
 # SOFTWARE.
 
 
+import math
 import unittest
 
 import ephem
-import math
-from astropy.time import Time
-from astropy import units as u
 import exputil
+from astropy import units as u
+from astropy.time import Time
+
+from src.distance_tools import *
 from src.distance_tools import (
+    create_basic_ground_station_for_satellite_shadow,
     distance_m_between_satellites,
     distance_m_ground_station_to_satellite,
     geodesic_distance_m_between_ground_stations,
-    straight_distance_m_between_ground_stations,
-    create_basic_ground_station_for_satellite_shadow,
     geodetic2cartesian,
+    straight_distance_m_between_ground_stations,
 )
 from src.ground_stations import read_ground_stations_basic
-
-from src.distance_tools import *
 
 
 class TestDistanceTools(unittest.TestCase):
@@ -174,9 +174,7 @@ class TestDistanceTools(unittest.TestCase):
             # Kuiper altitude = 630 km
             # So, the circle is 630000 + 6378135 = 7008135 m in radius
             # As such, with 34 satellites, the side of this 34-polygon is:
-            polygon_side_m = 2 * (
-                7008135.0 * math.sin(math.radians(360.0 / 33.0) / 2.0)
-            )
+            polygon_side_m = 2 * (7008135.0 * math.sin(math.radians(360.0 / 33.0) / 2.0))
             self.assertTrue(
                 polygon_side_m
                 >= distance_m_between_satellites(
@@ -217,15 +215,11 @@ class TestDistanceTools(unittest.TestCase):
         # Distance to itself is always 0
         for i in range(8):
             self.assertEqual(
-                geodesic_distance_m_between_ground_stations(
-                    ground_stations[i], ground_stations[i]
-                ),
+                geodesic_distance_m_between_ground_stations(ground_stations[i], ground_stations[i]),
                 0,
             )
             self.assertEqual(
-                straight_distance_m_between_ground_stations(
-                    ground_stations[i], ground_stations[i]
-                ),
+                straight_distance_m_between_ground_stations(ground_stations[i], ground_stations[i]),
                 0,
             )
 
@@ -264,27 +258,21 @@ class TestDistanceTools(unittest.TestCase):
 
         # Amsterdam to Paris
         self.assertAlmostEqual(
-            geodesic_distance_m_between_ground_stations(
-                ground_stations[0], ground_stations[1]
-            ),
+            geodesic_distance_m_between_ground_stations(ground_stations[0], ground_stations[1]),
             430000,  # 430 km
             delta=1000.0,
         )
 
         # Amsterdam to New York
         self.assertAlmostEqual(
-            geodesic_distance_m_between_ground_stations(
-                ground_stations[0], ground_stations[6]
-            ),
+            geodesic_distance_m_between_ground_stations(ground_stations[0], ground_stations[6]),
             5861000,  # 5861 km
             delta=5000.0,
         )
 
         # New York to Antarctica
         self.assertAlmostEqual(
-            geodesic_distance_m_between_ground_stations(
-                ground_stations[6], ground_stations[5]
-            ),
+            geodesic_distance_m_between_ground_stations(ground_stations[6], ground_stations[5]),
             14861000,  # 14861 km
             delta=20000.0,
         )
@@ -319,9 +307,7 @@ class TestDistanceTools(unittest.TestCase):
 
         # Distance to shadow should be around 1015km
         self.assertAlmostEqual(
-            distance_m_ground_station_to_satellite(
-                shadow_18, telesat_18, str(epoch), str(time)
-            ),
+            distance_m_ground_station_to_satellite(shadow_18, telesat_18, str(epoch), str(time)),
             1015000,  # 1015km
             delta=5000,  # Accurate within 5km
         )
@@ -337,9 +323,7 @@ class TestDistanceTools(unittest.TestCase):
         # Distance between the two shadows:
         # 21.61890110054602, 96.54190305000301
         # -5.732296878862085, 92.0396062736707
-        shadow_distance_m = geodesic_distance_m_between_ground_stations(
-            shadow_18, shadow_19
-        )
+        shadow_distance_m = geodesic_distance_m_between_ground_stations(shadow_18, shadow_19)
         self.assertAlmostEqual(
             shadow_distance_m,
             3080640,  # 3080.64 km, from Google Maps
@@ -353,8 +337,7 @@ class TestDistanceTools(unittest.TestCase):
         self.assertAlmostEqual(
             math.sqrt(shadow_distance_m**2 + distance_shadow_19_to_satellite_19**2),
             distance_shadow_18_to_satellite_19,
-            delta=0.1
-            * math.sqrt(shadow_distance_m**2 + distance_shadow_19_to_satellite_19**2),
+            delta=0.1 * math.sqrt(shadow_distance_m**2 + distance_shadow_19_to_satellite_19**2),
         )
 
         # Check that the hypotenuse is not exceeded
@@ -363,9 +346,7 @@ class TestDistanceTools(unittest.TestCase):
         )
         self.assertGreater(
             distance_shadow_18_to_satellite_19,
-            math.sqrt(
-                straight_shadow_distance_m**2 + distance_shadow_19_to_satellite_19**2
-            ),
+            math.sqrt(straight_shadow_distance_m**2 + distance_shadow_19_to_satellite_19**2),
         )
 
         # Check what happens with cartesian coordinates

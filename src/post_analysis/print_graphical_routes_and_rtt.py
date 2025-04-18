@@ -20,16 +20,17 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from .graph_tools import *
-from src.isls import *
-from src.ground_stations import *
-from src.tles import *
-import exputil
 import cartopy
 import cartopy.crs as ccrs
+import exputil
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
+from src.ground_stations import *
+from src.isls import *
+from src.tles import *
+
+from .graph_tools import *
 
 GROUND_STATION_USED_COLOR = "#3b3b3b"
 GROUND_STATION_UNUSED_COLOR = "black"
@@ -39,9 +40,12 @@ ISL_COLOR = "#eb6b38"
 
 
 def print_graphical_routes_and_rtt(
-        base_output_dir, satellite_network_dir,
-        dynamic_state_update_interval_ms,
-        simulation_end_time_s, src, dst
+    base_output_dir,
+    satellite_network_dir,
+    dynamic_state_update_interval_ms,
+    simulation_end_time_s,
+    src,
+    dst,
 ):
 
     # Local shell
@@ -49,7 +53,9 @@ def print_graphical_routes_and_rtt(
 
     # Dynamic state dir can be inferred
     satellite_network_dynamic_state_dir = "%s/dynamic_state_%dms_for_%ds" % (
-        satellite_network_dir, dynamic_state_update_interval_ms, simulation_end_time_s
+        satellite_network_dir,
+        dynamic_state_update_interval_ms,
+        simulation_end_time_s,
     )
 
     # Default output dir assumes it is done manual
@@ -69,8 +75,12 @@ def print_graphical_routes_and_rtt(
     # Derivatives
     simulation_end_time_ns = simulation_end_time_s * 1000 * 1000 * 1000
     dynamic_state_update_interval_ns = dynamic_state_update_interval_ms * 1000 * 1000
-    max_gsl_length_m = exputil.parse_positive_float(description.get_property_or_fail("max_gsl_length_m"))
-    max_isl_length_m = exputil.parse_positive_float(description.get_property_or_fail("max_isl_length_m"))
+    max_gsl_length_m = exputil.parse_positive_float(
+        description.get_property_or_fail("max_gsl_length_m")
+    )
+    max_isl_length_m = exputil.parse_positive_float(
+        description.get_property_or_fail("max_isl_length_m")
+    )
 
     # For each time moment
     fstate = {}
@@ -89,12 +99,26 @@ def print_graphical_routes_and_rtt(
             path_there = get_path(src, dst, fstate)
             path_back = get_path(dst, src, fstate)
             if path_there is not None and path_back is not None:
-                length_src_to_dst_m = compute_path_length_without_graph(path_there, epoch, t, satellites,
-                                                                        ground_stations, list_isls,
-                                                                        max_gsl_length_m, max_isl_length_m)
-                length_dst_to_src_m = compute_path_length_without_graph(path_back, epoch, t,
-                                                                        satellites, ground_stations, list_isls,
-                                                                        max_gsl_length_m, max_isl_length_m)
+                length_src_to_dst_m = compute_path_length_without_graph(
+                    path_there,
+                    epoch,
+                    t,
+                    satellites,
+                    ground_stations,
+                    list_isls,
+                    max_gsl_length_m,
+                    max_isl_length_m,
+                )
+                length_dst_to_src_m = compute_path_length_without_graph(
+                    path_back,
+                    epoch,
+                    t,
+                    satellites,
+                    ground_stations,
+                    list_isls,
+                    max_gsl_length_m,
+                    max_isl_length_m,
+                )
                 rtt_ns = (length_src_to_dst_m + length_dst_to_src_m) * 1000000000.0 / 299792458.0
             else:
                 length_src_to_dst_m = 0.0
@@ -113,33 +137,41 @@ def print_graphical_routes_and_rtt(
 
                 # Write change nicely to the console
                 print("Change at t=" + str(t) + " ns (= " + str(t / 1e9) + " seconds)")
-                print("  > Path..... " + (" -- ".join(list(map(lambda x: str(x), current_path)))
-                                          if current_path is not None else "Unreachable"))
+                print(
+                    "  > Path..... "
+                    + (
+                        " -- ".join(list(map(lambda x: str(x), current_path)))
+                        if current_path is not None
+                        else "Unreachable"
+                    )
+                )
                 print("  > Length... " + str(length_src_to_dst_m + length_dst_to_src_m) + " m")
                 print("  > RTT...... %.2f ms" % (rtt_ns / 1e6))
                 print("")
 
                 # Now we make a pdf for it
-                pdf_filename = pdf_dir + "/graphics_%d_to_%d_time_%dms.pdf" % (src, dst, int(t / 1000000))
+                pdf_filename = pdf_dir + "/graphics_%d_to_%d_time_%dms.pdf" % (
+                    src,
+                    dst,
+                    int(t / 1000000),
+                )
                 f = plt.figure()
-                
+
                 # Projection
                 ax = plt.axes(projection=ccrs.PlateCarree())
 
                 # Background
                 ax.add_feature(cartopy.feature.OCEAN, zorder=0)
-                ax.add_feature(cartopy.feature.LAND, zorder=0, edgecolor='black', linewidth=0.2)
-                ax.add_feature(cartopy.feature.BORDERS, edgecolor='gray', linewidth=0.2)
-                
+                ax.add_feature(cartopy.feature.LAND, zorder=0, edgecolor="black", linewidth=0.2)
+                ax.add_feature(cartopy.feature.BORDERS, edgecolor="gray", linewidth=0.2)
+
                 # Time moment
                 time_moment_str = str(epoch + t * u.ns)
 
                 # Other satellites
                 for node_id in range(len(satellites)):
                     shadow_ground_station = create_basic_ground_station_for_satellite_shadow(
-                        satellites[node_id],
-                        str(epoch),
-                        time_moment_str
+                        satellites[node_id], str(epoch), time_moment_str
                     )
                     latitude_deg = float(shadow_ground_station["latitude_degrees_str"])
                     longitude_deg = float(shadow_ground_station["longitude_degrees_str"])
@@ -149,17 +181,17 @@ def print_graphical_routes_and_rtt(
                         longitude_deg,
                         latitude_deg,
                         color=SATELLITE_UNUSED_COLOR,
-                        fillstyle='none',
+                        fillstyle="none",
                         markeredgewidth=0.1,
                         markersize=0.5,
-                        marker='^',
+                        marker="^",
                     )
                     plt.text(
                         longitude_deg + 0.5,
                         latitude_deg,
                         str(node_id),
                         color=SATELLITE_UNUSED_COLOR,
-                        fontdict={"size": 1}
+                        fontdict={"size": 1},
                     )
 
                 # # ISLs
@@ -207,12 +239,12 @@ def print_graphical_routes_and_rtt(
                         longitude_deg,
                         latitude_deg,
                         color=GROUND_STATION_UNUSED_COLOR,
-                        fillstyle='none',
+                        fillstyle="none",
                         markeredgewidth=0.2,
                         markersize=1.0,
-                        marker='o',
+                        marker="o",
                     )
-                
+
                 # Lines between
                 if current_path is not None:
                     for v in range(1, len(current_path)):
@@ -221,43 +253,55 @@ def print_graphical_routes_and_rtt(
 
                         # From coordinates
                         if from_node_id < len(satellites):
-                            shadow_ground_station = create_basic_ground_station_for_satellite_shadow(
-                                satellites[from_node_id],
-                                str(epoch),
-                                time_moment_str
+                            shadow_ground_station = (
+                                create_basic_ground_station_for_satellite_shadow(
+                                    satellites[from_node_id], str(epoch), time_moment_str
+                                )
                             )
                             from_latitude_deg = float(shadow_ground_station["latitude_degrees_str"])
-                            from_longitude_deg = float(shadow_ground_station["longitude_degrees_str"])
+                            from_longitude_deg = float(
+                                shadow_ground_station["longitude_degrees_str"]
+                            )
                         else:
                             from_latitude_deg = float(
-                                ground_stations[from_node_id - len(satellites)]["latitude_degrees_str"]
+                                ground_stations[from_node_id - len(satellites)][
+                                    "latitude_degrees_str"
+                                ]
                             )
                             from_longitude_deg = float(
-                                ground_stations[from_node_id - len(satellites)]["longitude_degrees_str"]
+                                ground_stations[from_node_id - len(satellites)][
+                                    "longitude_degrees_str"
+                                ]
                             )
 
                         # To coordinates
                         if to_node_id < len(satellites):
-                            shadow_ground_station = create_basic_ground_station_for_satellite_shadow(
-                                satellites[to_node_id],
-                                str(epoch),
-                                time_moment_str
+                            shadow_ground_station = (
+                                create_basic_ground_station_for_satellite_shadow(
+                                    satellites[to_node_id], str(epoch), time_moment_str
+                                )
                             )
                             to_latitude_deg = float(shadow_ground_station["latitude_degrees_str"])
                             to_longitude_deg = float(shadow_ground_station["longitude_degrees_str"])
                         else:
                             to_latitude_deg = float(
-                                ground_stations[to_node_id - len(satellites)]["latitude_degrees_str"]
+                                ground_stations[to_node_id - len(satellites)][
+                                    "latitude_degrees_str"
+                                ]
                             )
                             to_longitude_deg = float(
-                                ground_stations[to_node_id - len(satellites)]["longitude_degrees_str"]
+                                ground_stations[to_node_id - len(satellites)][
+                                    "longitude_degrees_str"
+                                ]
                             )
 
                         # Plot the line
                         plt.plot(
                             [from_longitude_deg, to_longitude_deg],
                             [from_latitude_deg, to_latitude_deg],
-                            color=ISL_COLOR, linewidth=0.5, marker='',
+                            color=ISL_COLOR,
+                            linewidth=0.5,
+                            marker="",
                             transform=ccrs.Geodetic(),
                         )
 
@@ -284,10 +328,10 @@ def print_graphical_routes_and_rtt(
                     for v in range(0, len(current_path)):
                         node_id = current_path[v]
                         if node_id < len(satellites):
-                            shadow_ground_station = create_basic_ground_station_for_satellite_shadow(
-                                satellites[node_id],
-                                str(epoch),
-                                time_moment_str
+                            shadow_ground_station = (
+                                create_basic_ground_station_for_satellite_shadow(
+                                    satellites[node_id], str(epoch), time_moment_str
+                                )
                             )
                             latitude_deg = float(shadow_ground_station["latitude_degrees_str"])
                             longitude_deg = float(shadow_ground_station["longitude_degrees_str"])
@@ -300,18 +344,22 @@ def print_graphical_routes_and_rtt(
                                 longitude_deg,
                                 latitude_deg,
                                 color=SATELLITE_USED_COLOR,
-                                marker='^',
+                                marker="^",
                                 markersize=0.65,
                             )
                             plt.text(
                                 longitude_deg + 0.9,
                                 latitude_deg,
                                 str(node_id),
-                                fontdict={"size": 2, "weight": "bold"}
+                                fontdict={"size": 2, "weight": "bold"},
                             )
                         else:
-                            latitude_deg = float(ground_stations[node_id - len(satellites)]["latitude_degrees_str"])
-                            longitude_deg = float(ground_stations[node_id - len(satellites)]["longitude_degrees_str"])
+                            latitude_deg = float(
+                                ground_stations[node_id - len(satellites)]["latitude_degrees_str"]
+                            )
+                            longitude_deg = float(
+                                ground_stations[node_id - len(satellites)]["longitude_degrees_str"]
+                            )
                             # min_latitude = min(min_latitude, latitude_deg)
                             # max_latitude = max(max_latitude, latitude_deg)
                             # min_longitude = min(min_longitude, longitude_deg)
@@ -322,7 +370,7 @@ def print_graphical_routes_and_rtt(
                                     longitude_deg,
                                     latitude_deg,
                                     color=GROUND_STATION_USED_COLOR,
-                                    marker='o',
+                                    marker="o",
                                     markersize=0.9,
                                 )
                             else:
@@ -331,7 +379,7 @@ def print_graphical_routes_and_rtt(
                                     longitude_deg,
                                     latitude_deg,
                                     color=GROUND_STATION_USED_COLOR,
-                                    marker='o',
+                                    marker="o",
                                     markersize=0.9,
                                 )
 
@@ -346,18 +394,50 @@ def print_graphical_routes_and_rtt(
                 # Legend
                 ax.legend(
                     handles=(
-                        Line2D([0], [0], marker='o', label="Ground station (used)",
-                               linewidth=0, color='#3b3b3b', markersize=5),
-                        Line2D([0], [0], marker='o', label="Ground station (unused)",
-                               linewidth=0, color='black', markersize=5, fillstyle='none', markeredgewidth=0.5),
-                        Line2D([0], [0], marker='^', label="Satellite (used)",
-                               linewidth=0, color='#a61111', markersize=5),
-                        Line2D([0], [0], marker='^', label="Satellite (unused)",
-                               linewidth=0, color='red', markersize=5, fillstyle='none', markeredgewidth=0.5),
+                        Line2D(
+                            [0],
+                            [0],
+                            marker="o",
+                            label="Ground station (used)",
+                            linewidth=0,
+                            color="#3b3b3b",
+                            markersize=5,
+                        ),
+                        Line2D(
+                            [0],
+                            [0],
+                            marker="o",
+                            label="Ground station (unused)",
+                            linewidth=0,
+                            color="black",
+                            markersize=5,
+                            fillstyle="none",
+                            markeredgewidth=0.5,
+                        ),
+                        Line2D(
+                            [0],
+                            [0],
+                            marker="^",
+                            label="Satellite (used)",
+                            linewidth=0,
+                            color="#a61111",
+                            markersize=5,
+                        ),
+                        Line2D(
+                            [0],
+                            [0],
+                            marker="^",
+                            label="Satellite (unused)",
+                            linewidth=0,
+                            color="red",
+                            markersize=5,
+                            fillstyle="none",
+                            markeredgewidth=0.5,
+                        ),
                     ),
-                    loc='lower left',
-                    fontsize='xx-small'
+                    loc="lower left",
+                    fontsize="xx-small",
                 )
 
                 # Save final PDF figure
-                f.savefig(pdf_filename, bbox_inches='tight')
+                f.savefig(pdf_filename, bbox_inches="tight")

@@ -20,9 +20,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import src
-import unittest
 import os
+import unittest
+
+import src
 
 
 class TestGroundStations(unittest.TestCase):
@@ -47,7 +48,9 @@ class TestGroundStations(unittest.TestCase):
 
         # Extend
         src.extend_ground_stations("ground_stations.temp.txt", "ground_stations_extended.temp.txt")
-        ground_stations_extended = src.read_ground_stations_extended("ground_stations_extended.temp.txt")
+        ground_stations_extended = src.read_ground_stations_extended(
+            "ground_stations_extended.temp.txt"
+        )
         self.assertEqual(1, len(ground_stations_extended))
         self.assertEqual(0, ground_stations_extended[0]["gid"])
         self.assertEqual("abc", ground_stations_extended[0]["name"])
