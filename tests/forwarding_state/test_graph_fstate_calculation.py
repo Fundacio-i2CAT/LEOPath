@@ -554,3 +554,115 @@ class TestFstateCalculationRefactored(unittest.TestCase):
             (GS_Z, GS_Y): (SAT_B, 0, 0),  # Path Z->B->Y
         }
         self.assertDictEqual(fstate, expected_fstate)
+
+    def test_gsl_interface_index_calculation(self):
+        """
+        Unit test focusing on GSL interface index calculation for satellites.
+        Scenario: Sat 10 -- Sat 20 -- Sat 30. GS 100 sees Sat 20. GS 101 sees Sat 10.
+        Checks hops involving Sat 20 (which has 2 ISLs) to verify its GSL IF index.
+        Expects Satellite GSL Interface Index = number of ISLs for that satellite.
+        """
+        # --- Setup ---
+        # Define IDs
+        SAT_A = 10
+        SAT_B = 20  # The satellite whose GSL IF we are testing (should be 2)
+        SAT_C = 30
+        GS_X = 100
+        GS_Y = 101
+
+        # Create Satellite objects (ephem data is mocked, not used for path logic)
+        mock_body = MagicMock(spec=ephem.Body)
+        satellites = [
+            Satellite(id=SAT_A, ephem_obj_manual=mock_body, ephem_obj_direct=mock_body),
+            Satellite(id=SAT_B, ephem_obj_manual=mock_body, ephem_obj_direct=mock_body),
+            Satellite(id=SAT_C, ephem_obj_manual=mock_body, ephem_obj_direct=mock_body),
+        ]
+        # Create GroundStation objects
+        ground_stations = [
+            GroundStation(
+                gid=GS_X,
+                name="GX",
+                latitude_degrees_str="0",
+                longitude_degrees_str="0",
+                elevation_m_float=0,
+                cartesian_x=0,
+                cartesian_y=0,
+                cartesian_z=0,
+            ),
+            GroundStation(
+                gid=GS_Y,
+                name="GY",
+                latitude_degrees_str="0",
+                longitude_degrees_str="0",
+                elevation_m_float=0,
+                cartesian_x=0,
+                cartesian_y=0,
+                cartesian_z=0,
+            ),
+        ]
+
+        # Define ISLs: A(10) -- B(20) -- C(30)
+        # Sat B (20) will have number_isls = 2
+        isl_edges = [(SAT_A, SAT_B, 100), (SAT_C, SAT_B, 100)]  # Simple weights
+
+        # Define GSL Visibility: GS X (100) sees Sat B (20); GS Y (101) sees Sat A (10)
+        # Index 0 corresponds to GS_X, Index 1 corresponds to GS_Y
+        gsl_visibility = [
+            [(500, SAT_B)],  # GS X (index 0) sees Sat B
+            [(500, SAT_A)],  # GS Y (index 1) sees Sat A
+        ]
+
+        # Use the helper to create topology object and formatted visibility list
+        topology, visibility = self._setup_scenario(
+            satellites, ground_stations, isl_edges, gsl_visibility
+        )
+
+        # --- Verification of Setup ---
+        # Double-check the ISL count for the satellite under test (Sat B / ID 20)
+        try:
+            sat_b_obj = topology.get_satellite(SAT_B)
+            self.assertEqual(
+                sat_b_obj.number_isls,
+                2,
+                "Test setup error: Satellite 20 should have 2 ISLs based on input.",
+            )
+            # Check ISL interface mapping created by helper (optional)
+            self.assertEqual(
+                topology.sat_neighbor_to_if.get((SAT_B, SAT_A)), 0, "IF Map incorrect"
+            )  # B's 1st ISL
+            self.assertEqual(
+                topology.sat_neighbor_to_if.get((SAT_B, SAT_C)), 1, "IF Map incorrect"
+            )  # B's 2nd ISL
+        except KeyError as e:
+            self.fail(f"Test setup error: Failed to get satellite or interface mapping: {e}")
+
+        # --- Call Function Under Test ---
+        fstate = calculate_fstate_shortest_path_object_no_gs_relay(
+            topology, ground_stations, visibility
+        )
+
+        # --- Assertions ---
+        # 1. Check Sat B (20) -> GS X (100) : Direct hop via GSL
+        #    Expected Sat B GSL IF = number_isls = 2.
+        #    Expected GS X IF = 0.
+        #    Expected tuple: (GS_X, 2, 0) = (100, 2, 0)
+        hop_tuple_sat_gs = fstate.get((SAT_B, GS_X))
+        self.assertIsNotNone(hop_tuple_sat_gs, f"fstate missing for ({SAT_B=}, {GS_X=})")
+        self.assertEqual(
+            hop_tuple_sat_gs,
+            (GS_X, 2, 0),
+            "Incorrect hop/IFs for direct Sat->GS (Expecting Sat GSL IF=num_isls=2)",
+        )
+
+        # 2. Check GS X (100) -> GS Y (101): Path X -> B(20) -> A(10) -> Y
+        #    First hop from GS X should be Sat B (20).
+        #    Expected GS X IF = 0.
+        #    Expected Sat B Incoming GSL IF = number_isls = 2.
+        #    Expected tuple: (SAT_B, 0, 2) = (20, 0, 2)
+        hop_tuple_gs_gs = fstate.get((GS_X, GS_Y))
+        self.assertIsNotNone(hop_tuple_gs_gs, f"fstate missing for ({GS_X=}, {GS_Y=})")
+        self.assertEqual(
+            hop_tuple_gs_gs,
+            (SAT_B, 0, 2),
+            "Incorrect hop/IFs for GS->GS via Sat (Expecting Sat GSL IF=num_isls=2)",
+        )
