@@ -35,7 +35,7 @@ def generate_dynamic_state(
     undirected_isls: list,
     list_gsl_interfaces_info: list,
     dynamic_state_algorithm: str,
-):
+) -> dict | None:
     """
     Generates dynamic state (bandwidth, forwarding) over a simulation period.
 
@@ -110,7 +110,7 @@ def generate_dynamic_state(
                 )
                 break
 
-        except Exception as e:
+        except Exception:
             log.exception(
                 f"Unhandled error during dynamic state calculation at t={time_since_epoch_ns} ns. Stopping."
             )
@@ -119,7 +119,7 @@ def generate_dynamic_state(
             break  # Stop processing further time steps
 
     log.info("Dynamic state generation finished.")
-    # Consider returning the final state if needed: return prev_output
+    return prev_output
 
 
 def _compute_isls(
