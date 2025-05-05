@@ -538,18 +538,18 @@ class TestDynamicStateIntegration(unittest.TestCase):
 
         # --- Assertions ---
         self.assertIsNotNone(final_state, "generate_dynamic_state loop returned None")
-        self.assertIsInstance(final_state, dict, "Final state should be a dictionary")
-        self.assertIn("fstate", final_state)
-        self.assertIn("bandwidth", final_state)
+        self.assertIsInstance(final_state, list, "Final state object should be a list")
+        self.assertIn("fstate", final_state[0])
+        self.assertIn("bandwidth", final_state[0])
 
         # Check bandwidth state
         expected_bandwidth = {node_id: 1.0 for node_id in all_node_ids}
         self.assertDictEqual(
-            final_state["bandwidth"], expected_bandwidth, "Final bandwidth state mismatch"
+            final_state[0]["bandwidth"], expected_bandwidth, "Final bandwidth state mismatch"
         )
 
         # Check fstate is not empty
-        self.assertTrue(final_state["fstate"], "Final fstate dictionary is empty")
+        self.assertTrue(final_state[0]["fstate"], "Final fstate dictionary is empty")
 
         expected_final_fstate = {
             (10, 100): (20, 0, 0),
@@ -584,5 +584,5 @@ class TestDynamicStateIntegration(unittest.TestCase):
 
         self.maxDiff = None  # Show full diff on failure
         self.assertDictEqual(
-            final_state["fstate"], expected_final_fstate, "Final fstate mismatch after loop"
+            final_state[0]["fstate"], expected_final_fstate, "Final fstate mismatch after loop"
         )
