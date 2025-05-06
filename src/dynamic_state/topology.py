@@ -102,7 +102,7 @@ class ISL:
         """
         self.sat1 = sat1
         self.sat2 = sat2
-
+    
 
 class LEOTopology:
     def __init__(
