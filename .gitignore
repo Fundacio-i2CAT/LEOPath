@@ -6,5 +6,5 @@ temp_dynamic_state_gen_data
 temp_gen_data
 .coverage
 cov.xml
+*.log
 *.pkl
-*log

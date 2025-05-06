@@ -7,13 +7,24 @@ import pickle
 
 from astropy.time import Time
 
+# Configure logging if needed
 from src import logger
-from src.dynamic_state.topology import (
+
+# --- Import necessary classes and the REFFACTORED analysis function ---
+# Assume the analysis function is refactored and lives here:
+# from src.post_analysis.print_graphical_routes_and_rtt_refactored import print_graphical_routes_and_rtt_from_objects
+from src.dynamic_state.topology import (  # Needed if passed to analysis
     ConstellationData,
     GroundStation,
     Satellite,
 )
 
+# Import setup functions if needed to reload constellation/GS definitions
+# from src.ground_stations import read_ground_stations_basic # Example
+# from src.tles import read_tles # Example
+
+
+log = logger.get_logger(__name__)
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)-7s] %(name)s: %(message)s"
 )

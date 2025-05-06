@@ -27,6 +27,7 @@ import src
 from src.dynamic_state.topology import GroundStation
 from src.ground_stations import read_ground_stations_basic
 
+
 class TestGroundStations(unittest.TestCase):
 
     def test_ground_stations_normal(self):

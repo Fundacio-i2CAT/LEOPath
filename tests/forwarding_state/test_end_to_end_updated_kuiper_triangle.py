@@ -2,17 +2,18 @@
 # Or add to test_generate_dynamic_state_integration.py
 
 import math
-import unittest
 import pprint
+import unittest
 
 import ephem
-from astropy.time import Time
 from astropy import units as u
+from astropy.time import Time
+
+from src.distance_tools import geodetic2cartesian  # Assuming this is available
 
 # Modules and classes to test/use
 from src.dynamic_state.generate_dynamic_state import generate_dynamic_state_at
 from src.dynamic_state.topology import ConstellationData, GroundStation, Satellite
-from src.distance_tools import geodetic2cartesian  # Assuming this is available
 
 
 class TestEndToEndKuiperTriangle(unittest.TestCase):
@@ -168,7 +169,7 @@ class TestEndToEndKuiperTriangle(unittest.TestCase):
         ]
 
         # --- Execute for t=0 ---
-        result_state_t0 = generate_dynamic_state_at(
+        result_state_t0, _ = generate_dynamic_state_at(
             output_dynamic_state_dir=output_dir,
             epoch=epoch,
             time_since_epoch_ns=0,
@@ -178,6 +179,7 @@ class TestEndToEndKuiperTriangle(unittest.TestCase):
             list_gsl_interfaces_info=list_gsl_interfaces_info,
             dynamic_state_algorithm=dynamic_state_algorithm,
             prev_output=None,
+            prev_topology=None,
         )
 
         # --- Assertions for t=0 ---

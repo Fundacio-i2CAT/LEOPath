@@ -2,12 +2,12 @@
 # FINAL VERSION with TLE fixes & Non-Sequential Test Update
 
 import math
-import unittest
 import pprint  # For printing the actual fstate nicely
+import unittest
 
 import ephem
-from astropy.time import Time
 from astropy import units as astro_units
+from astropy.time import Time
 
 # Modules and classes to test/use
 from src.dynamic_state.generate_dynamic_state import (
@@ -135,7 +135,7 @@ class TestDynamicStateIntegration(unittest.TestCase):
         ]
 
         # --- Execute ---
-        result_state = generate_dynamic_state_at(
+        result_state_dict, result_topology = generate_dynamic_state_at(
             output_dynamic_state_dir=output_dir,
             epoch=epoch,
             time_since_epoch_ns=time_since_epoch_ns,
@@ -145,14 +145,16 @@ class TestDynamicStateIntegration(unittest.TestCase):
             list_gsl_interfaces_info=list_gsl_interfaces_info,
             dynamic_state_algorithm=dynamic_state_algorithm,
             prev_output=prev_output,
+            prev_topology=None,
         )
 
         # --- Assertions ---
-        self.assertIsNotNone(result_state, "generate_dynamic_state_at returned None")
-        self.assertIn("fstate", result_state)
-        self.assertIn("bandwidth", result_state)
+        self.assertIsNotNone(result_state_dict, "generate_dynamic_state_at returned None")
+        self.assertIsNotNone(result_state_dict, "result_state_dict is None")
+        self.assertIn("fstate", result_state_dict)
+        self.assertIn("bandwidth", result_state_dict)
         expected_bandwidth = {i: 1.0 for i in range(8)}
-        self.assertDictEqual(result_state["bandwidth"], expected_bandwidth)
+        self.assertDictEqual(result_state_dict["bandwidth"], expected_bandwidth)
 
         expected_fstate = {  # Expected state based on previous runs/manual calculation
             (0, 4): (1, 0, 0),
@@ -185,7 +187,7 @@ class TestDynamicStateIntegration(unittest.TestCase):
             (7, 6): (-1, -1, -1),
         }
         self.maxDiff = None
-        self.assertDictEqual(result_state["fstate"], expected_fstate)
+        self.assertDictEqual(result_state_dict["fstate"], expected_fstate)
 
     # In tests/dynamic_state/test_generate_dynamic_state_integration.py
 
@@ -320,7 +322,7 @@ class TestDynamicStateIntegration(unittest.TestCase):
         ]
 
         # --- Execute ---
-        result_state = generate_dynamic_state_at(
+        result_state, _ = generate_dynamic_state_at(
             output_dynamic_state_dir=output_dir,
             epoch=epoch,
             time_since_epoch_ns=time_since_epoch_ns,
@@ -330,6 +332,7 @@ class TestDynamicStateIntegration(unittest.TestCase):
             list_gsl_interfaces_info=list_gsl_interfaces_info,
             dynamic_state_algorithm=dynamic_state_algorithm,
             prev_output=prev_output,
+            prev_topology=None,
         )
 
         # --- Assertions ---
@@ -538,18 +541,18 @@ class TestDynamicStateIntegration(unittest.TestCase):
 
         # --- Assertions ---
         self.assertIsNotNone(final_state, "generate_dynamic_state loop returned None")
-        self.assertIsInstance(final_state, dict, "Final state should be a dictionary")
-        self.assertIn("fstate", final_state)
-        self.assertIn("bandwidth", final_state)
+        self.assertIsInstance(final_state, list, "Final state object should be a list")
+        self.assertIn("fstate", final_state[0])
+        self.assertIn("bandwidth", final_state[0])
 
         # Check bandwidth state
         expected_bandwidth = {node_id: 1.0 for node_id in all_node_ids}
         self.assertDictEqual(
-            final_state["bandwidth"], expected_bandwidth, "Final bandwidth state mismatch"
+            final_state[0]["bandwidth"], expected_bandwidth, "Final bandwidth state mismatch"
         )
 
         # Check fstate is not empty
-        self.assertTrue(final_state["fstate"], "Final fstate dictionary is empty")
+        self.assertTrue(final_state[0]["fstate"], "Final fstate dictionary is empty")
 
         expected_final_fstate = {
             (10, 100): (20, 0, 0),
@@ -584,5 +587,5 @@ class TestDynamicStateIntegration(unittest.TestCase):
 
         self.maxDiff = None  # Show full diff on failure
         self.assertDictEqual(
-            final_state["fstate"], expected_final_fstate, "Final fstate mismatch after loop"
+            final_state[0]["fstate"], expected_final_fstate, "Final fstate mismatch after loop"
         )
