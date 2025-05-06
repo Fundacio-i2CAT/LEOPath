@@ -168,7 +168,7 @@ class TestEndToEndRefactored(unittest.TestCase):
 
         # --- Execute and Assert for t=0 ---
         print("\n--- Checking Full State at t=0 ns ---")
-        result_state_t0 = generate_dynamic_state_at(
+        result_state_t0, _ = generate_dynamic_state_at(
             output_dynamic_state_dir=output_dir,
             epoch=epoch,
             time_since_epoch_ns=0,
@@ -178,6 +178,7 @@ class TestEndToEndRefactored(unittest.TestCase):
             list_gsl_interfaces_info=list_gsl_interfaces_info,
             dynamic_state_algorithm=dynamic_state_algorithm,
             prev_output=None,
+            prev_topology=None,  # Added missing argument
         )
 
         self.assertIsNotNone(result_state_t0, "generate_dynamic_state_at returned None at t=0")
@@ -237,7 +238,7 @@ class TestEndToEndRefactored(unittest.TestCase):
             time_since_epoch_ns_int = int(time_ns)
             print(f"\n--- Checking t={time_since_epoch_ns_int} ns (First Hop Only) ---")
 
-            result_state = generate_dynamic_state_at(
+            result_state, _ = generate_dynamic_state_at(
                 output_dynamic_state_dir=output_dir,
                 epoch=epoch,
                 time_since_epoch_ns=time_since_epoch_ns_int,
@@ -247,6 +248,7 @@ class TestEndToEndRefactored(unittest.TestCase):
                 list_gsl_interfaces_info=list_gsl_interfaces_info,
                 dynamic_state_algorithm=dynamic_state_algorithm,
                 prev_output=prev_output,  # Still pass None for prev_output
+                prev_topology=None,  # Added missing argument
             )
 
             self.assertIsNotNone(

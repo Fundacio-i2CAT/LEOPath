@@ -91,5 +91,3 @@ class TestGraphUtils(unittest.TestCase):
         self.assertFalse(
             graph_utils._topologies_are_equal(mock_prev_topo, mock_curr_topo, weight_tolerance=1e-6)
         )
-
-    # Add more tests? e.g., graphs with different numbers of edges/nodes, missing weight attributes...

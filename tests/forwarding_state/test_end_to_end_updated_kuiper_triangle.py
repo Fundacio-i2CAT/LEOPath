@@ -168,7 +168,7 @@ class TestEndToEndKuiperTriangle(unittest.TestCase):
         ]
 
         # --- Execute for t=0 ---
-        result_state_t0 = generate_dynamic_state_at(
+        result_state_t0, _ = generate_dynamic_state_at(
             output_dynamic_state_dir=output_dir,
             epoch=epoch,
             time_since_epoch_ns=0,
@@ -178,6 +178,7 @@ class TestEndToEndKuiperTriangle(unittest.TestCase):
             list_gsl_interfaces_info=list_gsl_interfaces_info,
             dynamic_state_algorithm=dynamic_state_algorithm,
             prev_output=None,
+            prev_topology=None,
         )
 
         # --- Assertions for t=0 ---

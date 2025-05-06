@@ -20,6 +20,7 @@ from .algorithm_free_one_only_over_isls import algorithm_free_one_only_over_isls
 # Import the refactored fstate calculation helper (needed by the algorithm)
 # Ensure this import path is correct relative to generate_dynamic_state.py
 from .fstate_calculation import calculate_fstate_shortest_path_object_no_gs_relay
+from .utils import graph as graph_utils
 
 log = logger.get_logger(__name__)
 
@@ -65,6 +66,7 @@ def generate_dynamic_state(
 
     all_states = []  # **** ADDED: List to store state from each step ****
     prev_output = None  # State from the *previous* step, passed to _at
+    prev_topology = None  # Topology from the *previous* step, initialized to None
     current_step_state = None  # State calculated *in the current* step
     i = 0
 
@@ -80,42 +82,71 @@ def generate_dynamic_state(
     else:
         progress_interval = 1
     log.info(f"Starting dynamic state generation for {max(0, total_iterations):.0f} iterations.")
+    log.info(f"Starting dynamic state generation for {max(0, total_iterations):.0f} iterations.")
+
     # --- Time Loop ---
     for time_since_epoch_ns in range(offset_ns, simulation_end_time_ns, time_step_ns):
         if i % progress_interval == 0:
             log.info(
                 "Progress: calculating for T=%d ns (step %d / %d)"
-                % (time_since_epoch_ns, i + 1, max(1, total_iterations))
+                % (time_since_epoch_ns, i + 1, max(1, int(total_iterations)))
             )
         i += 1
 
         try:
-            # Calculate state for the current time step, passing the previous state
-            current_step_state = generate_dynamic_state_at(
-                output_dynamic_state_dir,
-                epoch,
-                time_since_epoch_ns,
-                constellation_data,
-                ground_stations,
-                undirected_isls,
-                list_gsl_interfaces_info,
-                dynamic_state_algorithm,
-                prev_output, 
+            # Call the function that calculates state at a single time step
+            # Pass prev_topology and receive current_topology back
+            current_output, current_topology = generate_dynamic_state_at(
+                output_dynamic_state_dir=output_dynamic_state_dir,
+                epoch=epoch,
+                time_since_epoch_ns=time_since_epoch_ns,
+                constellation_data=constellation_data,
+                ground_stations=ground_stations,
+                undirected_isls=undirected_isls,
+                list_gsl_interfaces_info=list_gsl_interfaces_info,
+                dynamic_state_algorithm=dynamic_state_algorithm,
+                prev_output=prev_output,
+                prev_topology=prev_topology,  # <--- Pass previous topology
             )
-            all_states.append(current_step_state)  # **** ADDED: Append current state ****
-            if current_step_state is None:
-                log.error(
-                    f"generate_dynamic_state_at returned None at t={time_since_epoch_ns} ns. Stopping."
-                )
-                break
-            # Update prev_output for the *next* iteration
-            prev_output = current_step_state
 
-        except Exception:
+            # Check the state returned
+            if current_output is not None:
+                # Add the timestamp to the state dictionary
+                current_output["time_since_epoch_ns"] = time_since_epoch_ns
+                all_states.append(current_output)  # <--- Append valid state to list
+                # Update previous state and topology for the next iteration
+                prev_output = current_output
+                # Only update prev_topology if the calculation was fully successful
+                # and returned a valid topology object for this step
+                if current_topology is not None:
+                    prev_topology = current_topology
+                else:
+                    # This case should ideally not happen if current_output is not None,
+                    # but as a safeguard, maybe log a warning and don't update prev_topology
+                    log.warning(
+                        f"generate_dynamic_state_at returned valid state but None topology at t={time_since_epoch_ns} ns."
+                    )
+                    # Decide whether to break or continue without topology update
+                    # For safety, let's break if the topology object isn't returned correctly.
+                    # Or perhaps just don't update prev_topology:
+                    # prev_topology = None # Force recalc next time? Risky.
+                    # Best might be to rely on generate_dynamic_state_at returning (None, None)
+                    # if topology calculation failed.
+                    # Let's assume if current_output is not None, current_topology is also not None.
+
+            else:
+                # Handle case where generate_dynamic_state_at returned None for the state
+                log.error(
+                    f"generate_dynamic_state_at returned None state at t={time_since_epoch_ns} ns. Appending None and stopping."
+                )
+                all_states.append(None)  # <--- Append None to indicate failure at this step
+                break  # Stop processing further time steps
+
+        except Exception:  # Catch exceptions raised directly by generate_dynamic_state_at
             log.exception(
-                f"Unhandled error during dynamic state calculation at t={time_since_epoch_ns} ns. Stopping."
+                f"Unhandled error during dynamic state processing at t={time_since_epoch_ns} ns. Stopping."
             )
-            all_states.append(None)  # Append None to indicate error at this step
+            all_states.append(None)  # Append None to indicate error
             break
 
     log.info(f"Dynamic state generation finished. Generated {len(all_states)} states.")
@@ -409,66 +440,95 @@ def generate_dynamic_state_at(
     undirected_isls: list,
     list_gsl_interfaces_info: list,
     dynamic_state_algorithm: str,
-    prev_output: dict | None,
-) -> dict | None:
+    prev_output: dict | None,  # State from previous step
+    prev_topology: LEOTopology | None,  # Topology from previous step
+) -> tuple[dict | None, LEOTopology | None]:  # Return state AND current topology
+    """Calculates state for a single time step, potentially reusing fstate."""
     log.info(f"Generating dynamic state at t={time_since_epoch_ns} ns...")
+    current_topology = None  # Initialize
+    gs_sat_visibility_list = None  # Initialize
     try:
         time_absolute = epoch + time_since_epoch_ns * astro_units.ns
         log.debug(f"  > Absolute time.......... {time_absolute}")
-        topology_with_isls, topology_only_gs = _build_topologies(
-            constellation_data, ground_stations
-        )
+
+        # Build current topology (and ignore the second one returned)
+        current_topology, _ = _build_topologies(constellation_data, ground_stations)
+        # Assign GSL info if not already present (might be redundant if always done in _build_topologies)
         if (
-            not hasattr(topology_with_isls, "gsl_interfaces_info")
-            or not topology_with_isls.gsl_interfaces_info
+            not hasattr(current_topology, "gsl_interfaces_info")
+            or not current_topology.gsl_interfaces_info
         ):
-            topology_with_isls.gsl_interfaces_info = list_gsl_interfaces_info
+            current_topology.gsl_interfaces_info = list_gsl_interfaces_info
 
         log.debug("Computing ISLs...")
-        _compute_isls(topology_with_isls, undirected_isls, time_absolute)
+        _compute_isls(current_topology, undirected_isls, time_absolute)
 
         log.debug("Computing GSL visibility...")
         gs_sat_visibility_list = _compute_ground_station_satellites_in_range(
-            topology_with_isls, time_absolute
+            current_topology, time_absolute
         )
 
     except Exception as e:
         log.exception(
             f"Failed during topology/visibility calculation at t={time_since_epoch_ns} ns: {e}"
         )
-        return None  # Indicate failure for this time step
+        # Return None for state, and None or current_topology depending on where error occurred
+        # Returning None, None is safer if topology might be incomplete.
+        return None, None
 
-    # --- Algorithm Selection and Execution ---
+    # --- Optimization: Check if topology changed ---
+    graphs_changed = not graph_utils._topologies_are_equal(prev_topology, current_topology)
+
     calculated_state = None
-    log.info(f"Calling dynamic state algorithm: {dynamic_state_algorithm}")
-
-    if dynamic_state_algorithm == "algorithm_free_one_only_over_isls":
-        try:
-            calculated_state = algorithm_free_one_only_over_isls(
-                time_since_epoch_ns,
-                constellation_data,
-                ground_stations,
-                topology_with_isls,
-                gs_sat_visibility_list,
-                list_gsl_interfaces_info,
-                prev_output,
+    if not graphs_changed and prev_output is not None:
+        # Reuse previous state if topology hasn't changed and we have a previous state
+        log.debug(f"Topology unchanged at t={time_since_epoch_ns} ns. Reusing previous state.")
+        # Make sure prev_output actually contains 'fstate' and 'bandwidth'
+        if "fstate" in prev_output and "bandwidth" in prev_output:
+            calculated_state = prev_output.copy()  # Shallow copy is usually sufficient
+        else:
+            log.warning(
+                f"Topology unchanged but prev_output is missing keys at t={time_since_epoch_ns} ns. Forcing recalculation."
             )
-        except Exception as e:
-            log.exception(
-                f"Algorithm '{dynamic_state_algorithm}' execution failed at t={time_since_epoch_ns} ns: {e}"
+            graphs_changed = True  # Force recalculation if prev state is malformed
+
+    if (
+        calculated_state is None
+    ):  # Either graphs changed, it's the first step, or prev_output was bad
+        if graphs_changed:
+            log.debug(f"Topology changed at t={time_since_epoch_ns} ns. Recalculating state.")
+        else:  # Must be the first step (prev_output was None) or prev_output was bad
+            log.debug(
+                f"First step or missing keys in prev_output (t={time_since_epoch_ns} ns). Calculating state."
             )
-            return None  # Return None if the known algorithm fails internally
 
-    # Add other algorithms here...
-    # elif dynamic_state_algorithm == "other_algorithm":
-    #     try:
-    #          calculated_state = other_algorithm(...)
-    #     except Exception as e:
-    #          log.exception(...)
-    #          return None
+        # --- Algorithm Selection and Execution ---
+        log.info(f"Calling dynamic state algorithm: {dynamic_state_algorithm}")
 
-    else:
-        raise ValueError(f"Unknown dynamic state algorithm: {dynamic_state_algorithm}")
+        if dynamic_state_algorithm == "algorithm_free_one_only_over_isls":
+            try:
+                # Pass the computed current_topology and visibility list
+                calculated_state = algorithm_free_one_only_over_isls(
+                    time_since_epoch_ns=time_since_epoch_ns,  # Pass time just in case
+                    constellation_data=constellation_data,
+                    ground_stations=ground_stations,
+                    topology_with_isls=current_topology,  # Use the current topology
+                    ground_station_satellites_in_range=gs_sat_visibility_list,  # Use computed visibility
+                    list_gsl_interfaces_info=list_gsl_interfaces_info,
+                    prev_output=prev_output,  # Algorithm might still use previous state info
+                )
+            except Exception as e:
+                log.exception(
+                    f"Algorithm '{dynamic_state_algorithm}' execution failed at t={time_since_epoch_ns} ns: {e}"
+                )
+                # Return None for state, but the current topology was successfully calculated
+                return None, current_topology
+        # TODO ... (elif for other algorithms) ...
+        else:
+            log.error(f"Unknown dynamic state algorithm: {dynamic_state_algorithm}")
+            # Return None for state, but topology was calculated
+            raise ValueError(f"Unknown dynamic state algorithm: {dynamic_state_algorithm}")
 
-    log.info(f"State calculation complete for t={time_since_epoch_ns} ns.")
-    return calculated_state
+    log.info(f"State processing complete for t={time_since_epoch_ns} ns.")
+    # Return the calculated state (new or reused) and the topology used/calculated in this step
+    return calculated_state, current_topology

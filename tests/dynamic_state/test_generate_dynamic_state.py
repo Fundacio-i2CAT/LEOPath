@@ -184,9 +184,6 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
             self.max_gsl_m / 2
         )
 
-    # --- Test Methods ---
-    # (All test methods remain exactly the same as the previous version)
-
     def test_compute_isls_success(self):
         """Test _compute_isls adds edges for valid distances using actual Satellite objects."""
         self.mock_distance_tools.distance_m_between_satellites.return_value = self.max_isl_m - 1000
@@ -349,6 +346,7 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
                 self.list_gsl_interfaces_info,
                 "bad_algorithm",
                 None,
+                None,  # Add prev_topology argument
             )
         self.assertIn("Unknown dynamic state algorithm: bad_algorithm", str(cm.exception))
 
@@ -361,7 +359,15 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
         time_step_ns = 1 * 1_000_000_000
         offset_ns = 1 * 1_000_000_000
         algo_name = "algorithm_free_one_only_over_isls"
-        mock_generate_at.side_effect = ["output_t1", "output_t2"]
+        mock_state_t1 = {"fstate": "dummy_fstate_t1", "bandwidth": "dummy_bw_t1"}
+        mock_state_t2 = {"fstate": "dummy_fstate_t2", "bandwidth": "dummy_bw_t2"}
+        # Dummy topology objects remain the same
+        mock_topo_t1 = MagicMock(name="TopoT1")
+        mock_topo_t2 = MagicMock(name="TopoT2")
+        mock_generate_at.side_effect = [
+            (mock_state_t1, mock_topo_t1),
+            (mock_state_t2, mock_topo_t2),
+        ]
 
         generate_dynamic_state.generate_dynamic_state(
             output_dir,
@@ -376,32 +382,35 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
             algo_name,
         )
 
-        # Assertions use the integer times now
         calls = [
+            # Call for t=1e9 (offset)
             call(
-                output_dir,
-                self.mock_astropy_epoch,
-                offset_ns,  # Expect int
-                self.constellation_data,
-                self.ground_stations,
-                self.undirected_isls,
-                self.list_gsl_interfaces_info,
-                algo_name,
-                None,
+                output_dynamic_state_dir=output_dir,
+                epoch=self.mock_astropy_epoch,
+                time_since_epoch_ns=offset_ns,  # t=1e9
+                constellation_data=self.constellation_data,
+                ground_stations=self.ground_stations,
+                undirected_isls=self.undirected_isls,
+                list_gsl_interfaces_info=self.list_gsl_interfaces_info,
+                dynamic_state_algorithm=algo_name,
+                prev_output=None,
+                prev_topology=None,
             ),
+            # Call for t=2e9
             call(
-                output_dir,
-                self.mock_astropy_epoch,
-                offset_ns + time_step_ns,  # Expect int (result of int + int)
-                self.constellation_data,
-                self.ground_stations,
-                self.undirected_isls,
-                self.list_gsl_interfaces_info,
-                algo_name,
-                "output_t1",
+                output_dynamic_state_dir=output_dir,
+                epoch=self.mock_astropy_epoch,
+                time_since_epoch_ns=offset_ns + time_step_ns,  # t=2e9
+                constellation_data=self.constellation_data,
+                ground_stations=self.ground_stations,
+                undirected_isls=self.undirected_isls,
+                list_gsl_interfaces_info=self.list_gsl_interfaces_info,
+                dynamic_state_algorithm=algo_name,
+                prev_output=mock_state_t1,  # Previous state was the DICT now
+                prev_topology=mock_topo_t1,
             ),
         ]
-        mock_generate_at.assert_has_calls(calls)
+        mock_generate_at.assert_has_calls(calls, any_order=False)
         self.assertEqual(mock_generate_at.call_count, 2)
 
     def test_generate_dynamic_state_invalid_offset(self):
