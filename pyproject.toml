@@ -3,6 +3,13 @@ ignore_missing_imports = true
 
 [tool.coverage.run]
 source = ["livecov"]
+omit = [
+    "src/examples/*",
+    "src/tests/*",
+    "src/__init__.py",
+    "src/post_analysis/*",
+    "src/logger.py",
+]
 
 [tool.pytest.ini_options]
 addopts = "--cov-report xml:cov.xml --cov src"
