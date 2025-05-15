@@ -243,9 +243,9 @@ def run_simulation_many_gs(output_filename="starlink_many_gs_results_with_metada
             "generation_time_utc": ts.now().utc_iso(),
             "max_gsl_length_m": max_gsl_length_m,
             "max_isl_length_m": max_isl_length_m,
-            "tles": tles_in_plane,
-            "ground_stations": gs_defs,
-            "isls": undirected_isls
+            "constellation": constellation_data,
+            "ground_stations": ground_stations,
+            "isls": undirected_isls,
         }
         log.info("Constructed metadata for output.")
         # log.debug(f"Metadata: {metadata}") # Avoid logging potentially large gs_defs
