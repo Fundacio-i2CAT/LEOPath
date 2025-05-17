@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no">
+    <title>Starlink Constellation Visualization</title>
+    <script src="https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/Cesium.js"></script>
+    <link href="https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+    <style>
+        html, body, #cesiumContainer {
+            width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+    <div id="cesiumContainer"></div>
+    <script>
+        window.onload = function() { // Ensures Cesium is loaded before executing code
+            Cesium.Ion.defaultAccessToken = 'YOUR_CESIUM_ION_TOKEN';
+            
+            var viewer = new Cesium.Viewer('cesiumContainer', {
+                skyBox : false,
+                skyAtmosphere: false,
+                baseLayerPicker: false,
+                geocoder: false,
+                homeButton: false,
+                infoBox: false,
+                sceneModePicker: false,
+                navigationHelpButton: false,
+                shouldAnimate : true, // This enables the Cesium clock to run
+                contextOptions : {
+                    webgl: {
+                        alpha: true
+                    }
+                }
+            });
+
+            var scene = viewer.scene;
+            scene.backgroundColor = Cesium.Color.WHITE;
+            scene.highDynamicRange = false;
+            
+            var canvas = viewer.canvas;
+            canvas.setAttribute('tabindex', '0'); // needed to put focus on the canvas
+            canvas.onclick = function() {
+                canvas.focus();
+            };
+            
+            var globe = viewer.scene.globe;
+            globe.imageryLayers.removeAll();
+            globe.baseColor = Cesium.Color.fromCssColorString('#f7fbff');
+
+            // Updated OpenStreetMap Imagery Provider for newer CesiumJS versions
+            var osmImageryProvider = new Cesium.OpenStreetMapImageryProvider({
+                url : 'https://stamen-tiles.a.ssl.fastly.net/toner-background/',
+                credit : 'Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under CC BY SA.'
+            });
+            var tonerLayer = globe.imageryLayers.addImageryProvider(osmImageryProvider);
+            
+            tonerLayer.alpha = 0.3;
+            tonerLayer.brightness = 3.0; // These properties should still work on ImageryLayer
+            tonerLayer.contrast = 0.7;
+
+            // The Python script (visualise_constellation.py) will inject the satellite entities (viz_string) here
+            // viz_string content starts below this line
+// --- End of top.html content ---
