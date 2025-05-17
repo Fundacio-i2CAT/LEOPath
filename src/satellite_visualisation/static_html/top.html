@@ -1,22 +1,26 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no">
-    <title>Starlink Constellation Visualization</title>
-    <script src="https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/Cesium.js"></script>
-    <link href="https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
-    <style>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport"
+            content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no">
+        <title>Starlink Constellation Visualization</title>
+        <script
+            src="https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/Cesium.js"></script>
+        <link
+            href="https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/Widgets/widgets.css"
+            rel="stylesheet">
+        <style>
         html, body, #cesiumContainer {
             width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
         }
     </style>
-</head>
-<body>
-    <div id="cesiumContainer"></div>
-    <script>
-        window.onload = function() { // Ensures Cesium is loaded before executing code
+    </head>
+    <body>
+        <div id="cesiumContainer"></div>
+        <script>
+        window.onload = function() {
             Cesium.Ion.defaultAccessToken = 'YOUR_CESIUM_ION_TOKEN';
             
             var viewer = new Cesium.Viewer('cesiumContainer', {
@@ -28,7 +32,7 @@
                 infoBox: false,
                 sceneModePicker: false,
                 navigationHelpButton: false,
-                shouldAnimate : true, // This enables the Cesium clock to run
+                shouldAnimate : true, 
                 contextOptions : {
                     webgl: {
                         alpha: true
@@ -52,15 +56,14 @@
 
             // Updated OpenStreetMap Imagery Provider for newer CesiumJS versions
             var osmImageryProvider = new Cesium.OpenStreetMapImageryProvider({
-                url : 'https://stamen-tiles.a.ssl.fastly.net/toner-background/',
-                credit : 'Map tiles by Stamen Design, under CC BY 3.0. Data by OpenStreetMap, under CC BY SA.'
+                // No 'url' specified, so it uses the default OSM servers
+                // You can still provide a credit if you wish, or use the default.
+                credit : 'Map tiles by OpenStreetMap contributors, under ODbL.'
             });
-            var tonerLayer = globe.imageryLayers.addImageryProvider(osmImageryProvider);
-            
-            tonerLayer.alpha = 0.3;
-            tonerLayer.brightness = 3.0; // These properties should still work on ImageryLayer
-            tonerLayer.contrast = 0.7;
+            var baseMapLayer = globe.imageryLayers.addImageryProvider(osmImageryProvider); // Correct!
+            // baseMapLayer.alpha = 0.3; 
+            // baseMapLayer.brightness = 3.0; 
+            // baseMapLayer.contrast = 0.7; 
 
             // The Python script (visualise_constellation.py) will inject the satellite entities (viz_string) here
             // viz_string content starts below this line
-// --- End of top.html content ---
