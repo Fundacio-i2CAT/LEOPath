@@ -45,7 +45,7 @@
             scene.highDynamicRange = false;
             
             var canvas = viewer.canvas;
-            canvas.setAttribute('tabindex', '0'); // needed to put focus on the canvas
+            canvas.setAttribute('tabindex', '0');
             canvas.onclick = function() {
                 canvas.focus();
             };
@@ -53,11 +53,7 @@
             var globe = viewer.scene.globe;
             globe.imageryLayers.removeAll();
             globe.baseColor = Cesium.Color.fromCssColorString('#f7fbff');
-
-            // Updated OpenStreetMap Imagery Provider for newer CesiumJS versions
             var osmImageryProvider = new Cesium.OpenStreetMapImageryProvider({
-                // No 'url' specified, so it uses the default OSM servers
-                // You can still provide a credit if you wish, or use the default.
                 credit : 'Map tiles by OpenStreetMap contributors, under ODbL.'
             });
             var baseMapLayer = globe.imageryLayers.addImageryProvider(osmImageryProvider); // Correct!
