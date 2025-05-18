@@ -15,3 +15,15 @@ shells:
     num_sats_per_orb: 72
     inclination_degree: 53.0
     color: "CRIMSON"
+
+ground_stations:
+
+  - name: "GS London"
+    latitude: 51.5074
+    longitude: 0.1278
+    color: "GREEN"
+
+  - name: "GS Cardiff"
+    latitude: 51.4816
+    longitude: -3.1791
+    color: "GREEN"

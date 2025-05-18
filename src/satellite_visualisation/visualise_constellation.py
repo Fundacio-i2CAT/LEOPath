@@ -2,6 +2,7 @@ import math
 import os
 import yaml
 import argparse
+import time
 from src import logger
 
 log = logger.get_logger(__name__)
@@ -30,17 +31,21 @@ DEFAULT_OUT_DIR_NAME = "visualisation_output"
 
 def generate_satellite_trajectories_from_config(config_data):
     """
-    Generates CesiumJS visualization strings for satellites and orbits
+    Generates CesiumJS visualization strings for satellites, orbits, and ground stations
     based on parameters from the configuration data, using direct string concatenation.
-    Satellites will not have labels.
+    Satellites will not have labels by default from previous modification.
+    Ground stations will also not have labels as per the new request.
     """
     viz_string = ""
 
+    # General constellation parameters from config
     epoch = config_data.get("epoch", "2000-01-01 00:00:00")
     eccentricity = config_data.get("eccentricity", 0.0000001)
     arg_of_perigee_degree = config_data.get("arg_of_perigee_degree", 0.0)
     phase_diff = config_data.get("phase_diff", True)
 
+    # Process Satellite Shells
+    viz_string += "// --- Satellite Shell Entities ---\n"
     for shell_idx, shell_config in enumerate(config_data.get("shells", [])):
         shell_name = shell_config.get("name", f"Shell_{shell_idx+1}")
         log.info(f"Processing shell: {shell_name}")
@@ -67,9 +72,7 @@ def generate_satellite_trajectories_from_config(config_data):
         for sat_idx, sat_data in enumerate(sat_objs):
             sat_data["sat_obj"].compute(epoch)
 
-            entity_display_name = (
-                f"{shell_name}_Sat_{sat_idx+1}"  # For potential debugging if infoBox is enabled
-            )
+            entity_display_name = f"{shell_name}_Sat_{sat_idx+1}"
             js_var_name = f"satEntity_{shell_idx}_{sat_idx}"
 
             viz_string += "var " + js_var_name + " = viewer.entities.add({\n"
@@ -127,6 +130,53 @@ def generate_satellite_trajectories_from_config(config_data):
             viz_string += "    }\n"
             viz_string += "});\n"
 
+    # Process Ground Stations
+    if "ground_stations" in config_data and config_data["ground_stations"]:
+        viz_string += "\n// --- Ground Station Entities (No Labels) ---\n"
+        log.info("Processing ground stations...")
+        for gs_idx, gs_data in enumerate(config_data["ground_stations"]):
+            gs_name = gs_data.get("name", f"GroundStation_{gs_idx+1}")
+            # Ensure latitude and longitude are present, otherwise skip or error
+            if "latitude" not in gs_data or "longitude" not in gs_data:
+                log.warning(
+                    f"Skipping ground station '{gs_name}' due to missing latitude/longitude."
+                )
+                continue
+
+            gs_lat = float(gs_data["latitude"])
+            gs_lon = float(gs_data["longitude"])
+            gs_alt_m = float(
+                gs_data.get("altitude_m", 100.0)
+            )  # Default altitude slightly above surface
+            gs_color_str = gs_data.get("color", "BLUE").upper()
+            gs_pixel_size = int(gs_data.get("pixel_size", 10))
+            # gs_label_text = gs_data.get("label_text", gs_name) # Label text no longer used
+
+            js_gs_var_name = f"gsEntity_{gs_idx}"
+
+            viz_string += "var " + js_gs_var_name + " = viewer.entities.add({\n"
+            viz_string += "    name: '" + gs_name + "',\n"  # Keep name for selection/debugging
+            viz_string += (
+                "    position: Cesium.Cartesian3.fromDegrees("
+                + str(gs_lon)
+                + ", "
+                + str(gs_lat)
+                + ", "
+                + str(gs_alt_m)
+                + "),\n"
+            )
+            viz_string += "    point: {\n"
+            viz_string += "        pixelSize: " + str(gs_pixel_size) + ",\n"
+            viz_string += "        color: Cesium.Color." + gs_color_str + ",\n"
+            viz_string += "        outlineColor: Cesium.Color.BLACK,\n"
+            viz_string += "        outlineWidth: 1\n"
+            viz_string += (
+                "    }\n"  # point is now the last property, no comma after its closing brace
+            )
+            # The 'label' property block for ground stations has been removed.
+            viz_string += "});\n"
+        log.info(f"Processed {len(config_data['ground_stations'])} ground station(s).")
+
     return viz_string
 
 
@@ -142,6 +192,7 @@ def write_html_file(viz_string_content, output_dir, html_file_name_base):
             else:
                 log.warning(f"Top HTML file not found: {TOP_HTML_FILE}")
                 writer_html.write("\n")
+
             writer_html.write(viz_string_content)
             writer_html.flush()
             if hasattr(writer_html, "fileno"):
@@ -149,17 +200,20 @@ def write_html_file(viz_string_content, output_dir, html_file_name_base):
                     os.fsync(writer_html.fileno())
                 except OSError as e:
                     log.warning(f"Could not fsync file {output_html_file}: {e}")
+
             if os.path.exists(BOTTOM_HTML_FILE):
                 with open(BOTTOM_HTML_FILE, "r", encoding="utf-8") as fb:
                     writer_html.write(fb.read())
             else:
                 log.warning(f"Bottom HTML file not found: {BOTTOM_HTML_FILE}")
                 writer_html.write("\n")
+
         log.info(f"Successfully wrote visualization to: {output_html_file}")
         print(f"ACTION: HTML file generated at: {output_html_file}")
         print(
             "Please open this file via a local web server (e.g., 'python -m http.server' in project root)."
         )
+
     except IOError as e_io:
         log.error(f"IOError writing HTML file {output_html_file}: {e_io}")
         print(f"IOError writing HTML file {output_html_file}: {e_io}")
@@ -170,7 +224,7 @@ def write_html_file(viz_string_content, output_dir, html_file_name_base):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate CesiumJS visualization for satellite constellations from a YAML configuration."
+        description="Generate CesiumJS visualization for satellite constellations and ground stations from a YAML configuration."
     )
     parser.add_argument(
         "config_file", type=str, help="Path to the YAML configuration file for the constellation."
@@ -181,27 +235,12 @@ def main():
         default=os.path.join(SCRIPT_BASE_DIR, DEFAULT_OUT_DIR_NAME),
         help=(
             f"Directory to save the output HTML file. "
-            f"Default: ./{DEFAULT_OUT_DIR_NAME} (relative to script location or project root if run as module)"
+            f"Default: ./{DEFAULT_OUT_DIR_NAME} (relative to script location)"
         ),
     )
     args = parser.parse_args()
 
-    # Resolve output directory more robustly
-    if os.path.isabs(args.output_dir):
-        abs_output_dir = args.output_dir
-    else:
-        # If script is run with `python -m src.module.script` from project root,
-        # SCRIPT_BASE_DIR will be .../project_root/src/module
-        # A relative args.output_dir would be relative to project_root.
-        # To keep it simple, we can make it relative to current working directory if not absolute
-        # Or, ensure SCRIPT_BASE_DIR is correctly pointing to where visualise_constellation.py is.
-        # Given SCRIPT_BASE_DIR = os.path.dirname(os.path.abspath(__file__)),
-        # default=os.path.join(SCRIPT_BASE_DIR, DEFAULT_OUT_DIR_NAME) IS relative to script location.
-        # We should make user-specified relative paths also relative to CWD or make this clear.
-        # For now, assuming default path is relative to script, and user path is as-is.
-        # The abspath will resolve it based on CWD if it's relative.
-        abs_output_dir = os.path.abspath(args.output_dir)
-
+    abs_output_dir = os.path.abspath(args.output_dir)
     log.info(f"Output directory set to: {abs_output_dir}")
 
     try:
@@ -227,14 +266,23 @@ def main():
     viz_string_generated = generate_satellite_trajectories_from_config(config_data)
 
     if viz_string_generated:
+        # Calculate total number of satellites for logging purposes
         num_sats_total = 0
-        for shell_conf in config_data.get("shells", []):
-            num_sats_total += shell_conf.get("num_orbs", 0) * shell_conf.get("num_sats_per_orb", 0)
+        if "shells" in config_data and config_data["shells"]:
+            for shell_conf in config_data["shells"]:
+                num_sats_total += shell_conf.get("num_orbs", 0) * shell_conf.get(
+                    "num_sats_per_orb", 0
+                )
 
-        log.info(
-            f"Generated visualization string for {constellation_name_from_config} "
-            f"with {num_sats_total} satellites."
-        )
+        log_message = f"Generated visualization string for {constellation_name_from_config}"
+        if num_sats_total > 0:
+            log_message += f" with {num_sats_total} satellites"
+        if "ground_stations" in config_data and config_data["ground_stations"]:
+            num_gs = len(config_data["ground_stations"])
+            if num_gs > 0:
+                log_message += f" and {num_gs} ground station(s)"
+        log.info(log_message + ".")
+
         write_html_file(viz_string_generated, abs_output_dir, constellation_name_from_config)
     else:
         log.warning("No visualization string generated. Check configuration and logs.")
