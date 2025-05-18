@@ -72,32 +72,37 @@ class TestEndToEndWithSyntheticTLEs(unittest.TestCase):
             math.pow(earth_radius + altitude_m, 2) - math.pow(earth_radius + 80000, 2)
         )
         gs_start_id = num_sats_per_orbit
-        GS_MANILA_ID = gs_start_id
-        GS_DALIAN_ID = gs_start_id + 1
-        manila_lat, manila_lon, manila_elv = 14.6042, 120.9822, 0.0
-        manila_x, manila_y, manila_z = geodetic2cartesian(manila_lat, manila_lon, manila_elv)
-        dalian_lat, dalian_lon, dalian_elv = 38.913811, 121.602322, 0.0
-        dalian_x, dalian_y, dalian_z = geodetic2cartesian(dalian_lat, dalian_lon, dalian_elv)
+        GS_LONDON_ID = gs_start_id
+        GS_CARDIFF_ID = gs_start_id + 1
+
+        # Coordinates for London (approx. Charing Cross)
+        london_lat, london_lon, london_elv = 51.5074, -0.1278, 30.0  # Elevation in meters
+        london_x, london_y, london_z = geodetic2cartesian(london_lat, london_lon, london_elv)
+
+        # Coordinates for Cardiff (approx. Cardiff Castle)
+        cardiff_lat, cardiff_lon, cardiff_elv = 51.4816, -3.1791, 10.0  # Elevation in meters
+        cardiff_x, cardiff_y, cardiff_z = geodetic2cartesian(cardiff_lat, cardiff_lon, cardiff_elv)
+
         ground_stations = [
             GroundStation(
-                gid=GS_MANILA_ID,
-                name="Manila",
-                latitude_degrees_str=str(manila_lat),
-                longitude_degrees_str=str(manila_lon),
-                elevation_m_float=manila_elv,
-                cartesian_x=manila_x,
-                cartesian_y=manila_y,
-                cartesian_z=manila_z,
+                gid=GS_LONDON_ID,
+                name="London",
+                latitude_degrees_str=str(london_lat),
+                longitude_degrees_str=str(london_lon),
+                elevation_m_float=london_elv,
+                cartesian_x=london_x,
+                cartesian_y=london_y,
+                cartesian_z=london_z,
             ),
             GroundStation(
-                gid=GS_DALIAN_ID,
-                name="Dalian",
-                latitude_degrees_str=str(dalian_lat),
-                longitude_degrees_str=str(dalian_lon),
-                elevation_m_float=dalian_elv,
-                cartesian_x=dalian_x,
-                cartesian_y=dalian_y,
-                cartesian_z=dalian_z,
+                gid=GS_CARDIFF_ID,
+                name="Cardiff",
+                latitude_degrees_str=str(cardiff_lat),
+                longitude_degrees_str=str(cardiff_lon),
+                elevation_m_float=cardiff_elv,
+                cartesian_x=cardiff_x,
+                cartesian_y=cardiff_y,
+                cartesian_z=cardiff_z,
             ),
         ]
         constellation_data = ConstellationData(
@@ -118,7 +123,8 @@ class TestEndToEndWithSyntheticTLEs(unittest.TestCase):
                 undirected_isls.append((i, i + 1))  # Sat IDs are 0 to N-1
             # if num_sats_per_orbit_gen > 2: # Optional: close the ring
             #     undirected_isls.append((num_sats_per_orbit_gen - 1, 0))
-        gsl_node_ids = list(range(num_sats_per_orbit)) + [GS_MANILA_ID, GS_DALIAN_ID]
+
+        gsl_node_ids = list(range(num_sats_per_orbit)) + [GS_LONDON_ID, GS_CARDIFF_ID]
         list_gsl_interfaces_info = [
             {"id": node_id, "number_of_interfaces": 1, "aggregate_max_bandwidth": 1.0}
             for node_id in gsl_node_ids
@@ -145,13 +151,13 @@ class TestEndToEndWithSyntheticTLEs(unittest.TestCase):
         log.info(fstate_t0)
 
         # --- Define Expected State for t=0 ---
-        # This section requires careful determination.
-        # For num_sats_per_orbit_gen = 2 (Satellites 0, 1) and GS_MANILA_ID=2, GS_DALIAN_ID=3
-        # An example expectation IF Manila can see Sat 0, Sat 0 can ISL to Sat 1, Sat 1 can see Dalian.
+        # This section requires careful determination based on the new GS locations
+        # and satellite positions at t=0.
+        # Example structure (actual values will depend on visibility):
         # expected_fstate_t0_single_orbit = {
-        #    (2, 3): (0, 0, 0),  # Manila (2) -> Sat 0 (IF 0 on Manila, IF 0 on Sat 0 for GSL)
-        #    (0, 3): (1, 0, 0),  # Sat 0 -> Sat 1 (IF 0 on Sat 0 for ISL, IF 0 on Sat 1 for ISL)
-        #    (1, 3): (3, 0, 0)   # Sat 1 -> Dalian (3) (IF 0 on Sat 1 for GSL, IF 0 on Dalian for GSL)
+        #    (GS_LONDON_ID, SAT_ID_VISIBLE_TO_LONDON): (if_gs_london, if_sat_london, 0),
+        #    (SAT_ID_1, SAT_ID_2): (if_sat1_isl, if_sat2_isl, 0), # For an ISL
+        #    (SAT_ID_VISIBLE_TO_CARDIFF, GS_CARDIFF_ID): (if_sat_cardiff, if_gs_cardiff, 0)
         # }
         # You will need to replace this with actual expected values after observing the output.
         # self.assertDictEqual(fstate_t0, expected_fstate_t0_single_orbit, "fstate mismatch for single orbit at t=0")
@@ -159,9 +165,9 @@ class TestEndToEndWithSyntheticTLEs(unittest.TestCase):
         # For now, a very basic check:
         self.assertTrue(isinstance(fstate_t0, dict), "fstate_t0 is not a dictionary.")
         # Add more specific assertions once you observe the output and determine expected behavior.
-        # For example, check if any satellite is connected to Manila if expected:
-        # manila_connected_to_any_sat = any(fstate_t0.get((GS_MANILA_ID, sat.id)) for sat in sim_satellites)
-        # self.assertTrue(manila_connected_to_any_sat, "Manila is not connected to any satellite at t=0")
+        # For example, check if any satellite is connected to London if expected:
+        # london_connected_to_any_sat = any(GS_LONDON_ID == key_tuple[0] or GS_LONDON_ID == key_tuple[1] for key_tuple in fstate_t0.keys())
+        # self.assertTrue(london_connected_to_any_sat, "London is not connected to any satellite at t=0 as per fstate")
 
         # --- Cleanup ---
         # if os.path.exists(tle_output_filename):

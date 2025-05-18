@@ -1,0 +1,49 @@
+constellation_name: "Starlink"
+epoch: "2000-01-01 00:00:00"
+eccentricity: 0.0000001 # Circular orbits are zero, but pyephem does not permit 0
+arg_of_perigee_degree: 0.0
+phase_diff: true
+
+defaults:
+  earth_radius_m: 6378135.0 # WGS72 value
+
+shells:
+  - name: "Starlink Shell 1 (550km)"
+    mean_motion_rev_per_day: 15.19
+    altitude_m: 550000
+    num_orbs: 72
+    num_sats_per_orb: 22
+    inclination_degree: 53.0
+    color: "CRIMSON"
+
+  - name: "Starlink Shell 2 (1110km)"
+    mean_motion_rev_per_day: 13.4
+    altitude_m: 1110000
+    num_orbs: 32
+    num_sats_per_orb: 50
+    inclination_degree: 53.8
+    color: "FORESTGREEN"
+
+  - name: "Starlink Shell 3 (1130km)"
+    mean_motion_rev_per_day: 13.35
+    altitude_m: 1130000
+    num_orbs: 8
+    num_sats_per_orb: 50
+    inclination_degree: 74.0
+    color: "DODGERBLUE"
+
+  - name: "Starlink Shell 4 (1275km)"
+    mean_motion_rev_per_day: 12.97
+    altitude_m: 1275000
+    num_orbs: 5
+    num_sats_per_orb: 75
+    inclination_degree: 81.0
+    color: "PERU"
+
+  - name: "Starlink Shell 5 (1325km)"
+    mean_motion_rev_per_day: 12.84
+    altitude_m: 1325000
+    num_orbs: 6
+    num_sats_per_orb: 75
+    inclination_degree: 70.0
+    color: "BLUEVIOLET"
