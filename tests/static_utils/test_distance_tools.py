@@ -362,8 +362,3 @@ class TestDistanceTools(unittest.TestCase):
         self.assertAlmostEqual(
             calc_straight_dist, straight_shadow_distance_m, delta=20000
         )  # 20km tolerance
-
-
-# Add if __name__ block if necessary
-# if __name__ == '__main__':
-#      unittest.main()

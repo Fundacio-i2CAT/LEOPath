@@ -56,7 +56,7 @@
             var osmImageryProvider = new Cesium.OpenStreetMapImageryProvider({
                 credit : 'Map tiles by OpenStreetMap contributors, under ODbL.'
             });
-            var baseMapLayer = globe.imageryLayers.addImageryProvider(osmImageryProvider); // Correct!
+            var baseMapLayer = viewer.imageryLayers.addImageryProvider(osmImageryProvider); // Correct!
             // baseMapLayer.alpha = 0.3; 
             // baseMapLayer.brightness = 3.0; 
             // baseMapLayer.contrast = 0.7; 
