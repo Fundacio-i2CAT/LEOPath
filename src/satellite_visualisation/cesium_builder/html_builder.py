@@ -7,6 +7,8 @@ log = logger.get_logger(__name__)
 def write_html_file(
     viz_string_content, output_dir, html_file_name_base, top_html_file, bottom_html_file
 ):
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_dir = os.path.join(script_dir, "visualisation_output")
     os.makedirs(output_dir, exist_ok=True)
     output_html_file = os.path.join(output_dir, f"{html_file_name_base.replace(' ', '_')}.html")
     log.info(f"Attempting to write HTML file to: {output_html_file}")
