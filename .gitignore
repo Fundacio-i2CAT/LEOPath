@@ -9,3 +9,4 @@ cov.xml
 *.log
 *.pkl
 visualisation_output
+*.tmp
