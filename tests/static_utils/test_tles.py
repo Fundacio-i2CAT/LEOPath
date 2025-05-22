@@ -137,8 +137,8 @@ class TestTles(unittest.TestCase):
             )
 
         # Finally remove the temporary files
-        os.remove("tles_manual.txt.tmp")
-        os.remove("tles_sgp.txt.tmp")
+        # os.remove("tles_manual.txt.tmp")
+        # os.remove("tles_sgp.txt.tmp")
 
     def test_tles_generation_kuiper_starlink_telesat(self):
 
