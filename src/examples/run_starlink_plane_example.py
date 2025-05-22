@@ -14,11 +14,9 @@ from astropy.time import Time
 from src import logger
 from src.distance_tools import geodetic2cartesian
 
-# Import necessary components from your src directory
 from src.dynamic_state.generate_dynamic_state import generate_dynamic_state
 from src.dynamic_state.topology import ConstellationData, GroundStation, Satellite
 
-# --- Configure Logging ---
 log = logger.get_logger(__name__)
 logging.basicConfig(
     level=logging.INFO,
@@ -35,8 +33,6 @@ def run_simulation():
     of Starlink satellites and two ground stations over one orbital period.
     """
     log.info("--- Setting up Single Plane Simulation ---")
-
-    # --- Simulation Parameters ---
     tle_epoch_str = "25112.58592294"
     epoch = Time(2025, format="jyear") + (112.58592294 - 1) * astro_units.day
     log.info(f"Using TLE Epoch: {tle_epoch_str}")

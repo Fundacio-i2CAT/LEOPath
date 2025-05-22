@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport"
+            content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no">
+        <title>Starlink Constellation Visualization</title>
+        <script
+            src="https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/Cesium.js"></script>
+        <link
+            href="https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/Widgets/widgets.css"
+            rel="stylesheet">
+        <style>
+        html, body, #cesiumContainer {
+            width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
+        }
+    </style>
+    </head>
+    <body>
+        <div id="cesiumContainer"></div>
+        <script>
+        window.onload = function() {
+            Cesium.Ion.defaultAccessToken = 'YOUR_CESIUM_ION_TOKEN';
+            
+            var viewer = new Cesium.Viewer('cesiumContainer', {
+                skyBox : false,
+                skyAtmosphere: false,
+                baseLayerPicker: false,
+                geocoder: false,
+                homeButton: false,
+                infoBox: false,
+                sceneModePicker: false,
+                navigationHelpButton: false,
+                shouldAnimate : true, 
+                contextOptions : {
+                    webgl: {
+                        alpha: true
+                    }
+                }
+            });
+
+            var scene = viewer.scene;
+            scene.backgroundColor = Cesium.Color.WHITE;
+            scene.highDynamicRange = false;
+            
+            var canvas = viewer.canvas;
+            canvas.setAttribute('tabindex', '0');
+            canvas.onclick = function() {
+                canvas.focus();
+            };
+            
+            var globe = viewer.scene.globe;
+            globe.imageryLayers.removeAll();
+            globe.baseColor = Cesium.Color.fromCssColorString('#f7fbff');
+            var osmImageryProvider = new Cesium.OpenStreetMapImageryProvider({
+                credit : 'Map tiles by OpenStreetMap contributors, under ODbL.'
+            });
+            var baseMapLayer = viewer.imageryLayers.addImageryProvider(osmImageryProvider); // Correct!
+            // baseMapLayer.alpha = 0.3; 
+            // baseMapLayer.brightness = 3.0; 
+            // baseMapLayer.contrast = 0.7; 
+
+            // The Python script (visualise_constellation.py) will inject the satellite entities (viz_string) here
+            // viz_string content starts below this line

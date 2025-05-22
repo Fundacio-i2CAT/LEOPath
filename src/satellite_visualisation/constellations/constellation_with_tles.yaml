@@ -1,0 +1,15 @@
+constellation_name: "Satrlink from Synthetic TLEs"
+epoch: "2024-05-19 12:00:00"
+
+tle_files:
+  - path: "tles/starlink_sgp.txt"
+    orbit_color: "BLACK"
+    satellite_marker_color: "RED"
+    satellite_marker_size: 5
+    name_prefix: "StarlinkTLE"
+
+ground_stations:
+  - name: "My Ground Base"
+    latitude: 40.0
+    longitude: -3.0
+    color: "DODGERBLUE"

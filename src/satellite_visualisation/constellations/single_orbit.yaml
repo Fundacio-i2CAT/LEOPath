@@ -1,0 +1,50 @@
+constellation_name: "Single Orbit Constellation"
+epoch: "2000-01-01 00:00:00"
+eccentricity: 0.0000001 # Circular orbits are zero, but pyephem does not permit 0
+arg_of_perigee_degree: 0.0
+phase_diff: true
+
+defaults:
+  earth_radius_m: 6378135.0 # WGS72 value
+
+# shells:
+#   - name: "Shell 1 (550 km)"
+#     mean_motion_rev_per_day: 15.19
+#     altitude_m: 550000
+#     num_orbs: 3
+#     num_sats_per_orb: 72
+#     inclination_degree: 53.0
+#     color: "CRIMSON"
+
+tle_files:
+  - path: "tles/single_orbit.txt"
+    orbit_color: "BLACK"
+    satellite_marker_color: "RED"
+    satellite_marker_size: 5
+    name_prefix: "StarlinkTLE"
+
+ground_stations:
+  - name: "GS London"
+    latitude: 51.5074
+    longitude: 0.1278
+    color: "GREEN"
+
+  # - name: "GS Cardiff"
+  #   latitude: 51.4816
+  #   longitude: -3.1791
+  #   color: "GREEN"
+
+  # - name: "GS Johannesburg"
+  #   latitude: -26.2041
+  #   longitude: 28.0473
+  #   color: "BLUE"
+
+  # - name: "GS Shiraz"
+  #   latitude: 29.5918
+  #   longitude: 52.5837
+  #   color: "ORANGEs"
+
+  - name: "GS Perth"
+    latitude: -31.9505
+    longitude: 115.8605
+    color: "ORANGE"
