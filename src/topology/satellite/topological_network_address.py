@@ -11,9 +11,6 @@ log = logger.get_logger(__name__)
 # number of bits required for each component in the bit-packing serialization
 # (`to_integer` method).
 #
-# --- PLEASE REVIEW AND ADJUST THESE VALUES based on the maximum scale ---
-# --- anticipated for your specific simulations. ---
-#
 # Reasoning for estimates is based on public info for LEO constellations
 # (Starlink, Kuiper, OneWeb, etc.) as of early 2025, plus headroom.
 # ------------------------------------------------------------------------------
@@ -162,3 +159,4 @@ class TopologicalNetworkAddress:
     def __str__(self) -> str:
         kind = "Sat" if self.is_satellite else f"GS[{self.subnet_index}]"
         return f"TopoAddr(sh:{self.shell_id}, o:{self.plane_id}, s:{self.sat_index}, x:{kind})"
+Satellite(
