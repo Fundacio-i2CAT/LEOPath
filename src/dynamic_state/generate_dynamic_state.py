@@ -36,7 +36,7 @@ def generate_dynamic_state(
     undirected_isls: list,
     list_gsl_interfaces_info: list,
     dynamic_state_algorithm: str,
-) -> list[dict | None]:
+) -> list[dict]:
     """
     Generates dynamic state over a simulation period.
     Returns a list containing the state calculated at each time step.
@@ -133,14 +133,14 @@ def generate_dynamic_state(
                 log.error(
                     f"generate_dynamic_state_at returned None state at t={time_since_epoch_ns} ns. Appending None and stopping."
                 )
-                all_states.append(None)  # <--- Append None to indicate failure at this step
+                all_states.append({"error": "State calculation failed."})
                 break  # Stop processing further time steps
 
         except Exception:  # Catch exceptions raised directly by generate_dynamic_state_at
             log.exception(
                 f"Unhandled error during dynamic state processing at t={time_since_epoch_ns} ns. Stopping."
             )
-            all_states.append(None)  # Append None to indicate error
+            all_states.append({"error": "Unhandled exception occurred."})
             break
 
     log.info(f"Dynamic state generation finished. Generated {len(all_states)} states.")
