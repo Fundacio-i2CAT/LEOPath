@@ -1,7 +1,7 @@
 import math
 
 from src import logger
-from src.dynamic_state.topology import LEOTopology
+from src.topology.topology import LEOTopology
 
 log = logger.get_logger(__name__)
 

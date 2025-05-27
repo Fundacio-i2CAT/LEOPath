@@ -21,7 +21,6 @@
 # SOFTWARE.
 
 import math
-import os
 import unittest
 
 import ephem

@@ -6,7 +6,7 @@ import networkx as nx
 import numpy as np  # Import numpy for inf checking
 
 from src import logger  # Optional: if logging is desired
-from src.dynamic_state.topology import GroundStation, LEOTopology, Satellite
+from src.topology.topology import GroundStation, LEOTopology, Satellite
 
 log = logger.get_logger(__name__)  # Optional
 

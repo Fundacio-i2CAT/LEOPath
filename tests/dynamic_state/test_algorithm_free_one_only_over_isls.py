@@ -8,12 +8,11 @@ import ephem  # For mocking spec
 # Function/Module to test
 from src.dynamic_state import algorithm_free_one_only_over_isls
 
-# Dependencies needed for test setup
-from src.dynamic_state.topology import (
+from src.topology.satellite.satellite import Satellite
+from src.topology.topology import (
     ConstellationData,
     GroundStation,
     LEOTopology,
-    Satellite,
 )
 
 

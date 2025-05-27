@@ -17,7 +17,7 @@ try:
     from src import logger
     from src.distance_tools import geodetic2cartesian
     from src.dynamic_state.generate_dynamic_state import generate_dynamic_state
-    from src.dynamic_state.topology import ConstellationData, GroundStation, Satellite
+    from src.topology.topology import ConstellationData, GroundStation, Satellite
 except ImportError as e:
     print(f"Error importing necessary modules: {e}")
     print("Please ensure your PYTHONPATH is set correctly or run from the project root.")

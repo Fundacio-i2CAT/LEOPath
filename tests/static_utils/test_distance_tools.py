@@ -21,7 +21,7 @@ from src.distance_tools import (
 )
 
 # Import necessary classes from topology
-from src.dynamic_state.topology import GroundStation, Satellite
+from src.topology.topology import GroundStation, Satellite
 
 # Import GS reader (adjust path if needed)
 # IMPORTANT: Assume this now returns a list of GroundStation objects

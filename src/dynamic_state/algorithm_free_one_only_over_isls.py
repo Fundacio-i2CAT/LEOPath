@@ -4,7 +4,7 @@
 # ... (License remains the same) ...
 
 from src import logger
-from src.dynamic_state.topology import ConstellationData, GroundStation, LEOTopology
+from src.topology.topology import ConstellationData, GroundStation, LEOTopology
 
 # --- Assume fstate_calculation is refactored ---
 # We expect a function like calculate_fstate_shortest_path_object

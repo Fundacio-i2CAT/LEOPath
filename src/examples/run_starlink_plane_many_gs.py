@@ -15,7 +15,7 @@ from src.distance_tools import geodetic2cartesian
 
 # Import necessary components from your src directory
 from src.dynamic_state.generate_dynamic_state import generate_dynamic_state
-from src.dynamic_state.topology import ConstellationData, GroundStation, Satellite
+from src.topology.topology import ConstellationData, GroundStation, Satellite
 
 # --- Configure Logging ---
 log = logger.get_logger(__name__)

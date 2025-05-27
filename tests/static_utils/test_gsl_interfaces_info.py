@@ -23,16 +23,15 @@
 import os
 import unittest
 
-import src
+
+from src.interfaces import generate_simple_gsl_interfaces_info, read_gsl_interfaces_info
 
 
 class TestGslInterfacesInfo(unittest.TestCase):
 
     def test_simple(self):
-        src.generate_simple_gsl_interfaces_info(
-            "gsl_interfaces_info.txt.tmp", 33, 55, 3, 5, 7.0, 10.0
-        )
-        gsl_interfaces_info = src.read_gsl_interfaces_info("gsl_interfaces_info.txt.tmp", 33, 55)
+        generate_simple_gsl_interfaces_info("gsl_interfaces_info.txt.tmp", 33, 55, 3, 5, 7.0, 10.0)
+        gsl_interfaces_info = read_gsl_interfaces_info("gsl_interfaces_info.txt.tmp", 33, 55)
         self.assertEqual(33 + 55, len(gsl_interfaces_info))
         for i in range(33 + 55):
             if i < 33:
@@ -49,7 +48,7 @@ class TestGslInterfacesInfo(unittest.TestCase):
         with open("gsl_interfaces_info.txt.tmp", "w+") as f_out:
             f_out.write("0,5,10.0\n")
             f_out.write("1,7,9.0\n")
-        gsl_interfaces_info = src.read_gsl_interfaces_info("gsl_interfaces_info.txt.tmp", 1, 1)
+        gsl_interfaces_info = read_gsl_interfaces_info("gsl_interfaces_info.txt.tmp", 1, 1)
         self.assertEqual(2, len(gsl_interfaces_info))
         self.assertEqual(gsl_interfaces_info[0]["number_of_interfaces"], 5)
         self.assertEqual(gsl_interfaces_info[0]["aggregate_max_bandwidth"], 10.0)
@@ -63,7 +62,7 @@ class TestGslInterfacesInfo(unittest.TestCase):
         with open("gsl_interfaces_info.temp.txt", "w+") as f_out:
             f_out.write("0,0,2.0")
         try:
-            src.read_gsl_interfaces_info("gsl_interfaces_info.temp.txt", 1, 0)
+            read_gsl_interfaces_info("gsl_interfaces_info.temp.txt", 1, 0)
             self.fail()
         except ValueError:
             self.assertTrue(True)
@@ -74,7 +73,7 @@ class TestGslInterfacesInfo(unittest.TestCase):
             f_out.write("0,5,10.0\n")
             f_out.write("1,7,9.0\n")
         try:
-            src.read_gsl_interfaces_info("gsl_interfaces_info.temp.txt", 1, 2)
+            read_gsl_interfaces_info("gsl_interfaces_info.temp.txt", 1, 2)
             self.fail()
         except ValueError:
             self.assertTrue(True)
@@ -85,7 +84,7 @@ class TestGslInterfacesInfo(unittest.TestCase):
             f_out.write("1,5,10.0\n")
             f_out.write("2,7,9.0\n")
         try:
-            src.read_gsl_interfaces_info("gsl_interfaces_info.temp.txt", 1, 1)
+            read_gsl_interfaces_info("gsl_interfaces_info.temp.txt", 1, 1)
             self.fail()
         except ValueError:
             self.assertTrue(True)
@@ -96,7 +95,7 @@ class TestGslInterfacesInfo(unittest.TestCase):
             f_out.write("0,5,10.0,2\n")
             f_out.write("1,7,9.0\n")
         try:
-            src.read_gsl_interfaces_info("gsl_interfaces_info.temp.txt", 1, 1)
+            read_gsl_interfaces_info("gsl_interfaces_info.temp.txt", 1, 1)
             self.fail()
         except ValueError:
             self.assertTrue(True)
@@ -106,7 +105,7 @@ class TestGslInterfacesInfo(unittest.TestCase):
         with open("gsl_interfaces_info.temp.txt", "w+") as f_out:
             f_out.write("0,1,-2.0")
         try:
-            src.read_gsl_interfaces_info("gsl_interfaces_info.temp.txt", 1, 0)
+            read_gsl_interfaces_info("gsl_interfaces_info.temp.txt", 1, 0)
             self.fail()
         except ValueError:
             self.assertTrue(True)
@@ -116,7 +115,7 @@ class TestGslInterfacesInfo(unittest.TestCase):
         with open("gsl_interfaces_info.temp.txt", "w+") as f_out:
             f_out.write("0,1,0.0")
         try:
-            src.read_gsl_interfaces_info("gsl_interfaces_info.temp.txt", 1, 0)
+            read_gsl_interfaces_info("gsl_interfaces_info.temp.txt", 1, 0)
             self.fail()
         except ValueError:
             self.assertTrue(True)

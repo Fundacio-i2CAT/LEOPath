@@ -7,12 +7,12 @@ from src.tles.read_tles import read_tles  # You might need to ensure this is acc
 from src.tles.read_tles import (
     read_tles,
 )
+from src.topology.satellite.satellite import Satellite
 
 from src.dynamic_state.generate_dynamic_state import generate_dynamic_state_at
-from src.dynamic_state.topology import (
+from src.topology.topology import (
     ConstellationData,
     GroundStation,
-    Satellite,
 )
 from src.distance_tools import geodetic2cartesian
 

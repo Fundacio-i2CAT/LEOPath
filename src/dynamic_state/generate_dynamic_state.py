@@ -12,13 +12,10 @@ from astropy.time import Time
 from src import distance_tools, logger
 
 # Import necessary classes from topology module
-from src.dynamic_state.topology import ConstellationData, GroundStation, LEOTopology, Satellite
+from src.topology.topology import ConstellationData, GroundStation, LEOTopology, Satellite
 
 # Import the specific algorithm function(s) needed
 from .algorithm_free_one_only_over_isls import algorithm_free_one_only_over_isls
-
-# Import the refactored fstate calculation helper (needed by the algorithm)
-# Ensure this import path is correct relative to generate_dynamic_state.py
 from .fstate_calculation import calculate_fstate_shortest_path_object_no_gs_relay
 from .utils import graph as graph_utils
 
@@ -36,7 +33,7 @@ def generate_dynamic_state(
     undirected_isls: list,
     list_gsl_interfaces_info: list,
     dynamic_state_algorithm: str,
-) -> list[dict | None]:
+) -> list[dict]:
     """
     Generates dynamic state over a simulation period.
     Returns a list containing the state calculated at each time step.
@@ -64,12 +61,10 @@ def generate_dynamic_state(
     if offset_ns % time_step_ns != 0:
         raise ValueError("Offset must be a multiple of time_step_ns")
 
-    all_states = []  # **** ADDED: List to store state from each step ****
-    prev_output = None  # State from the *previous* step, passed to _at
-    prev_topology = None  # Topology from the *previous* step, initialized to None
-    current_step_state = None  # State calculated *in the current* step
+    all_states = []
+    prev_output = None
+    prev_topology = None
     i = 0
-
     # --- Calculate iterations and progress interval ---
     if time_step_ns <= 0:
         total_iterations = 0
@@ -82,9 +77,6 @@ def generate_dynamic_state(
     else:
         progress_interval = 1
     log.info(f"Starting dynamic state generation for {max(0, total_iterations):.0f} iterations.")
-    log.info(f"Starting dynamic state generation for {max(0, total_iterations):.0f} iterations.")
-
-    # --- Time Loop ---
     for time_since_epoch_ns in range(offset_ns, simulation_end_time_ns, time_step_ns):
         if i % progress_interval == 0:
             log.info(
@@ -133,20 +125,19 @@ def generate_dynamic_state(
                     # Best might be to rely on generate_dynamic_state_at returning (None, None)
                     # if topology calculation failed.
                     # Let's assume if current_output is not None, current_topology is also not None.
-
             else:
                 # Handle case where generate_dynamic_state_at returned None for the state
                 log.error(
                     f"generate_dynamic_state_at returned None state at t={time_since_epoch_ns} ns. Appending None and stopping."
                 )
-                all_states.append(None)  # <--- Append None to indicate failure at this step
+                all_states.append({"error": "State calculation failed."})
                 break  # Stop processing further time steps
 
         except Exception:  # Catch exceptions raised directly by generate_dynamic_state_at
             log.exception(
                 f"Unhandled error during dynamic state processing at t={time_since_epoch_ns} ns. Stopping."
             )
-            all_states.append(None)  # Append None to indicate error
+            all_states.append({"error": "Unhandled exception occurred."})
             break
 
     log.info(f"Dynamic state generation finished. Generated {len(all_states)} states.")
@@ -478,7 +469,6 @@ def generate_dynamic_state_at(
 
     # --- Optimization: Check if topology changed ---
     graphs_changed = not graph_utils._topologies_are_equal(prev_topology, current_topology)
-
     calculated_state = None
     if not graphs_changed and prev_output is not None:
         # Reuse previous state if topology hasn't changed and we have a previous state
@@ -502,7 +492,6 @@ def generate_dynamic_state_at(
                 f"First step or missing keys in prev_output (t={time_since_epoch_ns} ns). Calculating state."
             )
 
-        # --- Algorithm Selection and Execution ---
         log.info(f"Calling dynamic state algorithm: {dynamic_state_algorithm}")
 
         if dynamic_state_algorithm == "algorithm_free_one_only_over_isls":
@@ -523,12 +512,9 @@ def generate_dynamic_state_at(
                 )
                 # Return None for state, but the current topology was successfully calculated
                 return None, current_topology
-        # TODO ... (elif for other algorithms) ...
         else:
             log.error(f"Unknown dynamic state algorithm: {dynamic_state_algorithm}")
-            # Return None for state, but topology was calculated
             raise ValueError(f"Unknown dynamic state algorithm: {dynamic_state_algorithm}")
 
     log.info(f"State processing complete for t={time_since_epoch_ns} ns.")
-    # Return the calculated state (new or reused) and the topology used/calculated in this step
     return calculated_state, current_topology

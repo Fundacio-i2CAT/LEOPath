@@ -28,7 +28,7 @@ from geopy.distance import great_circle  # Keep existing imports
 from src import logger
 
 # Import your Satellite class definition (adjust path if necessary)
-from src.dynamic_state.topology import GroundStation, Satellite
+from src.topology.topology import GroundStation, Satellite
 
 log = logger.get_logger(__name__)
 

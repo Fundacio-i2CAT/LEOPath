@@ -24,8 +24,8 @@ import os
 import unittest
 
 import src
-from src.dynamic_state.topology import GroundStation
-from src.ground_stations import read_ground_stations_basic
+from src.topology.topology import GroundStation
+from src.ground_stations import read_ground_stations_basic, read_ground_stations_extended
 
 
 class TestGroundStations(unittest.TestCase):
@@ -37,7 +37,6 @@ class TestGroundStations(unittest.TestCase):
         gs_content = "0,abc,33.0,11.0,77.0"
         with open(gs_file, "w+") as f_out:
             f_out.write(gs_content)
-
         try:
             ground_stations = read_ground_stations_basic(gs_file)  # Assuming fixed version
             self.assertEqual(1, len(ground_stations))
@@ -45,16 +44,11 @@ class TestGroundStations(unittest.TestCase):
                 isinstance(ground_stations[0], GroundStation),
                 "Did not return a GroundStation object",
             )
-
-            # Check basic attributes
-            self.assertEqual(0, ground_stations[0].id)  # Use .id now
+            self.assertEqual(0, ground_stations[0].id)
             self.assertEqual("abc", ground_stations[0].name)
             self.assertEqual("33.0", ground_stations[0].latitude_degrees_str)
             self.assertEqual("11.0", ground_stations[0].longitude_degrees_str)
             self.assertEqual(77.0, ground_stations[0].elevation_m_float)
-
-            # **** FIXED ASSERTION ****
-            # The object SHOULD now have cartesian coordinates because the reader calculates them.
             self.assertTrue(
                 hasattr(ground_stations[0], "cartesian_x"),
                 "GroundStation object missing cartesian_x",
@@ -67,7 +61,6 @@ class TestGroundStations(unittest.TestCase):
                 hasattr(ground_stations[0], "cartesian_z"),
                 "GroundStation object missing cartesian_z",
             )
-
             # Optional: Add a check for non-None or approximate value if geodetic2cartesian is reliable
             self.assertIsNotNone(ground_stations[0].cartesian_x)
             # Example (rough check based on lat/lon - replace with actual expected values if needed):
@@ -84,14 +77,14 @@ class TestGroundStations(unittest.TestCase):
         # Empty
         with open("ground_stations.temp.txt", "w+") as f_out:
             f_out.write("")
-        self.assertEqual(0, len(src.read_ground_stations_basic("ground_stations.temp.txt")))
+        self.assertEqual(0, len(read_ground_stations_basic("ground_stations.temp.txt")))
         os.remove("ground_stations.temp.txt")
 
         # Two lines
         with open("ground_stations.temp.txt", "w+") as f_out:
             f_out.write("0,abc,33,11,5\n")
             f_out.write("1,abc,33,11,5")
-        self.assertEqual(2, len(src.read_ground_stations_basic("ground_stations.temp.txt")))
+        self.assertEqual(2, len(read_ground_stations_basic("ground_stations.temp.txt")))
         os.remove("ground_stations.temp.txt")
 
     def test_ground_stations_invalid(self):
@@ -100,7 +93,7 @@ class TestGroundStations(unittest.TestCase):
         with open("ground_stations.temp.txt", "w+") as f_out:
             f_out.write("0,abc,33,11")
         try:
-            src.read_ground_stations_basic("ground_stations.temp.txt")
+            read_ground_stations_basic("ground_stations.temp.txt")
             self.fail()
         except ValueError:
             self.assertTrue(True)
@@ -111,7 +104,7 @@ class TestGroundStations(unittest.TestCase):
             f_out.write("0,abc,33,11,5\n")
             f_out.write("0,abc,33,11,5")
         try:
-            src.read_ground_stations_basic("ground_stations.temp.txt")
+            read_ground_stations_basic("ground_stations.temp.txt")
             self.fail()
         except ValueError:
             self.assertTrue(True)
@@ -121,7 +114,7 @@ class TestGroundStations(unittest.TestCase):
         with open("ground_stations_extended.temp.txt", "w+") as f_out:
             f_out.write("0,abc,33,11,2,3,3")
         try:
-            src.read_ground_stations_extended("ground_stations_extended.temp.txt")
+            read_ground_stations_extended("ground_stations_extended.temp.txt")
             self.fail()
         except ValueError:
             self.assertTrue(True)
@@ -132,7 +125,7 @@ class TestGroundStations(unittest.TestCase):
             f_out.write("0,abc,33,11,5,2,3,3\n")
             f_out.write("0,abc,33,11,5,2,3,3")
         try:
-            src.read_ground_stations_extended("ground_stations_extended.temp.txt")
+            read_ground_stations_extended("ground_stations_extended.temp.txt")
             self.fail()
         except ValueError:
             self.assertTrue(True)

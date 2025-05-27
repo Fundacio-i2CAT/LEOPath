@@ -9,12 +9,11 @@ import networkx as nx
 # Function to test
 from src.dynamic_state.fstate_calculation import calculate_fstate_shortest_path_object_no_gs_relay
 
-# Classes needed for setup
-from src.dynamic_state.topology import (
+from src.topology.satellite.satellite import Satellite
+from src.topology.topology import (
     ConstellationData,
     GroundStation,
     LEOTopology,
-    Satellite,
 )
 
 

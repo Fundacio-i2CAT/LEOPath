@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 from src.distance_tools import geodetic2cartesian
-from src.dynamic_state.topology import GroundStation
+from src.topology.topology import GroundStation
 
 
 def read_ground_stations_basic(filename_ground_stations_basic: str) -> list[GroundStation]:

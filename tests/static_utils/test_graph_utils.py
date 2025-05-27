@@ -1,7 +1,7 @@
 import networkx as nx
 import pytest
 
-from src.dynamic_state.topology import GroundStation, Satellite
+from src.topology.topology import GroundStation, Satellite
 from src.dynamic_state.utils.graph import validate_no_satellite_to_gs_links
 
 

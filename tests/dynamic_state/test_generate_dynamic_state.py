@@ -18,13 +18,11 @@ log = logger.get_logger(__name__)
 # --- Import the module(s) under test ---
 from src.dynamic_state import generate_dynamic_state
 
-# --- Import actual classes from topology ---
-from src.dynamic_state.topology import (
+from src.topology.satellite.satellite import Satellite
+from src.topology.topology import (
     ConstellationData,
     GroundStation,
     LEOTopology,
-    Satellite,
-    SatelliteEphemeris,
 )
 
 # --- Import logger if tests need to configure it ---

@@ -27,13 +27,14 @@ from math import floor
 import exputil
 
 import src
+from src.isls import read_isls, generate_empty_isls, generate_plus_grid_isls
 
 
 class TestIsls(unittest.TestCase):
 
     def test_isls_empty(self):
-        src.generate_empty_isls("isls_empty.txt.tmp")
-        isls_list = src.read_isls("isls_empty.txt.tmp", 0)
+        generate_empty_isls("isls_empty.txt.tmp")
+        isls_list = read_isls("isls_empty.txt.tmp", 0)
         self.assertEqual(0, len(isls_list))
         os.remove("isls_empty.txt.tmp")
 
@@ -42,8 +43,8 @@ class TestIsls(unittest.TestCase):
             num_orbits = values[0]
             num_sat_per_orbit = values[1]
             isl_shift = values[2]
-            src.generate_plus_grid_isls("isls.txt.tmp", num_orbits, num_sat_per_orbit, isl_shift)
-            isls_list = src.read_isls("isls.txt.tmp", num_orbits * num_sat_per_orbit)
+            generate_plus_grid_isls("isls.txt.tmp", num_orbits, num_sat_per_orbit, isl_shift)
+            isls_list = read_isls("isls.txt.tmp", num_orbits * num_sat_per_orbit)
             os.remove("isls.txt.tmp")
             self.assertEqual(len(isls_list), num_orbits * num_sat_per_orbit * 2)
             self.assertEqual(len(set(isls_list)), num_orbits * num_sat_per_orbit * 2)
@@ -74,19 +75,19 @@ class TestIsls(unittest.TestCase):
 
     def test_isls_plus_grid_invalid(self):
         try:
-            src.generate_plus_grid_isls("isls.txt.tmp", 2, 2, 0)
+            generate_plus_grid_isls("isls.txt.tmp", 2, 2, 0)
             self.fail()
         except ValueError:
             self.assertTrue(True)
 
         try:
-            src.generate_plus_grid_isls("isls.txt.tmp", 3, 2, 0)
+            generate_plus_grid_isls("isls.txt.tmp", 3, 2, 0)
             self.fail()
         except ValueError:
             self.assertTrue(True)
 
         try:
-            src.generate_plus_grid_isls("isls.txt.tmp", 1, 1, 0)
+            generate_plus_grid_isls("isls.txt.tmp", 1, 1, 0)
             self.fail()
         except ValueError:
             self.assertTrue(True)
@@ -97,7 +98,7 @@ class TestIsls(unittest.TestCase):
         # Invalid left index
         local_shell.write_file("isls.txt.tmp", "2 3\n5 6\n9 0")
         try:
-            src.read_isls("isls.txt.tmp", 9)
+            read_isls("isls.txt.tmp", 9)
             self.fail()
         except ValueError:
             self.assertTrue(True)
@@ -106,7 +107,7 @@ class TestIsls(unittest.TestCase):
         # Invalid right index
         local_shell.write_file("isls.txt.tmp", "2 3\n5 6\n6 9\n3 99")
         try:
-            src.read_isls("isls.txt.tmp", 50)
+            read_isls("isls.txt.tmp", 50)
             self.fail()
         except ValueError:
             self.assertTrue(True)
@@ -115,7 +116,7 @@ class TestIsls(unittest.TestCase):
         # Invalid left index
         local_shell.write_file("isls.txt.tmp", "2 3\n5 6\n6 8\n-3 3")
         try:
-            src.read_isls("isls.txt.tmp", 50)
+            read_isls("isls.txt.tmp", 50)
             self.fail()
         except ValueError:
             self.assertTrue(True)
@@ -124,7 +125,7 @@ class TestIsls(unittest.TestCase):
         # Invalid right index
         local_shell.write_file("isls.txt.tmp", "2 3\n5 6\n1 -3\n6 8")
         try:
-            src.read_isls("isls.txt.tmp", 50)
+            read_isls("isls.txt.tmp", 50)
             self.fail()
         except ValueError:
             self.assertTrue(True)
@@ -133,7 +134,7 @@ class TestIsls(unittest.TestCase):
         # Left is larger than right
         local_shell.write_file("isls.txt.tmp", "6 5")
         try:
-            src.read_isls("isls.txt.tmp", 10)
+            read_isls("isls.txt.tmp", 10)
             self.fail()
         except ValueError:
             self.assertTrue(True)
@@ -142,7 +143,7 @@ class TestIsls(unittest.TestCase):
         # Left is equal to right
         local_shell.write_file("isls.txt.tmp", "5 5")
         try:
-            src.read_isls("isls.txt.tmp", 10)
+            read_isls("isls.txt.tmp", 10)
             self.fail()
         except ValueError:
             self.assertTrue(True)
@@ -151,7 +152,7 @@ class TestIsls(unittest.TestCase):
         # Duplicate
         local_shell.write_file("isls.txt.tmp", "2 3\n5 6\n3 9\n5 6\n2 9")
         try:
-            src.read_isls("isls.txt.tmp", 10)
+            read_isls("isls.txt.tmp", 10)
             self.fail()
         except ValueError:
             self.assertTrue(True)

@@ -10,7 +10,7 @@ from astropy.time import Time
 
 from src.distance_tools import geodetic2cartesian
 from src.dynamic_state.generate_dynamic_state import generate_dynamic_state_at
-from src.dynamic_state.topology import ConstellationData, GroundStation, Satellite
+from src.topology.topology import ConstellationData, GroundStation, Satellite
 
 
 class TestEndToEndRefactored(unittest.TestCase):
