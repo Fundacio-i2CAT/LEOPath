@@ -101,7 +101,7 @@ def algorithm_free_one_only_over_isls(
 
     # --- 2. Calculate Forwarding State ---
     # Extract previous fstate object if available
-    prev_fstate_obj = prev_output.get("fstate") if prev_output else None
+    # prev_fstate_obj = prev_output.get("fstate") if prev_output else None
 
     # The helper function needs access to the topology graph, ISL interface mapping,
     # satellite objects (via topology), ground station list, and GS->Sat visibility.
@@ -116,7 +116,7 @@ def algorithm_free_one_only_over_isls(
             # prev_fstate_obj,                  # Pass previous state if helper does delta logic
             # enable_verbose_logs               # Pass if helper needs it
         )
-        log.debug(f"  Calculated forwarding state object.")  # Maybe add size/summary?
+        log.debug("Calculated forwarding state object.")
 
     except NameError:
         log.exception(

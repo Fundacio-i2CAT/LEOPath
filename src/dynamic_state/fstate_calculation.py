@@ -3,10 +3,10 @@
 import math
 
 import networkx as nx
-import numpy as np  # Import numpy for inf checking
+import numpy as np
 
-from src import logger  # Optional: if logging is desired
-from src.topology.topology import GroundStation, LEOTopology, Satellite
+from src import logger
+from src.topology.topology import GroundStation, LEOTopology
 
 log = logger.get_logger(__name__)  # Optional
 
@@ -36,7 +36,6 @@ def calculate_fstate_shortest_path_object_no_gs_relay(
     # Get the full graph which might contain GS nodes too
     full_graph = topology_with_isls.graph
     sat_neighbor_to_if = topology_with_isls.sat_neighbor_to_if
-    num_ground_stations = len(ground_stations)
 
     # --- Prepare for Floyd-Warshall on SATELLITE-ONLY subgraph ---
 

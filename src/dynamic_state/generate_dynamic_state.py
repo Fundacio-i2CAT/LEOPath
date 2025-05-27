@@ -2,21 +2,12 @@
 # Updated based on provided LEOTopology class definition
 
 import math
-
-import networkx as nx
 import numpy as np
 from astropy import units as astro_units
 from astropy.time import Time
-
-# Project-specific imports
 from src import distance_tools, logger
-
-# Import necessary classes from topology module
-from src.topology.topology import ConstellationData, GroundStation, LEOTopology, Satellite
-
-# Import the specific algorithm function(s) needed
+from src.topology.topology import ConstellationData, GroundStation, LEOTopology
 from .algorithm_free_one_only_over_isls import algorithm_free_one_only_over_isls
-from .fstate_calculation import calculate_fstate_shortest_path_object_no_gs_relay
 from .utils import graph as graph_utils
 
 log = logger.get_logger(__name__)
@@ -266,9 +257,7 @@ def _build_topologies(orbital_data: ConstellationData, ground_stations: list[Gro
             # This case occurs if constellation_data.satellites holds ephem.Body directly
             # We need a way to map ephem.Body back to the intended sat ID (0..N-1 or unique IDs)
             # For now, log a warning. This indicates an inconsistency to be resolved.
-            log.warning(
-                f"Satellite object in constellation_data lacks 'id' attribute. Node addition may be incorrect."
-            )
+            log.warning("Satellite object in constellation_data lacks 'id' attribute. Node addition may be incorrect.")
             # Fallback? Maybe try adding based on index? Requires care.
 
     # Add ground station nodes using their IDs
