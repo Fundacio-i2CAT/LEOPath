@@ -44,7 +44,7 @@ def setup_tles_and_satellites(config):
         tle_config["eccentricity"],
         tle_config["arg_of_perigee_degree"],
         tle_config["mean_motion_rev_per_day"],
-    )    
+    )
     parsed_tles_data = read_tles(tle_config["tle_output_filename"])
     sim_satellites = [
         Satellite(id=i, ephem_obj_manual=ephem_obj, ephem_obj_direct=ephem_obj)
@@ -78,6 +78,11 @@ def setup_ground_stations(config):
         )
     log.info(f"Created {len(ground_stations)} GroundStation objects.")
     return ground_stations
+
+
+def setup_isls(num_sats: int):
+    undirected_isls = [(i, i + 1) for i in range(num_sats - 1)] if num_sats > 1 else []
+    return undirected_isls
 
 
 def calculate_link_params(config):
@@ -116,7 +121,7 @@ def execute_simulation_run(config, parsed_tles_data, sim_satellites, ground_stat
     )
 
     num_sats = len(sim_satellites)
-    undirected_isls = [(i, i + 1) for i in range(num_sats - 1)] if num_sats > 1 else []
+    undirected_isls = setup_isls(num_sats)
 
     gsl_node_ids = list(range(num_sats)) + [gs.id for gs in ground_stations]
     list_gsl_interfaces_info = [
