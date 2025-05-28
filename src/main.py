@@ -2,7 +2,6 @@ import math
 import yaml
 import argparse
 import os
-import ephem
 from src import logger
 from src.distance_tools import geodetic2cartesian
 from src.dynamic_state.generate_dynamic_state import generate_dynamic_state
@@ -80,8 +79,10 @@ def setup_ground_stations(config):
     return ground_stations
 
 
-def setup_isls(num_sats: int):
+def setup_isls_in_a_whole_orbit(num_sats: int):
     undirected_isls = [(i, i + 1) for i in range(num_sats - 1)] if num_sats > 1 else []
+    if num_sats > 1:
+        undirected_isls.append((num_sats - 1, 0))  # Connect last to first
     return undirected_isls
 
 
@@ -121,7 +122,7 @@ def execute_simulation_run(config, parsed_tles_data, sim_satellites, ground_stat
     )
 
     num_sats = len(sim_satellites)
-    undirected_isls = setup_isls(num_sats)
+    undirected_isls = setup_isls_in_a_whole_orbit(num_sats)
 
     gsl_node_ids = list(range(num_sats)) + [gs.id for gs in ground_stations]
     list_gsl_interfaces_info = [
@@ -173,6 +174,5 @@ def main():
     execute_simulation_run(config, parsed_tles_data, sim_satellites, ground_stations)
 
 
-# This block ensures that main() is called when you run 'python -m src.main'
 if __name__ == "__main__":
     main()

@@ -89,7 +89,7 @@ def generate_dynamic_state(
                 list_gsl_interfaces_info=list_gsl_interfaces_info,
                 dynamic_state_algorithm=dynamic_state_algorithm,
                 prev_output=prev_output,
-                prev_topology=prev_topology,  # <--- Pass previous topology
+                prev_topology=prev_topology,
             )
 
             # Check the state returned
