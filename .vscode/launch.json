@@ -15,6 +15,16 @@
             "type": "debugpy",
             "request": "launch",
             "module": "src.examples.explore_results"
+        },
+        {
+            "name": "Python Debugger: Main with Ether Config",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "src.main",
+            "args": [
+                "--config",
+                "src/config/ether.yaml"
+            ]
         }
     ]
 }

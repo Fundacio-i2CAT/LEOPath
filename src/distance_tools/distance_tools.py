@@ -20,8 +20,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import datetime
 import math
-
+from astropy.time import Time as AstropyTime
 import ephem
 from geopy.distance import great_circle  # Keep existing imports
 
@@ -33,8 +34,35 @@ from src.topology.topology import GroundStation, Satellite
 log = logger.get_logger(__name__)
 
 
+def _to_clean_ephem_string(time_input) -> str:
+    """
+    Robustly converts various time inputs (astropy.Time, datetime, ephem.Date, str)
+    into a clean 'YYYY/MM/DD HH:MM:SS' string suitable for ephem.Observer.date.
+    """
+    if isinstance(time_input, datetime.datetime):
+        dt_obj = time_input
+    # Check for Astropy Time (duck-typing)
+    elif hasattr(time_input, "datetime") and isinstance(
+        getattr(time_input, "datetime", None), datetime.datetime
+    ):
+        dt_obj = time_input.datetime
+    elif isinstance(time_input, ephem.Date):
+        dt_obj = time_input.datetime()
+    else:
+        # If it's none of the above, try ephem.Date to parse it (handles strings etc.)
+        try:
+            dt_obj = ephem.Date(time_input).datetime()
+        except Exception as e:
+            raise TypeError(
+                f"Could not convert input '{time_input}' (type {type(time_input)}) to datetime. Error: {e}"
+            ) from e
+
+    # Format the datetime object to the clean string format
+    return dt_obj.strftime("%Y/%m/%d %H:%M:%S")
+
+
 def distance_m_between_satellites(
-    sat1: Satellite, sat2: Satellite, epoch_str: str, date_str: str
+    sat1: Satellite, sat2: Satellite, epoch_input, date_input
 ) -> float:
     """
     Computes the straight distance between two satellites in meters.
@@ -72,8 +100,8 @@ def distance_m_between_satellites(
         # 2. Create an observer (position doesn't strictly matter for separation angle,
         #    but range calculation depends on it - using 0,0 is fine here)
         observer = ephem.Observer()
-        observer.epoch = epoch_str  # TLE epoch
-        observer.date = date_str  # Current time
+        observer.epoch = _to_clean_ephem_string(epoch_input)
+        observer.date = _to_clean_ephem_string(date_input)
         observer.lat = "0"  # degrees string
         observer.lon = "0"  # degrees string
         observer.elevation = 0.0
@@ -123,10 +151,10 @@ def distance_m_between_satellites(
 
 
 def distance_m_ground_station_to_satellite(
-    ground_station: GroundStation,  # Expect GroundStation object
-    satellite: Satellite,  # Expect Satellite object
-    epoch_str: str,  # Expect epoch string ('YYYY/MM/DD' format recommended)
-    date_str: str,  # Expect date string ('YYYY/MM/DD HH:MM:SS.sss' recommended)
+    ground_station: GroundStation,
+    satellite: Satellite,
+    epoch_input: AstropyTime | datetime.datetime | ephem.Date | str,
+    date_input: AstropyTime | datetime.datetime | ephem.Date | str,
 ) -> float:
     """
     Computes the straight distance in meters between a ground station and a satellite.
@@ -135,8 +163,8 @@ def distance_m_ground_station_to_satellite(
 
     :param ground_station: The GroundStation object.
     :param satellite:      The Satellite object (must contain ephem.Body).
-    :param epoch_str:      Epoch time string for the observer (e.g., 'YYYY/MM/DD').
-    :param date_str:       The time instant string for the observer (e.g., 'YYYY/MM/DD HH:MM:SS.sss').
+    :param epoch_input:      Epoch time string for the observer (e.g., 'YYYY/MM/DD').
+    :param date_input:       The time instant string for the observer (e.g., 'YYYY/MM/DD HH:MM:SS.sss').
 
     :return: The distance between the ground station and the satellite in meters (float).
              Returns float('inf') if satellite is below horizon or on calculation error.
@@ -146,7 +174,6 @@ def distance_m_ground_station_to_satellite(
     gs_id_str = f"GS {getattr(ground_station, 'id', 'UNKNOWN')}"
     sat_id_str = f"Sat {getattr(satellite, 'id', 'UNKNOWN')}"
     try:
-        # 1. Validate GroundStation object and extract data
         if not isinstance(ground_station, GroundStation):
             raise TypeError(f"Expected GroundStation object, got {type(ground_station)}")
         # Check for necessary attributes using hasattr
@@ -185,12 +212,13 @@ def distance_m_ground_station_to_satellite(
 
         # 4. Set observer time context using the provided strings
         try:
-            observer.epoch = epoch_str
-            observer.date = date_str
+            observer.epoch = _to_clean_ephem_string(epoch_input)
+            observer.date = _to_clean_ephem_string(date_input)
+
         except ValueError as e:
             raise ValueError(
                 f"Invalid date/epoch format for ephem Observer. "
-                f"Received date='{date_str}', epoch='{epoch_str}'. Original error: {e}"
+                f"Received date='{date_input}', epoch='{epoch_input}'. Original error: {e}"
             ) from e
 
         # 5. Compute satellite position relative to observer
@@ -210,18 +238,18 @@ def distance_m_ground_station_to_satellite(
     except (AttributeError, ValueError, TypeError) as e:
         log.error(
             f"[distance_tools] Input/Type Error calculating GSL distance for {gs_id_str} <-> {sat_id_str}: {e}"
-        )  # Use logger
-        return float("inf")  # Return inf on error
+        )
+        return float("inf")
     except Exception as e:
         log.error(
             f"[distance_tools] Runtime Error calculating GSL distance for {gs_id_str} <-> {sat_id_str}: {e}"
-        )  # Use logger
-        return float("inf")  # Return inf on error
+        )
+        return float("inf")
 
 
 def geodesic_distance_m_between_ground_stations(
-    ground_station_1: GroundStation,  # Expect object
-    ground_station_2: GroundStation,  # Expect object
+    ground_station_1: GroundStation,
+    ground_station_2: GroundStation,
 ) -> float:
     """
     Calculate the geodesic distance between two ground stations.
@@ -247,23 +275,21 @@ def geodesic_distance_m_between_ground_stations(
     earth_radius_km = 6378.135
 
     try:
-        lat1 = float(ground_station_1.latitude_degrees_str)  # Use attribute access
-        lon1 = float(ground_station_1.longitude_degrees_str)  # Use attribute access
-        lat2 = float(ground_station_2.latitude_degrees_str)  # Use attribute access
-        lon2 = float(ground_station_2.longitude_degrees_str)  # Use attribute access
+        lat1 = float(ground_station_1.latitude_degrees_str)
+        lon1 = float(ground_station_1.longitude_degrees_str)
+        lat2 = float(ground_station_2.latitude_degrees_str)
+        lon2 = float(ground_station_2.longitude_degrees_str)
 
         distance = great_circle((lat1, lon1), (lat2, lon2), radius=earth_radius_km).m
         return distance
     except (ValueError, TypeError) as e:
-        print(
-            f"[distance_tools] Error converting lat/lon to float for GS distance: {e}"
-        )  # Use logger
+        log.error(f"[distance_tools] Error converting lat/lon to float for GS distance: {e}")
         raise ValueError("Invalid lat/lon format in GroundStation object") from e
 
 
 def straight_distance_m_between_ground_stations(
-    ground_station_1: GroundStation,  # Expect object
-    ground_station_2: GroundStation,  # Expect object
+    ground_station_1: GroundStation,
+    ground_station_2: GroundStation,
 ) -> float:
     """
     Calculate the straight distance between two ground stations (goes through the Earth).
@@ -273,31 +299,21 @@ def straight_distance_m_between_ground_stations(
     :param ground_station_2: Another GroundStation object.
     :return: Straight distance in meters (goes through the Earth).
     """
-    # WGS72 value
-    earth_radius_m = 6378135.0
-
-    # Calculate geodesic distance first (now uses objects correctly)
-    geo_dist_m = geodesic_distance_m_between_ground_stations(ground_station_1, ground_station_2)
-
-    # Check for potential issues with geo_dist calculation (e.g., identical points)
-    if geo_dist_m == 0:
+    earth_radius_m = 6378135.0  # WGS72 value
+    geodesic_distance_in_m = geodesic_distance_m_between_ground_stations(
+        ground_station_1, ground_station_2
+    )
+    if geodesic_distance_in_m == 0:
         return 0.0
-    if earth_radius_m <= 0:  # Avoid division by zero
-        return float("inf")  # Or raise error
-
-    # Calculate angle - handle potential division by zero if radius is bad
+    if earth_radius_m <= 0:
+        return float("inf")
     try:
-        fraction_of_earth_circumference = geo_dist_m / (earth_radius_m * 2.0 * math.pi)
+        fraction_of_earth_circumference = geodesic_distance_in_m / (earth_radius_m * 2.0 * math.pi)
         angle_radians = fraction_of_earth_circumference * 2 * math.pi
     except ZeroDivisionError:
-        print(
-            "[distance_tools] Error: Earth radius is zero in straight distance calc."
-        )  # Use logger
-        return float("inf")  # Or raise
-
-    # Calculate polygon side (straight distance)
+        print("[distance_tools] Error: Earth radius is zero in straight distance calc.")
+        return float("inf")
     polygon_side_m = 2 * math.sin(angle_radians / 2.0) * earth_radius_m
-
     return polygon_side_m
 
 
@@ -311,9 +327,7 @@ def create_basic_ground_station_for_satellite_shadow(satellite, epoch_str, date_
 
     :return: Basic ground station
     """
-
     satellite.compute(date_str, epoch=epoch_str)
-
     return {
         "gid": -1,
         "name": "Shadow of " + satellite.name,
@@ -333,11 +347,9 @@ def geodetic2cartesian(lat_degrees, lon_degrees, ele_m):
 
     :return: Cartesian coordinate as 3-tuple of (x, y, z)
     """
-
     #
     # Adapted from: https://github.com/andykee/pygeodesy/blob/master/pygeodesy/transform.py
     #
-
     # WGS72 value,
     # Source: https://geographiclib.sourceforge.io/html/NET/NETGeographicLib_8h_source.html
     a = 6378135.0

@@ -1,15 +1,16 @@
 # tests/topology/test_address.py
-import unittest
 import math  # For potentially calculating expected int values
+import unittest
 
 # Import the class to test (adjust path if needed)
 from src.topology.satellite.topological_network_address import (
-    TopologicalNetworkAddress,
-    MAX_SHELLS,
+    MAX_ENDPOINTS_PER_SAT,
     MAX_PLANES,
     MAX_SATS_PER_PLANE,
-    MAX_ENDPOINTS_PER_SAT,
+    MAX_SHELLS,
+    TopologicalNetworkAddress,
 )
+
 
 class TestTopologicalNetworkAddress(unittest.TestCase):
 
@@ -71,13 +72,13 @@ class TestTopologicalNetworkAddress(unittest.TestCase):
         """Test the integer serialization with known values."""
         # Use the actual constants from your address module for calculation
         from src.topology.satellite.topological_network_address import (
-            SHELL_SHIFT,
-            PLANE_SHIFT,
-            SAT_IDX_SHIFT,
-            SUBNET_IDX_MASK,
-            SAT_IDX_MASK,
             PLANE_MASK,
+            PLANE_SHIFT,
+            SAT_IDX_MASK,
+            SAT_IDX_SHIFT,
             SHELL_MASK,
+            SHELL_SHIFT,
+            SUBNET_IDX_MASK,
         )
 
         # Example 1: A satellite

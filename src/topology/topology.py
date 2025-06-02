@@ -1,7 +1,8 @@
 import networkx as nx
+
 from src.topology.constellation import ConstellationData
-from src.topology.satellite.satellite import Satellite
 from src.topology.ground_station import GroundStation
+from src.topology.satellite.satellite import Satellite
 
 
 class LEOTopology:

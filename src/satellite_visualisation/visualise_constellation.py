@@ -1,10 +1,12 @@
+import argparse
 import math
 import os
-import yaml
-import argparse
 import time
-from src import logger
+
 import ephem  # For TLE parsing and propagation
+import yaml
+
+from src import logger
 
 log = logger.get_logger(__name__)
 

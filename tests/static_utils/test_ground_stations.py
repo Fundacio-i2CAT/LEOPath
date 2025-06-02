@@ -24,8 +24,8 @@ import os
 import unittest
 
 import src
-from src.topology.topology import GroundStation
 from src.ground_stations import read_ground_stations_basic, read_ground_stations_extended
+from src.topology.topology import GroundStation
 
 
 class TestGroundStations(unittest.TestCase):

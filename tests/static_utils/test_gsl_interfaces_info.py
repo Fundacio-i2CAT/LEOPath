@@ -23,7 +23,6 @@
 import os
 import unittest
 
-
 from src.interfaces import generate_simple_gsl_interfaces_info, read_gsl_interfaces_info
 
 

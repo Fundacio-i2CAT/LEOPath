@@ -20,12 +20,12 @@ from src.distance_tools import (
     straight_distance_m_between_ground_stations,
 )
 
-# Import necessary classes from topology
-from src.topology.topology import GroundStation, Satellite
-
 # Import GS reader (adjust path if needed)
 # IMPORTANT: Assume this now returns a list of GroundStation objects
 from src.ground_stations import read_ground_stations_basic
+
+# Import necessary classes from topology
+from src.topology.topology import GroundStation, Satellite
 
 
 class TestDistanceTools(unittest.TestCase):

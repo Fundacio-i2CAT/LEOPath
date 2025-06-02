@@ -13,7 +13,6 @@ from astropy.time import Time
 
 from src import logger
 from src.distance_tools import geodetic2cartesian
-
 from src.dynamic_state.generate_dynamic_state import generate_dynamic_state
 from src.topology.topology import ConstellationData, GroundStation, Satellite
 
