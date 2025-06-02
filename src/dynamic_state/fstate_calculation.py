@@ -100,6 +100,10 @@ def calculate_fstate_shortest_path_object_no_gs_relay(
             if gs_idx >= len(ground_station_satellites_in_range):
                 continue  # Safety check
             possible_dst_sats = ground_station_satellites_in_range[gs_idx]
+            if possible_dst_sats:  # Only log if there's something to see
+                log.debug(
+                    f"  > FSTATE: Sat {curr_sat_id} -> GS {dst_gs.id}. Visible sats: {possible_dst_sats}"
+                )
             possibilities = []
 
             for visibility_info in possible_dst_sats:

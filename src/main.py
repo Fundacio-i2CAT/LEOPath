@@ -82,7 +82,7 @@ def setup_ground_stations(config):
 def setup_isls_in_a_whole_orbit(num_sats: int):
     undirected_isls = [(i, i + 1) for i in range(num_sats - 1)] if num_sats > 1 else []
     if num_sats > 1:
-        undirected_isls.append((num_sats - 1, 0))  # Connect last to first
+        undirected_isls.append((num_sats - 1, 0))
     return undirected_isls
 
 
