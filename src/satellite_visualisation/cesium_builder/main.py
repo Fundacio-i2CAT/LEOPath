@@ -1,9 +1,11 @@
 import argparse
 import os
+
 import ephem
+
 from .helpers import load_yaml_config, log
-from .js_generator import generate_shells_js, generate_ground_stations_js
 from .html_builder import write_html_file
+from .js_generator import generate_ground_stations_js, generate_shells_js
 
 SCRIPT_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TOP_HTML_FILE = os.path.join(SCRIPT_BASE_DIR, "static_html/top.html")

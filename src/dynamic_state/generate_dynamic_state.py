@@ -2,21 +2,12 @@
 # Updated based on provided LEOTopology class definition
 
 import math
-
-import networkx as nx
 import numpy as np
 from astropy import units as astro_units
 from astropy.time import Time
-
-# Project-specific imports
 from src import distance_tools, logger
-
-# Import necessary classes from topology module
-from src.topology.topology import ConstellationData, GroundStation, LEOTopology, Satellite
-
-# Import the specific algorithm function(s) needed
+from src.topology.topology import ConstellationData, GroundStation, LEOTopology
 from .algorithm_free_one_only_over_isls import algorithm_free_one_only_over_isls
-from .fstate_calculation import calculate_fstate_shortest_path_object_no_gs_relay
 from .utils import graph as graph_utils
 
 log = logger.get_logger(__name__)
@@ -98,7 +89,7 @@ def generate_dynamic_state(
                 list_gsl_interfaces_info=list_gsl_interfaces_info,
                 dynamic_state_algorithm=dynamic_state_algorithm,
                 prev_output=prev_output,
-                prev_topology=prev_topology,  # <--- Pass previous topology
+                prev_topology=prev_topology,
             )
 
             # Check the state returned
@@ -179,7 +170,7 @@ def _compute_isls(
         try:
             sat_distance_m = distance_tools.distance_m_between_satellites(
                 sat_a,
-                sat_b,  # Pass Satellite objects
+                sat_b,
                 str(constellation_data.epoch),
                 str(current_time_absolute),
             )
@@ -267,7 +258,7 @@ def _build_topologies(orbital_data: ConstellationData, ground_stations: list[Gro
             # We need a way to map ephem.Body back to the intended sat ID (0..N-1 or unique IDs)
             # For now, log a warning. This indicates an inconsistency to be resolved.
             log.warning(
-                f"Satellite object in constellation_data lacks 'id' attribute. Node addition may be incorrect."
+                "Satellite object in constellation_data lacks 'id' attribute. Node addition may be incorrect."
             )
             # Fallback? Maybe try adding based on index? Requires care.
 
@@ -418,7 +409,6 @@ def _compute_ground_station_satellites_in_range(
             log.debug("  > Could not compute min/max satellites in range (list empty or invalid?).")
     else:
         log.debug("  > No ground stations processed for visibility.")
-
     return ground_station_satellites_in_range
 
 
@@ -458,6 +448,14 @@ def generate_dynamic_state_at(
         gs_sat_visibility_list = _compute_ground_station_satellites_in_range(
             current_topology, time_absolute
         )
+        num_visible_gsls = sum(len(vis_list) for vis_list in gs_sat_visibility_list)
+        log.info(f"  > Time {time_since_epoch_ns} ns: Found {num_visible_gsls} visible GSLs.")
+        log.info(f"  > Time {time_since_epoch_ns} ns: Graph has {current_topology.graph.number_of_nodes()} nodes and {current_topology.graph.number_of_edges()} edges before comparison.")
+        log.debug(
+            f"  > Topology at t={time_since_epoch_ns} ns: "
+            f"{current_topology.graph.number_of_nodes()} nodes, "
+            f"{current_topology.graph.number_of_edges()} edges."
+        )
 
     except Exception as e:
         log.exception(
@@ -469,6 +467,7 @@ def generate_dynamic_state_at(
 
     # --- Optimization: Check if topology changed ---
     graphs_changed = not graph_utils._topologies_are_equal(prev_topology, current_topology)
+    log.info(f"  > Time {time_since_epoch_ns} ns: _topologies_are_equal returned: {not graphs_changed}. Graphs changed? {graphs_changed}")
     calculated_state = None
     if not graphs_changed and prev_output is not None:
         # Reuse previous state if topology hasn't changed and we have a previous state

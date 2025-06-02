@@ -27,7 +27,7 @@ from math import floor
 import exputil
 
 import src
-from src.isls import read_isls, generate_empty_isls, generate_plus_grid_isls
+from src.isls import generate_empty_isls, generate_plus_grid_isls, read_isls
 
 
 class TestIsls(unittest.TestCase):

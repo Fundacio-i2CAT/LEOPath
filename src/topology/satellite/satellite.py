@@ -1,6 +1,7 @@
-import ephem
 from typing import Optional
+
 import ephem
+
 from src.topology.satellite.topological_network_address import TopologicalNetworkAddress
 
 

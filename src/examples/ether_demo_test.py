@@ -1,22 +1,19 @@
 import math
 import os
 import unittest
-from src.tles.generate_tles_from_scratch import generate_tles_from_scratch_with_sgp
-from src.tles.read_tles import read_tles  # You might need to ensure this is accessible
 
+from src import logger
+from src.distance_tools import geodetic2cartesian
+from src.dynamic_state.generate_dynamic_state import generate_dynamic_state_at
+from src.tles.generate_tles_from_scratch import generate_tles_from_scratch_with_sgp
 from src.tles.read_tles import (
     read_tles,
 )
-
 from src.topology.satellite.satellite import Satellite
-from src.dynamic_state.generate_dynamic_state import generate_dynamic_state_at
 from src.topology.topology import (
     ConstellationData,
     GroundStation,
 )
-from src.distance_tools import geodetic2cartesian
-
-from src import logger
 
 log = logger.get_logger(__name__)
 
@@ -55,13 +52,11 @@ class TestEndToEndWithSyntheticTLEs(unittest.TestCase):
             sim_satellites.append(
                 Satellite(id=i, ephem_obj_manual=ephem_obj, ephem_obj_direct=ephem_obj)
             )
-
         self.assertEqual(
             len(sim_satellites), num_sats_per_orbit, "Incorrect number of satellites processed."
         )
         output_dir = None
         # The epoch from TLE generation is fixed to 2000-01-01 00:00:00 by generate_tles_from_scratch
-        # The read_tles function correctly parses this.
         sim_epoch = parsed_tles_data["epoch"]  # Use the epoch read from the TLE file
         dynamic_state_algorithm = "algorithm_free_one_only_over_isls"
         altitude_m = 630000
@@ -76,11 +71,11 @@ class TestEndToEndWithSyntheticTLEs(unittest.TestCase):
         GS_PERTH_ID = gs_start_id + 1
 
         # Coordinates for London (approx. Charing Cross)
-        london_lat, london_lon, london_elv = 51.5074, -0.1278, 30.0  # Elevation in meters
+        london_lat, london_lon, london_elv = 51.5074, -0.1278, 30.0
         london_x, london_y, london_z = geodetic2cartesian(london_lat, london_lon, london_elv)
 
         # Coordinates for Perth
-        perth_lat, perth_lon, perth_elv = -31.9505, 115.8605, 30.0  # Elevation in meters
+        perth_lat, perth_lon, perth_elv = -31.9505, 115.8605, 30.0
         perth_x, perth_y, perth_z = geodetic2cartesian(perth_lat, perth_lon, perth_elv)
 
         ground_stations = [
@@ -106,24 +101,20 @@ class TestEndToEndWithSyntheticTLEs(unittest.TestCase):
             ),
         ]
         constellation_data = ConstellationData(
-            orbits=parsed_tles_data["n_orbits"],  # This will be num_orbits_gen (e.g., 1)
+            orbits=parsed_tles_data["n_orbits"],
             sats_per_orbit=parsed_tles_data[
                 "n_sats_per_orbit"
-            ],  # This will be num_sats_per_orbit_gen
+            ],
             epoch="2000/1/1",
             max_gsl_length_m=max_gsl_length_m,
             max_isl_length_m=max_isl_length_m,
-            satellites=sim_satellites,  # The list of Satellite objects
+            satellites=sim_satellites,
         )
-
         # ISLs for the single orbit
         undirected_isls = []
         if num_sats_per_orbit > 1:
             for i in range(num_sats_per_orbit - 1):
                 undirected_isls.append((i, i + 1))  # Sat IDs are 0 to N-1
-            # if num_sats_per_orbit_gen > 2: # Optional: close the ring
-            #     undirected_isls.append((num_sats_per_orbit_gen - 1, 0))
-
         gsl_node_ids = list(range(num_sats_per_orbit)) + [
             GS_LONDON_ID,
             GS_PERTH_ID,
@@ -152,26 +143,3 @@ class TestEndToEndWithSyntheticTLEs(unittest.TestCase):
         fstate_t0 = result_state_t0["fstate"]
         print("Generated fstate at t=0 for single orbit:")
         log.info(fstate_t0)
-
-        # --- Define Expected State for t=0 ---
-        # This section requires careful determination based on the new GS locations
-        # and satellite positions at t=0.
-        # Example structure (actual values will depend on visibility):
-        # expected_fstate_t0_single_orbit = {
-        #    (GS_LONDON_ID, SAT_ID_VISIBLE_TO_LONDON): (if_gs_london, if_sat_london, 0),
-        #    (SAT_ID_1, SAT_ID_2): (if_sat1_isl, if_sat2_isl, 0), # For an ISL
-        #    (SAT_ID_VISIBLE_TO_CARDIFF, GS_CARDIFF_ID): (if_sat_cardiff, if_gs_cardiff, 0)
-        # }
-        # You will need to replace this with actual expected values after observing the output.
-        # self.assertDictEqual(fstate_t0, expected_fstate_t0_single_orbit, "fstate mismatch for single orbit at t=0")
-
-        # For now, a very basic check:
-        self.assertTrue(isinstance(fstate_t0, dict), "fstate_t0 is not a dictionary.")
-        # Add more specific assertions once you observe the output and determine expected behavior.
-        # For example, check if any satellite is connected to London if expected:
-        # london_connected_to_any_sat = any(GS_LONDON_ID == key_tuple[0] or GS_LONDON_ID == key_tuple[1] for key_tuple in fstate_t0.keys())
-        # self.assertTrue(london_connected_to_any_sat, "London is not connected to any satellite at t=0 as per fstate")
-
-        # --- Cleanup ---
-        # if os.path.exists(tle_output_filename):
-        #     os.remove(tle_output_filename)

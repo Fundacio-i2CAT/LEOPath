@@ -1,22 +1,17 @@
 import math
 import os
 import unittest
+
+from src import logger
+from src.distance_tools import geodetic2cartesian
+from src.dynamic_state.generate_dynamic_state import generate_dynamic_state_at
 from src.tles.generate_tles_from_scratch import generate_tles_from_scratch_with_sgp
 from src.tles.read_tles import read_tles  # You might need to ensure this is accessible
-
-from src.tles.read_tles import (
-    read_tles,
-)
 from src.topology.satellite.satellite import Satellite
-
-from src.dynamic_state.generate_dynamic_state import generate_dynamic_state_at
 from src.topology.topology import (
     ConstellationData,
     GroundStation,
 )
-from src.distance_tools import geodetic2cartesian
-
-from src import logger
 
 log = logger.get_logger(__name__)
 
