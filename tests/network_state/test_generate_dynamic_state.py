@@ -16,7 +16,13 @@ log = logger.get_logger(__name__)
 
 
 # --- Import the module(s) under test ---
-from src.network_state import generate_dynamic_state
+from src.network_state import generate_network_state
+from src.network_state.helpers import (
+    _compute_ground_station_satellites_in_range,
+    _compute_isls,
+    _build_topologies,
+)
+
 from src.topology.satellite.satellite import Satellite
 from src.topology.topology import (
     ConstellationData,
@@ -31,7 +37,7 @@ from src.topology.topology import (
 # You can configure the root logger or the specific logger used by the module
 # to control how much output you see during tests.
 # Example: Show DEBUG messages from the tested module during tests
-# logging.getLogger('src.network_state.generate_dynamic_state').setLevel(logging.DEBUG)
+# logging.getLogger('src.network_state.generate_network_state').setLevel(logging.DEBUG)
 # logging.basicConfig(level=logging.DEBUG) # Or configure globally
 
 
@@ -145,22 +151,22 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
         # --- Patching ---
         # Patch distance tools module - provides self.mock_distance_tools
         patcher_dist_tools = patch(
-            "src.network_state.generate_dynamic_state.distance_tools", MagicMock()
+            "src.network_state.helpers.distance_tools", MagicMock()
         )
         self.addCleanup(patcher_dist_tools.stop)
         self.mock_distance_tools = patcher_dist_tools.start()
 
         # Patch LEOTopology class
         patcher_topology = patch(
-            "src.network_state.generate_dynamic_state.LEOTopology",
+            "src.network_state.helpers.LEOTopology",
             side_effect=MockLEOTopologyRefined,
         )
         self.addCleanup(patcher_topology.stop)
         self.MockLEOTopologyClass_patched = patcher_topology.start()
 
-        # Patch the specific algorithm function
+        # Patch the specific algorithm function at its usage location
         patcher_algorithm = patch(
-            "src.network_state.generate_dynamic_state.algorithm_free_one_only_over_isls",
+            "src.network_state.generate_network_state.algorithm_free_one_only_over_isls",
             MagicMock(),
         )
         self.addCleanup(patcher_algorithm.stop)
@@ -185,7 +191,7 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
         """Test _compute_isls adds edges for valid distances using actual Satellite objects."""
         self.mock_distance_tools.distance_m_between_satellites.return_value = self.max_isl_m - 1000
         topology = MockLEOTopologyRefined(self.constellation_data, [])
-        generate_dynamic_state._compute_isls(
+        _compute_isls(
             topology,
             self.undirected_isls,
             self.current_time_absolute,
@@ -223,14 +229,14 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
         topology = MockLEOTopologyRefined(self.constellation_data, [])
 
         with self.assertRaises(ValueError) as cm:
-            generate_dynamic_state._compute_isls(
+            generate_network_state._compute_isls(
                 topology, self.undirected_isls, self.current_time_absolute
             )
         self.assertIn("exceeded the maximum ISL length", str(cm.exception))
 
     def test_build_topologies(self):
         """Test _build_topologies creates graphs via the Patched LEOTopology."""
-        topo_isl, topo_gsl = generate_dynamic_state._build_topologies(
+        topo_isl, topo_gsl = generate_network_state._build_topologies(
             self.constellation_data, self.ground_stations
         )
 
@@ -276,7 +282,7 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
         )
 
         # Call the function under test (this part is likely correct now)
-        generate_dynamic_state._compute_ground_station_satellites_in_range(
+        generate_network_state._compute_ground_station_satellites_in_range(
             topology, self.current_time_absolute
         )
 
@@ -333,7 +339,7 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
         """Test ValueError is raised for an unknown algorithm name."""
         with self.assertRaises(ValueError) as cm:
             # This call might produce log output before raising the error
-            generate_dynamic_state.generate_dynamic_state_at(
+            generate_network_state.generate_dynamic_state_at(
                 "/fake/dir",
                 self.mock_astropy_epoch,
                 self.time_since_epoch_ns,
@@ -347,7 +353,7 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
             )
         self.assertIn("Unknown dynamic state algorithm: bad_algorithm", str(cm.exception))
 
-    @patch("src.network_state.generate_dynamic_state.generate_dynamic_state_at")
+    @patch("src.network_state.generate_network_state.generate_dynamic_state_at")
     def test_generate_dynamic_state_loop(self, mock_generate_at):
         """Test the main loop calls generate_dynamic_state_at correctly."""
         output_dir = "/fake/loop/dir"
@@ -366,7 +372,7 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
             (mock_state_t2, mock_topo_t2),
         ]
 
-        generate_dynamic_state.generate_dynamic_state(
+        generate_network_state.generate_dynamic_state(
             output_dir,
             self.mock_astropy_epoch,
             simulation_end_time_ns,
@@ -413,7 +419,7 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
     def test_generate_dynamic_state_invalid_offset(self):
         """Test ValueError if offset is not a multiple of time_step_ns."""
         with self.assertRaises(ValueError) as cm:
-            generate_dynamic_state.generate_dynamic_state(
+            generate_network_state.generate_dynamic_state(
                 "/fake",
                 self.mock_astropy_epoch,
                 1000,  # end time (int)
@@ -455,13 +461,13 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
         with patch(
             "src.network_state.utils.graph._topologies_are_equal"
         ) as mock_topologies_equal, patch(
-            f"src.network_state.generate_dynamic_state.{algo_name}"
+            f"src.network_state.generate_network_state.{algo_name}"
         ) as mock_algorithm_func, patch(
-            "src.network_state.generate_dynamic_state._build_topologies"
+            "src.network_state.generate_network_state._build_topologies"
         ) as mock_build, patch(
-            "src.network_state.generate_dynamic_state._compute_isls"
+            "src.network_state.generate_network_state._compute_isls"
         ) as mock_isls, patch(
-            "src.network_state.generate_dynamic_state._compute_ground_station_satellites_in_range"
+            "src.network_state.generate_network_state._compute_ground_station_satellites_in_range"
         ) as mock_gsl:
             # Configure the mock for _topologies_are_equal
             mock_topologies_equal.side_effect = [
@@ -483,7 +489,7 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
             # Configure other mocks
             mock_isls.return_value = None
             mock_gsl.return_value = []
-            final_states = generate_dynamic_state.generate_dynamic_state(
+            final_states = generate_network_state.generate_dynamic_state(
                 output_dir,
                 self.mock_astropy_epoch,  # From setUp
                 simulation_end_time_ns,

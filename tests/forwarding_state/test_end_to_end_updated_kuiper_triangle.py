@@ -12,7 +12,7 @@ from astropy.time import Time
 from src.distance_tools import geodetic2cartesian  # Assuming this is available
 
 # Modules and classes to test/use
-from src.network_state.generate_dynamic_state import generate_dynamic_state_at
+from src.network_state.generate_network_state import generate_dynamic_state_at
 from src.topology.topology import ConstellationData, GroundStation, Satellite
 
 
