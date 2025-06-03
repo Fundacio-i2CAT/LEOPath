@@ -9,7 +9,7 @@ from astropy import units as u
 from astropy.time import Time
 
 from src.distance_tools import geodetic2cartesian
-from src.dynamic_state.generate_dynamic_state import generate_dynamic_state_at
+from src.network_state.generate_dynamic_state import generate_dynamic_state_at
 from src.topology.topology import ConstellationData, GroundStation, Satellite
 
 

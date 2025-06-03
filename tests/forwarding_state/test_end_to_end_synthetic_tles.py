@@ -4,7 +4,7 @@ import unittest
 
 from src import logger
 from src.distance_tools import geodetic2cartesian
-from src.dynamic_state.generate_dynamic_state import generate_dynamic_state_at
+from src.network_state.generate_dynamic_state import generate_dynamic_state_at
 from src.tles.generate_tles_from_scratch import generate_tles_from_scratch_with_sgp
 from src.tles.read_tles import read_tles  # You might need to ensure this is accessible
 from src.topology.satellite.satellite import Satellite

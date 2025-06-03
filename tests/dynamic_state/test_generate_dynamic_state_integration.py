@@ -10,7 +10,7 @@ from astropy import units as astro_units
 from astropy.time import Time
 
 # Modules and classes to test/use
-from src.dynamic_state.generate_dynamic_state import (
+from src.network_state.generate_dynamic_state import (
     generate_dynamic_state,
     generate_dynamic_state_at,
 )

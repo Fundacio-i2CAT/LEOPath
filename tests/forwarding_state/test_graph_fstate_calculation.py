@@ -7,7 +7,7 @@ import ephem  # For mocking spec
 import networkx as nx
 
 # Function to test
-from src.dynamic_state.fstate_calculation import calculate_fstate_shortest_path_object_no_gs_relay
+from src.network_state.fstate_calculation import calculate_fstate_shortest_path_object_no_gs_relay
 from src.topology.satellite.satellite import Satellite
 from src.topology.topology import (
     ConstellationData,
