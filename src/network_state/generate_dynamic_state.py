@@ -7,7 +7,7 @@ from astropy import units as astro_units
 from astropy.time import Time
 from src import distance_tools, logger
 from src.topology.topology import ConstellationData, GroundStation, LEOTopology
-from .algorithm_free_one_only_over_isls import algorithm_free_one_only_over_isls
+from .routing_algorithms.algorithm_free_one_only_over_isls import algorithm_free_one_only_over_isls
 from .utils import graph as graph_utils
 
 log = logger.get_logger(__name__)

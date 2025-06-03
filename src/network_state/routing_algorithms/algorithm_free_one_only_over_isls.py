@@ -9,7 +9,7 @@ from src.topology.topology import ConstellationData, GroundStation, LEOTopology
 # --- Assume fstate_calculation is refactored ---
 # We expect a function like calculate_fstate_shortest_path_object
 # which takes topology, visibility, prev_state object and returns the fstate object
-from .fstate_calculation import (  # Renamed/refactored function
+from ..fstate_calculation import (  # Renamed/refactored function
     calculate_fstate_shortest_path_object_no_gs_relay,
 )
 
