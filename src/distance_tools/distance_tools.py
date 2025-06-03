@@ -22,9 +22,11 @@
 
 import datetime
 import math
-from astropy.time import Time as AstropyTime
+
 import ephem
+from astropy.time import Time as AstropyTime
 from geopy.distance import great_circle
+
 from src import logger
 from src.topology.topology import GroundStation, Satellite
 

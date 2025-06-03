@@ -1,6 +1,5 @@
 import unittest
 
-# Import the class to test (adjust path if needed)
 from src.topology.satellite.topological_network_address import (
     MAX_ENDPOINTS_PER_SAT,
     MAX_PLANES,

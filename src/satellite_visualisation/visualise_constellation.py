@@ -1,9 +1,7 @@
 import argparse
 import math
 import os
-import time
-
-import ephem  # For TLE parsing and propagation
+import ephem
 import yaml
 
 from src import logger
@@ -52,7 +50,7 @@ def generate_visualization_js(config_data, config_file_path_abs):
     if "shells" in config_data and config_data["shells"]:
         viz_string += "// --- Satellite Shell Entities (from Orbital Elements) ---\n"
         for shell_idx, shell_config in enumerate(config_data.get("shells", [])):
-            shell_name = shell_config.get("name", f"ElementsShell_{shell_idx+1}")
+            shell_name = shell_config.get("name", f"ElementsShell_{shell_idx + 1}")
             log.info(f"Processing element-defined shell: {shell_name}")
 
             num_orbs = shell_config["num_orbs"]
@@ -76,7 +74,7 @@ def generate_visualization_js(config_data, config_file_path_abs):
 
             for sat_idx, sat_data in enumerate(sat_objs_from_elements):
                 sat_data["sat_obj"].compute(global_ephem_epoch_for_elements)
-                entity_disp_name = f"{shell_name}_Sat_{sat_idx+1}"
+                entity_disp_name = f"{shell_name}_Sat_{sat_idx + 1}"
                 js_var = f"elementSat_{shell_idx}_{sat_idx}"
                 viz_string += f"var {js_var} = viewer.entities.add({{\n"
                 viz_string += f"    name: '{entity_disp_name}',\n"
@@ -90,7 +88,7 @@ def generate_visualization_js(config_data, config_file_path_abs):
             for link_key, link_data in orbit_links.items():
                 sat1_data = sat_objs_from_elements[link_data["sat1"]]
                 sat2_data = sat_objs_from_elements[link_data["sat2"]]
-                viz_string += f"viewer.entities.add({{\n"
+                viz_string += "viewer.entities.add({{\n"
                 viz_string += f"    name: 'elementLink_{shell_idx}_{link_key}',\n"
                 viz_string += "    polyline: {\n"
                 viz_string += (
@@ -264,8 +262,8 @@ def generate_visualization_js(config_data, config_file_path_abs):
                         sat2_data_tle = sats_in_this_plane[(i + 1) % len(sats_in_this_plane)]
 
                         # sat_obj is already computed at its TLE epoch
-                        viz_string += f"viewer.entities.add({{\n"
-                        viz_string += f"    name: 'tleLink_{group_name_prefix}_orb{orb_plane_idx}_sat{i}-{(i+1)%len(sats_in_this_plane)}',\n"
+                        viz_string += "viewer.entities.add({{\n"
+                        viz_string += f"    name: 'tleLink_{group_name_prefix}_orb{orb_plane_idx}_sat{i}-{(i + 1) % len(sats_in_this_plane)}',\n"
                         viz_string += "    polyline: {\n"
                         viz_string += (
                             "        positions: Cesium.Cartesian3.fromDegreesArrayHeights(["
@@ -288,7 +286,7 @@ def generate_visualization_js(config_data, config_file_path_abs):
         viz_string += "\n// --- Ground Station Entities (No Labels) ---\n"
         log.info("Processing ground stations...")
         for gs_idx, gs_data in enumerate(config_data.get("ground_stations", [])):
-            gs_name = gs_data.get("name", f"GroundStation_{gs_idx+1}")
+            gs_name = gs_data.get("name", f"GroundStation_{gs_idx + 1}")
             if "latitude" not in gs_data or "longitude" not in gs_data:
                 log.warning(
                     f"Skipping ground station '{gs_name}' due to missing latitude/longitude."
@@ -330,7 +328,7 @@ def write_html_file(viz_string_content, output_dir, html_file_name_base):
                     writer_html.write(fi.read())
             else:
                 log.warning(f"Top HTML file not found: {TOP_HTML_FILE}")
-                writer_html.write(f"\n")
+                writer_html.write("\n")
 
             writer_html.write(viz_string_content)
             writer_html.flush()
@@ -345,7 +343,7 @@ def write_html_file(viz_string_content, output_dir, html_file_name_base):
                     writer_html.write(fb.read())
             else:
                 log.warning(f"Bottom HTML file not found: {BOTTOM_HTML_FILE}")
-                writer_html.write(f"\n")
+                writer_html.write("\n")
 
         log.info(f"Successfully wrote visualization to: {output_html_file}")
         print(f"ACTION: HTML file generated at: {output_html_file}")

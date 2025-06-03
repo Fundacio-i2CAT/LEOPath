@@ -6,12 +6,9 @@ import pprint
 import unittest
 
 import ephem
-from astropy import units as u
 from astropy.time import Time
 
-from src.distance_tools import geodetic2cartesian  # Assuming this is available
-
-# Modules and classes to test/use
+from src.distance_tools import geodetic2cartesian
 from src.network_state.generate_network_state import generate_dynamic_state_at
 from src.topology.topology import ConstellationData, GroundStation, Satellite
 
@@ -26,11 +23,7 @@ class TestEndToEndKuiperTriangle(unittest.TestCase):
         # --- Inputs ---
         output_dir = None
         epoch = Time("2000-01-01 00:00:00", scale="tdb")  # Match TLE epoch
-        time_since_epoch_ns = 0
         dynamic_state_algorithm = "algorithm_free_one_only_over_isls"
-        prev_output = None
-
-        # Max lengths (same calculation as old test)
         altitude_m = 630000
         earth_radius = 6378135.0
         satellite_cone_radius_m = altitude_m / math.tan(math.radians(30.0))
@@ -38,7 +31,6 @@ class TestEndToEndKuiperTriangle(unittest.TestCase):
         max_isl_length_m = 2 * math.sqrt(
             math.pow(earth_radius + altitude_m, 2) - math.pow(earth_radius + 80000, 2)
         )
-
         # TLE Data (12 satellites, IDs 0-11)
         tle_data = {
             0: (

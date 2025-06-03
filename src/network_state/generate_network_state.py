@@ -2,13 +2,16 @@
 # Updated based on provided LEOTopology class definition
 
 import math
+
 from astropy import units as astro_units
 from astropy.time import Time
+
 from src import logger
 from src.topology.topology import ConstellationData, GroundStation, LEOTopology
+
+from .helpers import _build_topologies, _compute_ground_station_satellites_in_range, _compute_isls
 from .routing_algorithms.algorithm_free_one_only_over_isls import algorithm_free_one_only_over_isls
 from .utils import graph as graph_utils
-from .helpers import _build_topologies, _compute_isls, _compute_ground_station_satellites_in_range
 
 log = logger.get_logger(__name__)
 

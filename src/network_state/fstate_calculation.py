@@ -88,7 +88,7 @@ def calculate_fstate_shortest_path_object_no_gs_relay(
     for curr_sat_id in nodelist:
         curr_sat_idx = node_to_index[curr_sat_id]
         try:
-            current_satellite = topology_with_isls.get_satellite(curr_sat_id)
+            topology_with_isls.get_satellite(curr_sat_id)
         except KeyError:
             log.error(
                 f"Could not find satellite object {curr_sat_id} (should exist based on nodelist)."

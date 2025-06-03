@@ -1,8 +1,9 @@
+import numpy as np
+from astropy.time import Time
+
 from src import logger
 from src.distance_tools import distance_tools
-from astropy.time import Time
 from src.topology.topology import ConstellationData, GroundStation, LEOTopology
-import numpy as np
 
 log = logger.get_logger(__name__)
 

@@ -1,7 +1,7 @@
 # tests/dynamic_state/test_algorithm_free_one_only_over_isls.py
 
 import unittest
-from unittest.mock import ANY, MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import ephem  # For mocking spec
 
@@ -130,7 +130,10 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
         self.mock_fstate_calculator.return_value = self.expected_fstate_result
 
         # Patch logger (optional, useful for checking log calls)
-        patcher_log = patch("src.network_state.routing_algorithms.algorithm_free_one_only_over_isls.log", MagicMock())
+        patcher_log = patch(
+            "src.network_state.routing_algorithms.algorithm_free_one_only_over_isls.log",
+            MagicMock(),
+        )
         self.addCleanup(patcher_log.stop)
         self.mock_log = patcher_log.start()
 

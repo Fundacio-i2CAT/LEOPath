@@ -1,10 +1,17 @@
-import math
 import unittest
-from unittest.mock import ANY, MagicMock, call, patch
-
-import ephem  # Import ephem for specing mocks
+from unittest.mock import MagicMock, call, patch
+from src.network_state import generate_network_state
+from src.network_state.helpers import (
+    _compute_isls,
+)
+from src.topology.satellite.satellite import Satellite
+from src.topology.topology import (
+    ConstellationData,
+    GroundStation,
+    LEOTopology,
+)
+import ephem
 import networkx as nx
-import numpy as np
 from astropy import units as astro_units
 
 # Use a fixed time for reproducibility instead of relying on current time
@@ -14,21 +21,6 @@ from src import logger
 
 log = logger.get_logger(__name__)
 
-
-# --- Import the module(s) under test ---
-from src.network_state import generate_network_state
-from src.network_state.helpers import (
-    _compute_ground_station_satellites_in_range,
-    _compute_isls,
-    _build_topologies,
-)
-
-from src.topology.satellite.satellite import Satellite
-from src.topology.topology import (
-    ConstellationData,
-    GroundStation,
-    LEOTopology,
-)
 
 # --- Import logger if tests need to configure it ---
 # from src import logger # Not strictly needed unless tests modify logging
@@ -150,9 +142,7 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
 
         # --- Patching ---
         # Patch distance tools module - provides self.mock_distance_tools
-        patcher_dist_tools = patch(
-            "src.network_state.helpers.distance_tools", MagicMock()
-        )
+        patcher_dist_tools = patch("src.network_state.helpers.distance_tools", MagicMock())
         self.addCleanup(patcher_dist_tools.stop)
         self.mock_distance_tools = patcher_dist_tools.start()
 
