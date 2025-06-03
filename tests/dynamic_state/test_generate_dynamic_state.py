@@ -16,7 +16,7 @@ log = logger.get_logger(__name__)
 
 
 # --- Import the module(s) under test ---
-from src.dynamic_state import generate_dynamic_state
+from src.network_state import generate_dynamic_state
 from src.topology.satellite.satellite import Satellite
 from src.topology.topology import (
     ConstellationData,
@@ -31,7 +31,7 @@ from src.topology.topology import (
 # You can configure the root logger or the specific logger used by the module
 # to control how much output you see during tests.
 # Example: Show DEBUG messages from the tested module during tests
-# logging.getLogger('src.dynamic_state.generate_dynamic_state').setLevel(logging.DEBUG)
+# logging.getLogger('src.network_state.generate_dynamic_state').setLevel(logging.DEBUG)
 # logging.basicConfig(level=logging.DEBUG) # Or configure globally
 
 
@@ -145,14 +145,14 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
         # --- Patching ---
         # Patch distance tools module - provides self.mock_distance_tools
         patcher_dist_tools = patch(
-            "src.dynamic_state.generate_dynamic_state.distance_tools", MagicMock()
+            "src.network_state.generate_dynamic_state.distance_tools", MagicMock()
         )
         self.addCleanup(patcher_dist_tools.stop)
         self.mock_distance_tools = patcher_dist_tools.start()
 
         # Patch LEOTopology class
         patcher_topology = patch(
-            "src.dynamic_state.generate_dynamic_state.LEOTopology",
+            "src.network_state.generate_dynamic_state.LEOTopology",
             side_effect=MockLEOTopologyRefined,
         )
         self.addCleanup(patcher_topology.stop)
@@ -160,7 +160,7 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
 
         # Patch the specific algorithm function
         patcher_algorithm = patch(
-            "src.dynamic_state.generate_dynamic_state.algorithm_free_one_only_over_isls",
+            "src.network_state.generate_dynamic_state.algorithm_free_one_only_over_isls",
             MagicMock(),
         )
         self.addCleanup(patcher_algorithm.stop)
@@ -347,7 +347,7 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
             )
         self.assertIn("Unknown dynamic state algorithm: bad_algorithm", str(cm.exception))
 
-    @patch("src.dynamic_state.generate_dynamic_state.generate_dynamic_state_at")
+    @patch("src.network_state.generate_dynamic_state.generate_dynamic_state_at")
     def test_generate_dynamic_state_loop(self, mock_generate_at):
         """Test the main loop calls generate_dynamic_state_at correctly."""
         output_dir = "/fake/loop/dir"
@@ -453,15 +453,15 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
 
         # Patch the topology comparison function at its source location
         with patch(
-            "src.dynamic_state.utils.graph._topologies_are_equal"
+            "src.network_state.utils.graph._topologies_are_equal"
         ) as mock_topologies_equal, patch(
-            f"src.dynamic_state.generate_dynamic_state.{algo_name}"
+            f"src.network_state.generate_dynamic_state.{algo_name}"
         ) as mock_algorithm_func, patch(
-            "src.dynamic_state.generate_dynamic_state._build_topologies"
+            "src.network_state.generate_dynamic_state._build_topologies"
         ) as mock_build, patch(
-            "src.dynamic_state.generate_dynamic_state._compute_isls"
+            "src.network_state.generate_dynamic_state._compute_isls"
         ) as mock_isls, patch(
-            "src.dynamic_state.generate_dynamic_state._compute_ground_station_satellites_in_range"
+            "src.network_state.generate_dynamic_state._compute_ground_station_satellites_in_range"
         ) as mock_gsl:
             # Configure the mock for _topologies_are_equal
             mock_topologies_equal.side_effect = [
