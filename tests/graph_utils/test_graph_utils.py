@@ -4,7 +4,7 @@ from unittest.mock import MagicMock  # Or use a simple class with a .graph attri
 
 import networkx as nx
 
-from src.dynamic_state.utils import graph as graph_utils
+from src.network_state.utils import graph as graph_utils
 
 
 class TestGraphUtils(unittest.TestCase):

@@ -3,11 +3,9 @@
 import unittest
 from unittest.mock import MagicMock
 
-import ephem  # For mocking spec
-import networkx as nx
+import ephem
 
-# Function to test
-from src.dynamic_state.fstate_calculation import calculate_fstate_shortest_path_object_no_gs_relay
+from src.network_state.fstate_calculation import calculate_fstate_shortest_path_object_no_gs_relay
 from src.topology.satellite.satellite import Satellite
 from src.topology.topology import (
     ConstellationData,
@@ -51,7 +49,7 @@ class TestFstateCalculationRefactored(unittest.TestCase):
         for sat in topology.constellation_data.satellites:
             sat.number_isls = num_isls_per_sat_map.get(sat.id, 0)
         if len(gsl_visibility_list) != len(ground_station_list):
-            raise ValueError(f"Length mismatch: gsl_visibility_list vs ground_station_list")
+            raise ValueError("Length mismatch: gsl_visibility_list vs ground_station_list")
         ground_station_satellites_in_range = gsl_visibility_list
         return topology, ground_station_satellites_in_range
 
@@ -446,17 +444,11 @@ class TestFstateCalculationRefactored(unittest.TestCase):
                 1,
             ),  # Path 108->10->107. Entry=10 (cheaper). Hop 10. IFs: GS IF=0, Sat GSL IF=1.
             (GS_8, GS_9): (SAT_2, 0, 2),  # Path 108->12->109. Entry=12. Hop 12.
-            (GS_9, GS_5): (
-                SAT_1,
-                0,
-                1,
-            ),  # Path 109->11->14->12->105. Entry=11 (cheaper). Hop 11. IFs: GS IF=0, Sat GSL IF=1.
             # (GS_9, GS_5): Old path 109->12->105. Entry=12. Hop 12. IFs: (109, 12) not direct. -> Let's trace. 109 sees 11(300), 12(500). GS5 sees 12(500).
             # Path via 11: 109->11->14->12->105. GSL(300)+ISL(300)+ISL(400)+GSL(500) = 1500.
             # Path via 12: 109->12->105. GSL(500)+GSL(500) = 1000. Choose entry 12. Hop 12. IFs: (GS=0, SatGSL=2) -> (12, 0, 2) <<-- Corrected
             (GS_9, GS_5): (SAT_2, 0, 2),
             (GS_9, GS_6): (SAT_1, 0, 1),  # Path 109->11->106. Entry=11. Hop 11.
-            (GS_9, GS_7): (SAT_1, 0, 1),  # Path 109->11->14->12->13->10->107. Entry=11. Hop 11.
             # (GS_9, GS_7): Path via 12: 109->12->13->10->107. GSL(500)+ISL(400)+ISL(600)+GSL(500)=2000. Path via 11: GSL(300)+ISL(300)+ISL(400)+ISL(600)+GSL(500)=2100. Choose 12. Hop 12. -> (12, 0, 2) <<-- Corrected
             (GS_9, GS_7): (SAT_2, 0, 2),
             (GS_9, GS_8): (SAT_2, 0, 2),  # Path 109->12->108. Entry=12. Hop 12.

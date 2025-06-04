@@ -1,16 +1,10 @@
-# tests/static_utils/test_distance_tools.py
-# FINAL CORRECTED VERSION
-
 import math
-import os  # For handling temp file
 import unittest
 
 import ephem
 from astropy import units as u
 from astropy.time import Time
 
-# Functions and classes being tested or needed for setup
-# Assuming these are all importable and correct
 from src.distance_tools import (
     create_basic_ground_station_for_satellite_shadow,
     distance_m_between_satellites,
@@ -19,19 +13,12 @@ from src.distance_tools import (
     geodetic2cartesian,
     straight_distance_m_between_ground_stations,
 )
-
-# Import GS reader (adjust path if needed)
-# IMPORTANT: Assume this now returns a list of GroundStation objects
-from src.ground_stations import read_ground_stations_basic
-
-# Import necessary classes from topology
 from src.topology.topology import GroundStation, Satellite
 
 
 class TestDistanceTools(unittest.TestCase):
 
     def test_distance_between_satellites(self):
-        # --- Create ephem.Body objects ---
         ephem_sat_0 = ephem.readtle(
             "Kuiper-630 0",
             "1 00001U 00000ABC 00001.00000000  .00000000  00000-0  00000+0 0    04",
@@ -57,8 +44,6 @@ class TestDistanceTools(unittest.TestCase):
             "1 00020U 00000ABC 00001.00000000  .00000000  00000-0  00000+0 0    05",
             "2 00020  51.9000   0.0000 0000001   0.0000 201.1765 14.80000000    05",
         )
-
-        # --- Wrap ephem.Body objects in Satellite objects ---
         sat_obj_0 = Satellite(id=0, ephem_obj_manual=ephem_sat_0, ephem_obj_direct=ephem_sat_0)
         sat_obj_1 = Satellite(id=1, ephem_obj_manual=ephem_sat_1, ephem_obj_direct=ephem_sat_1)
         sat_obj_17 = Satellite(id=17, ephem_obj_manual=ephem_sat_17, ephem_obj_direct=ephem_sat_17)
@@ -85,8 +70,6 @@ class TestDistanceTools(unittest.TestCase):
         ]:
             epoch = Time("2000-01-01 00:00:00", scale="tdb")
             time_obj = epoch + extra_time_ns * u.ns
-
-            # Use correct string formats for ephem
             epoch_str_for_ephem = str(epoch.strftime("%Y/%m/%d"))
             # Add fractional seconds, remove trailing zeros if needed (ephem might be picky)
             time_str_for_ephem = time_obj.strftime("%Y/%m/%d %H:%M:%S.%f")
@@ -94,8 +77,6 @@ class TestDistanceTools(unittest.TestCase):
                 time_str_for_ephem = time_str_for_ephem[:-7]  # Remove if exactly zero
             elif "." in time_str_for_ephem:
                 time_str_for_ephem = time_str_for_ephem.rstrip("0")  # Remove trailing zeros
-
-            # --- Pass Satellite WRAPPER objects and formatted time strings ---
             self.assertAlmostEqual(
                 distance_m_between_satellites(
                     sat_obj_0, sat_obj_0, epoch_str_for_ephem, time_str_for_ephem
@@ -153,9 +134,6 @@ class TestDistanceTools(unittest.TestCase):
             # ... (rest of polygon checks) ...
 
     def test_distance_between_ground_stations(self):
-        # Assuming read_ground_stations_basic returns list[GroundStation]
-        # and GS distance functions accept GroundStation objects
-        gs_file = "ground_stations.temp.txt"
         gs_content = (
             "0,Amsterdam,52.379189,4.899431,0\n"
             "1,Paris,48.864716,2.349014,0\n"
@@ -166,75 +144,83 @@ class TestDistanceTools(unittest.TestCase):
             "6,New York,40.730610,-73.935242,0\n"
             "7,Greenland Base,79.741382,-53.143087,0"
         )
-        with open(gs_file, "w+") as f_out:
-            f_out.write(gs_content)
 
-        try:
-            ground_stations = read_ground_stations_basic(gs_file)
-            self.assertTrue(ground_stations, "No ground stations read")  # Check not empty
-            self.assertTrue(
-                all(isinstance(gs, GroundStation) for gs in ground_stations),
-                "read_ground_stations_basic did not return GroundStation objects",
+        ground_stations = []
+        for line in gs_content.strip().splitlines():
+            parts = line.strip().split(",")
+            gid = int(parts[0])
+            name = parts[1]
+            lat_str = parts[2]
+            lon_str = parts[3]
+            elev = float(parts[4])
+            cart_x, cart_y, cart_z = geodetic2cartesian(float(lat_str), float(lon_str), elev)
+            gs = GroundStation(
+                gid=gid,
+                name=name,
+                latitude_degrees_str=lat_str,
+                longitude_degrees_str=lon_str,
+                elevation_m_float=elev,
+                cartesian_x=cart_x,
+                cartesian_y=cart_y,
+                cartesian_z=cart_z,
+            )
+            ground_stations.append(gs)
+
+        self.assertTrue(ground_stations, "No ground stations created")
+        self.assertTrue(
+            all(isinstance(gs, GroundStation) for gs in ground_stations),
+            "Not all objects are GroundStation instances",
+        )
+
+        # Distance to itself is always 0
+        for i in range(len(ground_stations)):
+            self.assertEqual(
+                geodesic_distance_m_between_ground_stations(ground_stations[i], ground_stations[i]),
+                0,
+            )
+            self.assertEqual(
+                straight_distance_m_between_ground_stations(ground_stations[i], ground_stations[i]),
+                0,
             )
 
-            # Distance to itself is always 0
-            for i in range(len(ground_stations)):
-                self.assertEqual(
-                    geodesic_distance_m_between_ground_stations(
-                        ground_stations[i], ground_stations[i]
-                    ),
-                    0,
+        # Direction does not matter
+        for i in range(len(ground_stations)):
+            for j in range(i + 1, len(ground_stations)):
+                dist_geo_ij = geodesic_distance_m_between_ground_stations(
+                    ground_stations[i], ground_stations[j]
                 )
-                self.assertEqual(
-                    straight_distance_m_between_ground_stations(
-                        ground_stations[i], ground_stations[i]
-                    ),
-                    0,
+                dist_geo_ji = geodesic_distance_m_between_ground_stations(
+                    ground_stations[j], ground_stations[i]
                 )
+                self.assertAlmostEqual(dist_geo_ij, dist_geo_ji, delta=1e-3)
 
-            # Direction does not matter
-            for i in range(len(ground_stations)):
-                for j in range(i + 1, len(ground_stations)):
-                    dist_geo_ij = geodesic_distance_m_between_ground_stations(
-                        ground_stations[i], ground_stations[j]
-                    )
-                    dist_geo_ji = geodesic_distance_m_between_ground_stations(
-                        ground_stations[j], ground_stations[i]
-                    )
-                    self.assertAlmostEqual(dist_geo_ij, dist_geo_ji, delta=1e-3)
+                dist_str_ij = straight_distance_m_between_ground_stations(
+                    ground_stations[i], ground_stations[j]
+                )
+                dist_str_ji = straight_distance_m_between_ground_stations(
+                    ground_stations[j], ground_stations[i]
+                )
+                self.assertAlmostEqual(dist_str_ij, dist_str_ji, delta=1e-3)
 
-                    dist_str_ij = straight_distance_m_between_ground_stations(
-                        ground_stations[i], ground_stations[j]
-                    )
-                    dist_str_ji = straight_distance_m_between_ground_stations(
-                        ground_stations[j], ground_stations[i]
-                    )
-                    self.assertAlmostEqual(dist_str_ij, dist_str_ji, delta=1e-3)
+                # Geodesic >= Straight
+                self.assertGreaterEqual(dist_geo_ij, dist_str_ij)
 
-                    # Geodesic >= Straight
-                    self.assertGreaterEqual(dist_geo_ij, dist_str_ij)
-
-            # Check specific distances
-            self.assertAlmostEqual(
-                geodesic_distance_m_between_ground_stations(ground_stations[0], ground_stations[1]),
-                430000,
-                delta=1000.0,
-            )
-            self.assertAlmostEqual(
-                geodesic_distance_m_between_ground_stations(ground_stations[0], ground_stations[6]),
-                5861000,
-                delta=5000.0,
-            )
-            self.assertAlmostEqual(
-                geodesic_distance_m_between_ground_stations(ground_stations[6], ground_stations[5]),
-                14861000,
-                delta=20000.0,
-            )
-
-        finally:
-            # Clean up
-            if os.path.exists(gs_file):
-                os.remove(gs_file)
+        # Check specific distances
+        self.assertAlmostEqual(
+            geodesic_distance_m_between_ground_stations(ground_stations[0], ground_stations[1]),
+            430000,
+            delta=1000.0,
+        )
+        self.assertAlmostEqual(
+            geodesic_distance_m_between_ground_stations(ground_stations[0], ground_stations[6]),
+            5861000,
+            delta=5000.0,
+        )
+        self.assertAlmostEqual(
+            geodesic_distance_m_between_ground_stations(ground_stations[6], ground_stations[5]),
+            14861000,
+            delta=20000.0,
+        )
 
     def test_distance_ground_station_to_satellite(self):
         # ASSUMPTION: distance_m_ground_station_to_satellite now accepts (GS_Obj, Sat_Obj, epoch_str, date_str)

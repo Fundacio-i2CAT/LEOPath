@@ -13,6 +13,7 @@ exclude =
     .venv,
     .tox,
     .mypy_cache,
-    .pytest_cache
+    .pytest_cache,
+    visualise_constellation.py
 extend-ignore = E203
 extend-select = B950

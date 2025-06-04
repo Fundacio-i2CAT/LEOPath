@@ -1,7 +1,6 @@
 import argparse
 import math
 import os
-import time
 
 import ephem  # For TLE parsing and propagation
 import yaml
