@@ -15,6 +15,7 @@ default:
     paths:
       - "$PIP_CACHE_DIR"
   before_script:
+    - apt-get update && apt-get install -y --no-install-recommends git
     - pip install -r requirements.txt
 
 lint:
@@ -30,7 +31,8 @@ lint:
 tests:
   stage: test
   script:
-    - pytest --cov=src --cov-report=xml:coverage.xml --cov-report=html:coverage_html --cov-report=term
+    # Generate terminal output, XML for GitLab integration, and HTML for Browse
+    - pytest --cov=src --cov-report=term --cov-report=xml:coverage.xml --cov-report=html:coverage_html
   artifacts:
     reports:
       coverage_report:
@@ -38,23 +40,41 @@ tests:
         path: coverage.xml
     paths:
       - coverage.xml
-      - .coverage
-      - coverage_html 
+      - .coverage # Raw coverage data
+      - coverage_html # HTML report
     expire_in: 7 days
 
 # build-docker-image:
 #   stage: build
 #   image:
-#     name: gcr.io/kaniko-project/executor:v1.14.0-debug
-#     entrypoint: [""]
+#     name: gcr.io/kaniko-project/executor:v1.14.0-debug # Kaniko image for building Docker images
+#     entrypoint: [""] # Override entrypoint for Kaniko
 #   tags:
-#     - SN-runner
-
+#     - SN-runner # Ensure this job runs on a runner that can execute Docker/Kaniko
+#   cache: {} # Disable default cache inherited from 'default' key, as it's not relevant for this job
 #   script:
+#     - |
+#       # Determine Docker image destination tag based on the pipeline context
+#       if [ -n "$CI_COMMIT_TAG" ]; then # If it's a git tag
+#         DESTINATION="${CI_REGISTRY_IMAGE}:${CI_COMMIT_TAG}"
+#       elif [ "$CI_COMMIT_BRANCH" == "$CI_DEFAULT_BRANCH" ]; then # If it's the default branch (e.g., main)
+#         DESTINATION="${CI_REGISTRY_IMAGE}:latest"
+#       elif [ "$CI_PIPELINE_SOURCE" == "merge_request_event" ]; then # If it's a merge request
+#         # Tag for MRs, e.g., for review apps or temporary images
+#         DESTINATION="${CI_REGISTRY_IMAGE}:mr-${CI_MERGE_REQUEST_IID}"
+#       else # Fallback for other branches/contexts
+#         DESTINATION="${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}"
+#       fi
+#       echo "Building and pushing Docker image to: ${DESTINATION}"
 #     - /kaniko/executor
 #       --context "${CI_PROJECT_DIR}"
 #       --dockerfile "${CI_PROJECT_DIR}/Dockerfile"
-#       --destination "${CI_REGISTRY_IMAGE}:${CI_COMMIT_TAG}"
-#   only:
-#     - main
-#     - merge_requests
+#       --destination "${DESTINATION}"
+#       # Example: pass build arguments to Dockerfile
+#       # --build-arg "MY_BUILD_ARG=${SOME_CI_VARIABLE}"
+#   rules:
+#     # Run this job for:
+#     - if: '$CI_COMMIT_TAG'                                   # Git tags
+#     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'          # Commits to the default branch
+#     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'    # Merge requests
+#   needs: [] # This job does not depend on artifacts from previous jobs in this example
