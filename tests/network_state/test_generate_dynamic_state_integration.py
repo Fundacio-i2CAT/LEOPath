@@ -1,16 +1,9 @@
-# tests/dynamic_state/test_generate_dynamic_state_integration.py
-# FINAL VERSION with TLE fixes & Non-Sequential Test Update
-
-import math
-import pprint  # For printing the actual fstate nicely
 import unittest
 
 import ephem
-from astropy import units as astro_units
 from astropy.time import Time
 
-# Modules and classes to test/use
-from src.dynamic_state.generate_dynamic_state import (
+from src.network_state.generate_network_state import (
     generate_dynamic_state,
     generate_dynamic_state_at,
 )

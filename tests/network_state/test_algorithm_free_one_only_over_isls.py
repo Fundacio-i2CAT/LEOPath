@@ -1,12 +1,12 @@
 # tests/dynamic_state/test_algorithm_free_one_only_over_isls.py
 
 import unittest
-from unittest.mock import ANY, MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import ephem  # For mocking spec
 
 # Function/Module to test
-from src.dynamic_state import algorithm_free_one_only_over_isls
+from src.network_state.routing_algorithms import algorithm_free_one_only_over_isls
 from src.topology.satellite.satellite import Satellite
 from src.topology.topology import (
     ConstellationData,
@@ -120,7 +120,7 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
         # --- Patch the helper function ---
         # Patch where it's looked up: in the algorithm module itself
         patcher = patch(
-            "src.dynamic_state.algorithm_free_one_only_over_isls.calculate_fstate_shortest_path_object_no_gs_relay"
+            "src.network_state.routing_algorithms.algorithm_free_one_only_over_isls.calculate_fstate_shortest_path_object_no_gs_relay"
         )
         self.addCleanup(patcher.stop)
         self.mock_fstate_calculator = patcher.start()
@@ -130,7 +130,10 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
         self.mock_fstate_calculator.return_value = self.expected_fstate_result
 
         # Patch logger (optional, useful for checking log calls)
-        patcher_log = patch("src.dynamic_state.algorithm_free_one_only_over_isls.log", MagicMock())
+        patcher_log = patch(
+            "src.network_state.routing_algorithms.algorithm_free_one_only_over_isls.log",
+            MagicMock(),
+        )
         self.addCleanup(patcher_log.stop)
         self.mock_log = patcher_log.start()
 

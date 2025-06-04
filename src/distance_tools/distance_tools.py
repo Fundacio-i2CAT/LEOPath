@@ -22,13 +22,12 @@
 
 import datetime
 import math
-from astropy.time import Time as AstropyTime
+
 import ephem
-from geopy.distance import great_circle  # Keep existing imports
+from astropy.time import Time as AstropyTime
+from geopy.distance import great_circle
 
 from src import logger
-
-# Import your Satellite class definition (adjust path if necessary)
 from src.topology.topology import GroundStation, Satellite
 
 log = logger.get_logger(__name__)
@@ -41,7 +40,6 @@ def _to_clean_ephem_string(time_input) -> str:
     """
     if isinstance(time_input, datetime.datetime):
         dt_obj = time_input
-    # Check for Astropy Time (duck-typing)
     elif hasattr(time_input, "datetime") and isinstance(
         getattr(time_input, "datetime", None), datetime.datetime
     ):
@@ -49,15 +47,12 @@ def _to_clean_ephem_string(time_input) -> str:
     elif isinstance(time_input, ephem.Date):
         dt_obj = time_input.datetime()
     else:
-        # If it's none of the above, try ephem.Date to parse it (handles strings etc.)
         try:
             dt_obj = ephem.Date(time_input).datetime()
         except Exception as e:
             raise TypeError(
                 f"Could not convert input '{time_input}' (type {type(time_input)}) to datetime. Error: {e}"
             ) from e
-
-    # Format the datetime object to the clean string format
     return dt_obj.strftime("%Y/%m/%d %H:%M:%S")
 
 
