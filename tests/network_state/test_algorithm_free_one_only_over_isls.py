@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import ephem  # For mocking spec
 
 # Function/Module to test
-from src.network_state.routing_algorithms import algorithm_free_one_only_over_isls
+from src.network_state.routing_algorithms.shortest_path_link_state_routing import algorithm_free_one_only_over_isls
 from src.topology.satellite.satellite import Satellite
 from src.topology.topology import (
     ConstellationData,
@@ -120,7 +120,7 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
         # --- Patch the helper function ---
         # Patch where it's looked up: in the algorithm module itself
         patcher = patch(
-            "src.network_state.routing_algorithms.algorithm_free_one_only_over_isls.calculate_fstate_shortest_path_object_no_gs_relay"
+            "src.network_state.routing_algorithms.shortest_path_link_state_routing.algorithm_free_one_only_over_isls.calculate_fstate_shortest_path_object_no_gs_relay"
         )
         self.addCleanup(patcher.stop)
         self.mock_fstate_calculator = patcher.start()
@@ -131,7 +131,7 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
 
         # Patch logger (optional, useful for checking log calls)
         patcher_log = patch(
-            "src.network_state.routing_algorithms.algorithm_free_one_only_over_isls.log",
+            "src.network_state.routing_algorithms.shortest_path_link_state_routing.algorithm_free_one_only_over_isls.log",
             MagicMock(),
         )
         self.addCleanup(patcher_log.stop)
