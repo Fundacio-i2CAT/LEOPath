@@ -147,7 +147,6 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
             topology_with_isls=self.mock_topology,
             ground_station_satellites_in_range=self.visibility,
             list_gsl_interfaces_info=self.gsl_info,
-            prev_output=None,  # Test with no previous output first
         )
 
         # 1. Assert Bandwidth Calculation
@@ -189,7 +188,6 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
             topology_with_isls=self.mock_topology,
             ground_station_satellites_in_range=self.visibility,
             list_gsl_interfaces_info=self.gsl_info,
-            prev_output=self.prev_output_data,  # Pass previous output
         )
 
         # Assert helper was still called correctly (prev_output['fstate'] is extracted but not used in call)
@@ -216,7 +214,6 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
             topology_with_isls=self.mock_topology,
             ground_station_satellites_in_range=self.visibility,
             list_gsl_interfaces_info=short_gsl_info,  # Use short list
-            prev_output=None,
         )
 
         # Assert bandwidth: Node 3 should have default BW=0 due to fallback
@@ -248,7 +245,6 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
             topology_with_isls=self.mock_topology,
             ground_station_satellites_in_range=self.visibility,
             list_gsl_interfaces_info=self.gsl_info,
-            prev_output=None,
         )
 
         # Assert fstate is empty dictionary on error

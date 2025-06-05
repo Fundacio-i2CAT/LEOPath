@@ -1,59 +1,53 @@
-# algorithm_free_one_only_over_isls.py (Refactored)
-
 # The MIT License (MIT)
-# ... (License remains the same) ...
+#
+# Copyright (c) 2020 ETH Zurich
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 
 from src import logger
 from src.topology.topology import ConstellationData, GroundStation, LEOTopology
-
-# --- Assume fstate_calculation is refactored ---
-# We expect a function like calculate_fstate_shortest_path_object
-# which takes topology, visibility, prev_state object and returns the fstate object
-from ..fstate_calculation import (  # Renamed/refactored function
+from ..fstate_calculation import (
     calculate_fstate_shortest_path_object_no_gs_relay,
 )
 
-# Remove graph utils import if _check_graph_is_valid is removed or uses topology methods directly
-# from .utils import graph as graph_utils
-
-
 log = logger.get_logger(__name__)
-
-# Note: _check_graph_is_valid might be redundant if topology construction is robust
-# def _check_graph_is_valid(topology: LEOTopology):
-#     """
-#     Check if the graph is valid by ensuring that all nodes are satellites and that there are no ground stations.
-#     (May need adjustment based on how LEOTopology is constructed and used)
-#     """
-#     # This check might need reconsideration depending on the exact graph passed
-#     if topology.graph.number_of_nodes() != topology.constellation_data.number_of_satellites:
-#         # If topology_with_isls graph strictly contains *only* satellite nodes:
-#         log.warning(f"Graph node count ({topology.graph.number_of_nodes()}) differs from satellite count ({topology.constellation_data.number_of_satellites})")
-#         # If it can contain GS nodes without links, the check needs refinement
-#     # graph_utils.validate_no_satellite_to_gs_links(...) # This check seems specific to GS relaying, maybe not needed here
 
 
 def algorithm_free_one_only_over_isls(
-    # output_dynamic_state_dir: str, # Removed: No longer writing state files here
     time_since_epoch_ns: int,
-    constellation_data: ConstellationData,  # Passed as 'satellites' arg previously, use directly
+    constellation_data: ConstellationData,
     ground_stations: list[GroundStation],
-    topology_with_isls: LEOTopology,  # Graph containing satellites and ISLs (maybe GS nodes too, depends on _build_topologies)
-    ground_station_satellites_in_range: list,  # Visibility info: list[list[(dist, sat_id)]] per GS
-    # Removed num_isls_per_sat - derivable from topology_with_isls.get_satellite(id).number_isls
-    # Removed sat_neighbor_to_if - derivable from topology_with_isls.sat_neighbor_to_if
+    topology_with_isls: LEOTopology,
+    ground_station_satellites_in_range: list,  # TODO specify type, e.g. List[Tuple[float, int]]
     list_gsl_interfaces_info: list,  # Info about bandwidth per node/interface
-    prev_output: dict | None,  # Contains previous state: {'fstate': {...}, 'bandwidth': {...}}
-) -> dict:  # Return the new state object
+) -> dict:
     """
-    Refactored: FREE-ONE ONLY OVER INTER-SATELLITE LINKS ALGORITHM
-
-    Calculates bandwidth and forwarding state (shortest paths via ISLs only)
+    Calculates bandwidth and forwarding state (shortest paths via ISLs only, no GS relaying)
     and returns them as state objects, without writing to files.
 
     Assumptions:
     - "one": Each satellite/GS has one GSL interface (index 0).
-    - "free": Bandwidth is per-interface, no strict reciprocation enforced here.
+    - "free": Bandwidth is managed per interface, and there is no strict requirement that
+      bandwidth usage is reciprocated between nodes. Each node's interface tracks its own
+      available bandwidth independently, allowing for flexible allocation without enforcing
+      that if Node A can send to Node B, Node B must also be able to send to Node A.
     - "only_over_isls": Paths are GS -> Sat -> ... -> Sat -> GS.
 
     :param time_since_epoch_ns: Current time step relative to epoch (integer ns).
@@ -68,7 +62,6 @@ def algorithm_free_one_only_over_isls(
     :return: Dictionary containing the new 'fstate' and 'bandwidth' state objects.
     """
     log.debug(f"Running algorithm_free_one_only_over_isls for t={time_since_epoch_ns} ns")
-
     # --- 1. Calculate Bandwidth State ---
     # Represents bandwidth capacity of the single GSL interface (IF=0) for each node.
     current_bandwidth_state = {}  # Key: node_id (int), Value: bandwidth (float)

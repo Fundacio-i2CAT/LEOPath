@@ -233,7 +233,6 @@ def generate_dynamic_state_at(
                     topology_with_isls=current_topology,  # Use the current topology
                     ground_station_satellites_in_range=gs_sat_visibility_list,  # Use computed visibility
                     list_gsl_interfaces_info=list_gsl_interfaces_info,
-                    prev_output=prev_output,  # Algorithm might still use previous state info
                 )
             except Exception as e:
                 log.exception(
