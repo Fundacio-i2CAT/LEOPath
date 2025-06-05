@@ -23,7 +23,7 @@
 
 from src import logger
 from src.topology.topology import ConstellationData, GroundStation, LEOTopology
-from ..fstate_calculation import (
+from .fstate_calculation import (
     calculate_fstate_shortest_path_object_no_gs_relay,
 )
 
@@ -76,8 +76,6 @@ def algorithm_free_one_only_over_isls(
 
     for i in range(num_total_nodes):
         if i < len(list_gsl_interfaces_info):
-            # Assume the list order matches node IDs 0..N-1 (Sats 0..M-1, GSs M..N-1)
-            # Or use an 'id' field if present in the list_gsl_interfaces_info dictionaries
             node_id = list_gsl_interfaces_info[i].get("id", i)
             bandwidth = list_gsl_interfaces_info[i].get("aggregate_max_bandwidth", 0.0)
             # Store bandwidth for the assumed single GSL interface (index 0) per node
@@ -93,21 +91,11 @@ def algorithm_free_one_only_over_isls(
     log.debug(f"  Calculated bandwidth state for {len(current_bandwidth_state)} nodes.")
 
     # --- 2. Calculate Forwarding State ---
-    # Extract previous fstate object if available
-    # prev_fstate_obj = prev_output.get("fstate") if prev_output else None
-
-    # The helper function needs access to the topology graph, ISL interface mapping,
-    # satellite objects (via topology), ground station list, and GS->Sat visibility.
-
-    # Call the refactored helper function (expected to be in fstate_calculation.py)
-    # This function now returns the fstate object directly.
     try:
         current_fstate_obj = calculate_fstate_shortest_path_object_no_gs_relay(
             topology_with_isls,  # Contains graph, sat_neighbor_to_if, get_satellite()
             ground_stations,  # Needed to iterate through destinations
             ground_station_satellites_in_range,  # Needed for entry/exit points of paths
-            # prev_fstate_obj,                  # Pass previous state if helper does delta logic
-            # enable_verbose_logs               # Pass if helper needs it
         )
         log.debug("Calculated forwarding state object.")
 

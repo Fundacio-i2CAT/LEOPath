@@ -10,7 +10,7 @@ from src import logger
 from src.topology.topology import ConstellationData, GroundStation, LEOTopology
 
 from .helpers import _build_topologies, _compute_ground_station_satellites_in_range, _compute_isls
-from .routing_algorithms.algorithm_free_one_only_over_isls import algorithm_free_one_only_over_isls
+from .routing_algorithms.shortest_path_link_state_routing.algorithm_free_one_only_over_isls import algorithm_free_one_only_over_isls
 from .utils import graph as graph_utils
 
 log = logger.get_logger(__name__)
