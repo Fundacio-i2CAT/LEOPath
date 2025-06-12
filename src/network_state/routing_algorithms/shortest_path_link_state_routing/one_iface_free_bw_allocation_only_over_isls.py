@@ -23,9 +23,7 @@
 
 from src import logger
 from src.topology.topology import ConstellationData, GroundStation, LEOTopology
-from .fstate_calculation import (
-    calculate_fstate_shortest_path_object_no_gs_relay,
-)
+from .fstate_calculation import calculate_fstate_shortest_path_object_no_gs_relay
 
 log = logger.get_logger(__name__)
 
@@ -62,11 +60,31 @@ def algorithm_free_one_only_over_isls(
     :return: Dictionary containing the new 'fstate' and 'bandwidth' state objects.
     """
     log.debug(f"Running algorithm_free_one_only_over_isls for t={time_since_epoch_ns} ns")
-    # --- 1. Calculate Bandwidth State ---
-    # Represents bandwidth capacity of the single GSL interface (IF=0) for each node.
-    current_bandwidth_state = {}  # Key: node_id (int), Value: bandwidth (float)
+
+    bandwidth_state = _calculate_bandwidth_state(
+        constellation_data, ground_stations, list_gsl_interfaces_info
+    )
+    fstate = _calculate_forwarding_state(
+        topology_with_isls, ground_stations, ground_station_satellites_in_range
+    )
+
+    return {
+        "fstate": fstate,
+        "bandwidth": bandwidth_state,
+    }
+
+
+def _calculate_bandwidth_state(
+    constellation_data: ConstellationData,
+    ground_stations: list[GroundStation],
+    list_gsl_interfaces_info: list,
+) -> dict:
+    """
+    Returns a dict mapping node_id to its aggregate_max_bandwidth.
+    """
     num_satellites = constellation_data.number_of_satellites
     num_total_nodes = num_satellites + len(ground_stations)
+    bandwidth_state = {}
 
     if len(list_gsl_interfaces_info) != num_total_nodes:
         log.warning(
@@ -76,65 +94,44 @@ def algorithm_free_one_only_over_isls(
 
     for i in range(num_total_nodes):
         if i < len(list_gsl_interfaces_info):
-            node_id = list_gsl_interfaces_info[i].get("id", i)
-            bandwidth = list_gsl_interfaces_info[i].get("aggregate_max_bandwidth", 0.0)
-            # Store bandwidth for the assumed single GSL interface (index 0) per node
-            current_bandwidth_state[node_id] = bandwidth
-            log.debug(f"  Bandwidth state: Node {node_id}, IF 0, BW = {bandwidth}")
+            node_info = list_gsl_interfaces_info[i]
+            node_id = node_info.get("id", i)
+            bandwidth = node_info.get("aggregate_max_bandwidth", 0.0)
         else:
-            # Fallback if list is too short
-            node_id = i  # Assume node ID is the index
-            current_bandwidth_state[node_id] = 0.0
+            node_id = i
+            bandwidth = 0.0
             log.error(
                 f"Index {i} out of bounds for list_gsl_interfaces_info, setting BW=0 for node {node_id}"
             )
-    log.debug(f"  Calculated bandwidth state for {len(current_bandwidth_state)} nodes.")
+        bandwidth_state[node_id] = bandwidth
+        log.debug(f"  Bandwidth state: Node {node_id}, IF 0, BW = {bandwidth}")
 
-    # --- 2. Calculate Forwarding State ---
+    log.debug(f"  Calculated bandwidth state for {len(bandwidth_state)} nodes.")
+    return bandwidth_state
+
+
+def _calculate_forwarding_state(
+    topology_with_isls: LEOTopology,
+    ground_stations: list[GroundStation],
+    ground_station_satellites_in_range: list,
+) -> dict:
+    """
+    Returns the forwarding state object using shortest path calculation.
+    """
     try:
-        current_fstate_obj = calculate_fstate_shortest_path_object_no_gs_relay(
-            topology_with_isls,  # Contains graph, sat_neighbor_to_if, get_satellite()
-            ground_stations,  # Needed to iterate through destinations
-            ground_station_satellites_in_range,  # Needed for entry/exit points of paths
+        fstate = calculate_fstate_shortest_path_object_no_gs_relay(
+            topology_with_isls,
+            ground_stations,
+            ground_station_satellites_in_range,
         )
         log.debug("Calculated forwarding state object.")
-
+        return fstate
     except NameError:
         log.exception(
             "Failed to call 'calculate_fstate_shortest_path_object'. "
             "Ensure fstate_calculation.py has been refactored."
         )
-        # Handle error - perhaps return previous state or raise?
-        # For now, return an empty fstate
-        current_fstate_obj = {}
+        return {}
     except Exception as e:
         log.exception(f"Error during forwarding state calculation: {e}")
-        current_fstate_obj = {}  # Return empty fstate on error
-
-    # --- 3. Return Combined State ---
-    new_state = {
-        "fstate": current_fstate_obj,
-        "bandwidth": current_bandwidth_state,
-    }
-    return new_state
-
-
-# --- IMPORTANT ---
-# The function `calculate_fstate_shortest_path_object` (previously part of
-# `calculate_fstate_shortest_path_without_gs_relaying` in `fstate_calculation.py`)
-# needs to be refactored separately. It should:
-# 1. Accept `topology_with_isls`, `ground_stations`, `ground_station_satellites_in_range` etc.
-# 2. Perform the shortest path calculations using NetworkX on `topology_with_isls.graph`.
-# 3. Determine the next hop for each (source_sat, dest_gs_id) pair based on the path.
-# 4. Use `topology_with_isls.sat_neighbor_to_if` to map ISL next hops to interface numbers.
-# 5. Handle the mapping for the first GSL hop (GS -> Sat) and the last GSL hop (Sat -> GS),
-#    potentially assuming interface 0 on the GS and deriving the satellite's GSL interface index.
-# 6. Return the forwarding state as a dictionary structure, e.g.:
-#    fstate = {
-#        satellite_id: {
-#            destination_gs_id: (next_hop_node_id, next_hop_interface_index),
-#            ...
-#        },
-#        ...
-#    }
-# 7. Remove all file I/O operations related to writing the fstate file.
+        return {}
