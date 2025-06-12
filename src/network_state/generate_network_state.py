@@ -8,9 +8,7 @@ from astropy.time import Time
 from src import logger
 from src.topology.topology import ConstellationData, GroundStation
 from .helpers import _build_topologies, _compute_ground_station_satellites_in_range, _compute_isls
-from .routing_algorithms.shortest_path_link_state_routing.one_iface_free_bw_allocation_only_over_isls import (
-    algorithm_free_one_only_over_isls,
-)
+from .routing_algorithms.routing_algorithm_factory import get_routing_algorithm
 from .utils import graph as graph_utils
 
 log = logger.get_logger(__name__)
@@ -217,21 +215,20 @@ def _reuse_or_calculate_state(
             graphs_changed = True
 
     log.info(f"Calling dynamic state algorithm: {dynamic_state_algorithm}")
-    if dynamic_state_algorithm == "algorithm_free_one_only_over_isls":
-        try:
-            return algorithm_free_one_only_over_isls(
-                time_since_epoch_ns=time_since_epoch_ns,
-                constellation_data=constellation_data,
-                ground_stations=ground_stations,
-                topology_with_isls=current_topology,
-                ground_station_satellites_in_range=gs_sat_visibility_list,
-                list_gsl_interfaces_info=list_gsl_interfaces_info,
-            )
-        except Exception as e:
-            log.exception(
-                f"Algorithm '{dynamic_state_algorithm}' execution failed at t={time_since_epoch_ns} ns: {e}"
-            )
-            return None
-    else:
-        log.error(f"Unknown dynamic state algorithm: {dynamic_state_algorithm}")
-        raise ValueError(f"Unknown dynamic state algorithm: {dynamic_state_algorithm}")
+    try:
+        algorithm = get_routing_algorithm(dynamic_state_algorithm)
+        return algorithm.compute_state(
+            time_since_epoch_ns=time_since_epoch_ns,
+            constellation_data=constellation_data,
+            ground_stations=ground_stations,
+            topology_with_isls=current_topology,
+            ground_station_satellites_in_range=gs_sat_visibility_list,
+            list_gsl_interfaces_info=list_gsl_interfaces_info,
+        )
+    except ValueError:
+        raise
+    except Exception as e:
+        log.exception(
+            f"Algorithm '{dynamic_state_algorithm}' execution failed at t={time_since_epoch_ns} ns: {e}"
+        )
+        return None

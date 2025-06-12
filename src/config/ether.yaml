@@ -10,7 +10,7 @@ constellation:
   tle_output_filename: "tles_starlink_550_sgp.txt.tmp"
 
 simulation:
-  dynamic_state_algorithm: "algorithm_free_one_only_over_isls"
+  dynamic_state_algorithm: shortest_path_link_state
   output_dir: null # Set to a path or keep null
   end_time_hours: 24
   time_step_minutes: 10

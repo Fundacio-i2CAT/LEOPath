@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch, call
 
 import ephem
 import networkx as nx
@@ -133,8 +133,9 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
         self.ground_stations = [self.gs1, self.gs2]
         self.undirected_isls = [(0, 1), (1, 2)]
         self.time_since_epoch_ns = 1 * 1e9
+        from astropy import units as u
         self.current_time_absolute = (
-            self.mock_astropy_epoch + self.time_since_epoch_ns * astro_units.ns
+            self.mock_astropy_epoch + self.time_since_epoch_ns * u.ns
         )
         self.list_gsl_interfaces_info = [
             {"id": sat.id, "number_of_interfaces": 4} for sat in self.satellites
@@ -155,13 +156,13 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
         self.addCleanup(patcher_topology.stop)
         self.MockLEOTopologyClass_patched = patcher_topology.start()
 
-        # Patch the specific algorithm function at its usage location
-        patcher_algorithm = patch(
-            "src.network_state.generate_network_state.algorithm_free_one_only_over_isls",
-            MagicMock(),
+        # Patch the routing algorithm factory to return a MagicMock algorithm instance
+        patcher_algorithm_factory = patch(
+            "src.network_state.routing_algorithms.routing_algorithm_factory.get_routing_algorithm",
+            return_value=MagicMock(),
         )
-        self.addCleanup(patcher_algorithm.stop)
-        self.mock_algorithm_func = patcher_algorithm.start()
+        self.addCleanup(patcher_algorithm_factory.stop)
+        self.mock_algorithm_factory = patcher_algorithm_factory.start()
 
         # --- Configure DEFAULT return values for mocked distance functions ---
         # Configure the methods directly on the mocked module object
@@ -315,10 +316,12 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
             for u, v in expected_edges_in_test:
                 self.assertTrue(
                     topology.graph.has_edge(u, v), f"Expected edge ({u}, {v}) not found"
-                )
-                weight = topology.graph.get_edge_data(u, v).get("weight")
+                edge_data = topology.graph.get_edge_data(u, v)
+                weight = edge_data.get("weight") if edge_data else 0
+                self.assertIsNotNone(weight, f"Edge ({u},{v}) missing weight")
                 self.assertAlmostEqual(
-                    weight, in_range_dist, delta=0.01, msg=f"Edge ({u},{v}) weight incorrect"
+                    float(weight), float(in_range_dist), delta=0.01, msg=f"Edge ({u},{v}) weight incorrect"
+                )
                 )
 
             for u, v in not_expected_edges_in_test:
@@ -339,9 +342,9 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
                 self.list_gsl_interfaces_info,
                 "bad_algorithm",
                 None,
-                None, 
+                None,
             )
-        self.assertIn("Unknown dynamic state algorithm: bad_algorithm", str(cm.exception))
+        self.assertIn("Unknown routing algorithm", str(cm.exception))
 
     @patch("src.network_state.generate_network_state._generate_state_for_step")
     def test_generate_dynamic_state_loop(self, mock_generate_at):
@@ -431,71 +434,72 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
         simulation_end_time_ns = 3 * 1_000_000_000
         time_step_ns = 1 * 1_000_000_000
         offset_ns = 0
-        algo_name = (
-            "algorithm_free_one_only_over_isls"  # Ensure this matches the patched function name
-        )
+        algo_name = "shortest_path_link_state"  # Use the factory-based name
         state_t0 = {"fstate": {"id": "state_t0"}, "bandwidth": {"node": 1.0}}
-        state_t2 = {"fstate": {"id": "state_t2"}, "bandwidth": {"node": 1.0}}  # Different state
+        state_t2 = {"fstate": {"id": "state_t2"}, "bandwidth": {"node": 1.0}}
         mock_topo_t0 = MagicMock(name="TopoT0")
-        mock_topo_t1 = MagicMock(name="TopoT1")  # Assume same as T0 for test
-        mock_topo_t2 = MagicMock(name="TopoT2")  # Assume different from T1
+        mock_topo_t1 = MagicMock(name="TopoT1")
+        mock_topo_t2 = MagicMock(name="TopoT2")
 
-        # Patch the topology comparison function at its source location
         with patch(
             "src.network_state.utils.graph._topologies_are_equal"
         ) as mock_topologies_equal, patch(
-            f"src.network_state.generate_network_state.{algo_name}"
-        ) as mock_algorithm_func, patch(
+            "src.network_state.routing_algorithms.routing_algorithm_factory.get_routing_algorithm"
+        ) as mock_factory, patch(
             "src.network_state.generate_network_state._build_topologies"
         ) as mock_build, patch(
             "src.network_state.generate_network_state._compute_isls"
         ) as mock_isls, patch(
             "src.network_state.generate_network_state._compute_ground_station_satellites_in_range"
         ) as mock_gsl:
-            # Configure the mock for _topologies_are_equal
+            # Setup topology comparison
             mock_topologies_equal.side_effect = [
-                False,  # Call 1 (t=0): Comparing None, T0 -> Returns False
-                True,  # Call 2 (t=1): Comparing T0, T1 -> Returns True (REUSE state)
-                False,  # Call 3 (t=2): Comparing T1, T2 -> Returns False (CALC state)
+                False,  # t=0: not equal, compute
+                True,  # t=1: equal, reuse
+                False,  # t=2: not equal, compute
             ]
-            # Configure the mock for the algorithm function
-            mock_algorithm_func.side_effect = [
-                state_t0,  # Return value when called for t=0 (because call 1 -> False)
-                state_t2,  # Return value when called for t=2 (because call 3 -> False)
+            # Setup factory and algorithm instance
+            mock_algorithm_instance = MagicMock()
+            mock_algorithm_instance.compute_state.side_effect = [
+                state_t0,  # t=0
+                state_t2,  # t=2
             ]
-            # Configure _build_topologies
+            mock_factory.return_value = mock_algorithm_instance
+            # Setup topology builds
             mock_build.side_effect = [
-                (mock_topo_t0, MagicMock()),  # For t=0
-                (mock_topo_t1, MagicMock()),  # For t=1
-                (mock_topo_t2, MagicMock()),  # For t=2
+                (mock_topo_t0, MagicMock()),  # t=0
+                (mock_topo_t1, MagicMock()),  # t=1
+                (mock_topo_t2, MagicMock()),  # t=2
             ]
-            # Configure other mocks
             mock_isls.return_value = None
             mock_gsl.return_value = []
+
             final_states = generate_network_state.generate_dynamic_state(
-                self.mock_astropy_epoch,  # From setUp
+                self.mock_astropy_epoch,
                 simulation_end_time_ns,
                 time_step_ns,
                 offset_ns,
-                self.constellation_data,  # From setUp
-                self.ground_stations,  # From setUp
-                self.undirected_isls,  # From setUp
-                self.list_gsl_interfaces_info,  # From setUp
+                self.constellation_data,
+                self.ground_stations,
+                self.undirected_isls,
+                self.list_gsl_interfaces_info,
                 algo_name,
             )
-        # Verify _topologies_are_equal was called correctly
-        self.assertEqual(mock_topologies_equal.call_count, 3)  # <--- EXPECT 3 CALLS
+
+        # Assert topology comparison calls
+        self.assertEqual(mock_topologies_equal.call_count, 3)
         mock_topologies_equal.assert_has_calls(
             [
-                call(None, mock_topo_t0),  # Call at t=0 (No weight_tolerance)
-                call(mock_topo_t0, mock_topo_t1),  # Call at t=1 (No weight_tolerance)
-                call(mock_topo_t1, mock_topo_t2),  # Call at t=2 (No weight_tolerance)
+                call(None, mock_topo_t0),
+                call(mock_topo_t0, mock_topo_t1),
+                call(mock_topo_t1, mock_topo_t2),
             ],
-            any_order=False,  # Ensure the order is correct
+            any_order=False,
         )
-        self.assertEqual(mock_algorithm_func.call_count, 2)  # <--- EXPECT 2 CALLS!
-        first_call_args = mock_algorithm_func.call_args_list[0]
-        second_call_args = mock_algorithm_func.call_args_list[1]
+        # Assert compute_state calls
+        self.assertEqual(mock_algorithm_instance.compute_state.call_count, 2)
+        first_call_args = mock_algorithm_instance.compute_state.call_args_list[0]
+        second_call_args = mock_algorithm_instance.compute_state.call_args_list[1]
         self.assertEqual(first_call_args.kwargs["time_since_epoch_ns"], 0)
         self.assertEqual(second_call_args.kwargs["time_since_epoch_ns"], 2_000_000_000)
         self.assertEqual(len(final_states), 3)

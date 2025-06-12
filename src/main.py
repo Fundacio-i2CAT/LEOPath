@@ -200,7 +200,6 @@ def execute_simulation_run(config, parsed_tles_data, sim_satellites, ground_stat
 
     log.info("Starting dynamic state generation...")
     all_states = generate_dynamic_state(
-        output_dynamic_state_dir=sim_config["output_dir"],
         epoch=parsed_tles_data["epoch"],
         simulation_end_time_ns=simulation_end_time_ns,
         time_step_ns=time_step_ns,
