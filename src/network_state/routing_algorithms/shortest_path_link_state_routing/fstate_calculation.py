@@ -8,7 +8,7 @@ import numpy as np
 from src import logger
 from src.topology.topology import GroundStation, LEOTopology
 
-log = logger.get_logger(__name__)  # Optional
+log = logger.get_logger(__name__)
 
 
 def calculate_fstate_shortest_path_object_no_gs_relay(
@@ -29,21 +29,21 @@ def calculate_fstate_shortest_path_object_no_gs_relay(
     except Exception as e:
         log.exception(f"Error getting satellite IDs from topology: {e}")
         return {}
-    nodelist = sorted([node_id for node_id in full_graph.nodes() if node_id in all_satellite_ids])
-    if not nodelist:
+    satellite_node_ids = sorted([node_id for node_id in full_graph.nodes() if node_id in all_satellite_ids])
+    if not satellite_node_ids:
         log.warning("No valid satellite nodes found in the graph for path calculation.")
         return {}
 
-    node_to_index = {node_id: index for index, node_id in enumerate(nodelist)}
-    sat_subgraph = full_graph.subgraph(nodelist)
+    node_to_index = {node_id: index for index, node_id in enumerate(satellite_node_ids)}
+    sat_subgraph = full_graph.subgraph(satellite_node_ids)
 
     if sat_subgraph.number_of_nodes() == 0:
         log.warning("Satellite subgraph is empty. No ISL paths possible.")
         return {}
 
     try:
-        log.debug(f"Calculating Floyd-Warshall on satellite subgraph for {len(nodelist)} nodes...")
-        dist_matrix = nx.floyd_warshall_numpy(sat_subgraph, nodelist=nodelist, weight="weight")
+        log.debug(f"Calculating Floyd-Warshall on satellite subgraph for {len(satellite_node_ids)} nodes...")
+        dist_matrix = nx.floyd_warshall_numpy(sat_subgraph, nodelist=satellite_node_ids, weight="weight")
         log.debug("Floyd-Warshall calculation complete.")
     except (nx.NetworkXError, Exception) as e:
         log.error(f"Error during Floyd-Warshall shortest path calculation: {e}")
@@ -56,7 +56,7 @@ def calculate_fstate_shortest_path_object_no_gs_relay(
         topology_with_isls,
         ground_stations,
         ground_station_satellites_in_range,
-        nodelist,
+        satellite_node_ids,
         node_to_index,
         sat_subgraph,
         dist_matrix,

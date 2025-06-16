@@ -134,9 +134,8 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
         self.undirected_isls = [(0, 1), (1, 2)]
         self.time_since_epoch_ns = 1 * 1e9
         from astropy import units as u
-        self.current_time_absolute = (
-            self.mock_astropy_epoch + self.time_since_epoch_ns * u.ns
-        )
+
+        self.current_time_absolute = self.mock_astropy_epoch + self.time_since_epoch_ns * u.ns
         self.list_gsl_interfaces_info = [
             {"id": sat.id, "number_of_interfaces": 4} for sat in self.satellites
         ] + [{"id": gs.id, "number_of_interfaces": 2} for gs in self.ground_stations]
@@ -316,12 +315,15 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
             for u, v in expected_edges_in_test:
                 self.assertTrue(
                     topology.graph.has_edge(u, v), f"Expected edge ({u}, {v}) not found"
+                )
                 edge_data = topology.graph.get_edge_data(u, v)
                 weight = edge_data.get("weight") if edge_data else 0
                 self.assertIsNotNone(weight, f"Edge ({u},{v}) missing weight")
                 self.assertAlmostEqual(
-                    float(weight), float(in_range_dist), delta=0.01, msg=f"Edge ({u},{v}) weight incorrect"
-                )
+                    float(weight),
+                    float(in_range_dist),
+                    delta=0.01,
+                    msg=f"Edge ({u},{v}) weight incorrect",
                 )
 
             for u, v in not_expected_edges_in_test:

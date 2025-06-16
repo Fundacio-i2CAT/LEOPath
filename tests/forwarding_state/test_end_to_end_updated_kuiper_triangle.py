@@ -9,7 +9,7 @@ import ephem
 from astropy.time import Time
 
 from src.distance_tools import geodetic2cartesian
-from src.network_state.generate_network_state import generate_dynamic_state_at
+from src.network_state.generate_network_state import _generate_state_for_step
 from src.topology.topology import ConstellationData, GroundStation, Satellite
 
 
@@ -21,9 +21,8 @@ class TestEndToEndKuiperTriangle(unittest.TestCase):
         Checks basic state generation.
         """
         # --- Inputs ---
-        output_dir = None
         epoch = Time("2000-01-01 00:00:00", scale="tdb")  # Match TLE epoch
-        dynamic_state_algorithm = "algorithm_free_one_only_over_isls"
+        dynamic_state_algorithm = "shortest_path_link_state"
         altitude_m = 630000
         earth_radius = 6378135.0
         satellite_cone_radius_m = altitude_m / math.tan(math.radians(30.0))
@@ -161,8 +160,7 @@ class TestEndToEndKuiperTriangle(unittest.TestCase):
         ]
 
         # --- Execute for t=0 ---
-        result_state_t0, _ = generate_dynamic_state_at(
-            output_dynamic_state_dir=output_dir,
+        result_state_t0, _ = _generate_state_for_step(
             epoch=epoch,
             time_since_epoch_ns=0,
             constellation_data=constellation_data,
@@ -176,6 +174,7 @@ class TestEndToEndKuiperTriangle(unittest.TestCase):
 
         # --- Assertions for t=0 ---
         self.assertIsNotNone(result_state_t0, "generate_dynamic_state_at returned None at t=0")
+        self.assertIsNotNone(result_state_t0, "result_state_t0 is None")
         self.assertIn("fstate", result_state_t0)
         self.assertIn("bandwidth", result_state_t0)
         self.assertIsInstance(result_state_t0["fstate"], dict)

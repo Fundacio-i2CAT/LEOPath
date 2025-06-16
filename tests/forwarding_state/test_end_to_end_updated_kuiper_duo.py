@@ -7,7 +7,7 @@ import ephem
 from astropy.time import Time
 
 from src.distance_tools import geodetic2cartesian
-from src.network_state.generate_network_state import generate_dynamic_state_at
+from src.network_state.generate_network_state import _generate_state_for_step
 from src.topology.topology import ConstellationData, GroundStation, Satellite
 
 
@@ -22,7 +22,7 @@ class TestEndToEndRefactored(unittest.TestCase):
         # --- Inputs ---
         output_dir = None
         epoch = Time("2000-01-01 00:00:00", scale="tdb")  # Match TLE epoch
-        dynamic_state_algorithm = "algorithm_free_one_only_over_isls"
+        dynamic_state_algorithm = "shortest_path_link_state"
         prev_output = None  # Check each step independently
 
         # Max lengths
@@ -165,8 +165,7 @@ class TestEndToEndRefactored(unittest.TestCase):
 
         # --- Execute and Assert for t=0 ---
         print("\n--- Checking Full State at t=0 ns ---")
-        result_state_t0, _ = generate_dynamic_state_at(
-            output_dynamic_state_dir=output_dir,
+        result_state_t0, _ = _generate_state_for_step(
             epoch=epoch,
             time_since_epoch_ns=0,
             constellation_data=constellation_data,
@@ -178,7 +177,7 @@ class TestEndToEndRefactored(unittest.TestCase):
             prev_topology=None,  # Added missing argument
         )
 
-        self.assertIsNotNone(result_state_t0, "generate_dynamic_state_at returned None at t=0")
+        self.assertIsNotNone(result_state_t0, "_generate_state_for_step returned None at t=0")
         self.assertIn("fstate", result_state_t0)
         self.assertIn("bandwidth", result_state_t0)
         fstate_t0 = result_state_t0["fstate"]
@@ -235,8 +234,7 @@ class TestEndToEndRefactored(unittest.TestCase):
             time_since_epoch_ns_int = int(time_ns)
             print(f"\n--- Checking t={time_since_epoch_ns_int} ns (First Hop Only) ---")
 
-            result_state, _ = generate_dynamic_state_at(
-                output_dynamic_state_dir=output_dir,
+            result_state, _ = _generate_state_for_step(
                 epoch=epoch,
                 time_since_epoch_ns=time_since_epoch_ns_int,
                 constellation_data=constellation_data,

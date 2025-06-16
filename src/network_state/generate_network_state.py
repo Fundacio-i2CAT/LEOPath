@@ -4,6 +4,7 @@
 import math
 from astropy import units as astro_units
 from astropy.time import Time
+from tqdm import tqdm  # Add this import
 
 from src import logger
 from src.topology.topology import ConstellationData, GroundStation
@@ -29,7 +30,6 @@ def generate_dynamic_state(
     Generates dynamic state over a simulation period.
     Returns a list containing the state calculated at each time step.
 
-    :param output_dynamic_state_dir: Directory for any non-state output files. Can be None.
     :param epoch: Astropy Time object representing the simulation epoch.
     :param simulation_end_time_ns: End time in nanoseconds since epoch (integer).
     :param time_step_ns: Simulation time step in nanoseconds (integer).
@@ -53,8 +53,13 @@ def generate_dynamic_state(
     prev_output = None
     prev_topology = None
 
-    for i, time_since_epoch_ns in enumerate(range(offset_ns, simulation_end_time_ns, time_step_ns)):
-        _log_progress(i, progress_interval, time_since_epoch_ns, total_iterations)
+    time_steps = range(offset_ns, simulation_end_time_ns, time_step_ns)
+    pbar = tqdm(total=total_iterations, desc="Dynamic State Progress")  # Create tqdm progress bar
+
+    for i, time_since_epoch_ns in enumerate(time_steps):
+        _log_progress(
+            i, progress_interval, time_since_epoch_ns, total_iterations, pbar
+        )  # Pass pbar
         try:
             current_output, current_topology = _generate_state_for_step(
                 epoch=epoch,
@@ -85,6 +90,7 @@ def generate_dynamic_state(
             all_states.append({"error": "Unhandled exception occurred."})
             break
 
+    pbar.close()  # Close the progress bar
     log.info(f"Dynamic state generation finished. Generated {len(all_states)} states.")
     return all_states
 
@@ -109,8 +115,10 @@ def _compute_iterations_and_progress(simulation_end_time_ns, time_step_ns, offse
     return total_iterations, progress_interval
 
 
-def _log_progress(i, progress_interval, time_since_epoch_ns, total_iterations):
+def _log_progress(i, progress_interval, time_since_epoch_ns, total_iterations, pbar=None):
     if i % progress_interval == 0:
+        if pbar is not None:
+            pbar.update(progress_interval)
         log.debug(
             "Progress: calculating for T=%d ns (step %d / %d)"
             % (time_since_epoch_ns, i + 1, max(1, int(total_iterations)))
@@ -182,11 +190,11 @@ def _build_and_prepare_topology(constellation_data, ground_stations, list_gsl_in
 
 def _log_topology_stats(current_topology, gs_sat_visibility_list, time_since_epoch_ns):
     num_visible_gsls = sum(len(vis_list) for vis_list in gs_sat_visibility_list)
-    log.debug(f"  > Time {time_since_epoch_ns} ns: Found {num_visible_gsls} visible GSLs.")
-    log.debug(
+    log.info(f"  > Time {time_since_epoch_ns} ns: Found {num_visible_gsls} visible GSLs.")
+    log.info(
         f"  > Time {time_since_epoch_ns} ns: Graph has {current_topology.graph.number_of_nodes()} nodes and {current_topology.graph.number_of_edges()} edges before comparison."
     )
-    log.debug(
+    log.info(
         f"  > Topology at t={time_since_epoch_ns} ns: "
         f"{current_topology.graph.number_of_nodes()} nodes, "
         f"{current_topology.graph.number_of_edges()} edges."
@@ -213,8 +221,6 @@ def _reuse_or_calculate_state(
                 f"Topology unchanged but prev_output is missing keys at t={time_since_epoch_ns} ns. Forcing recalculation."
             )
             graphs_changed = True
-
-    log.info(f"Calling dynamic state algorithm: {dynamic_state_algorithm}")
     try:
         algorithm = get_routing_algorithm(dynamic_state_algorithm)
         return algorithm.compute_state(
