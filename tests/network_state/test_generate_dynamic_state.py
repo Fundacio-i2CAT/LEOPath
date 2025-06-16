@@ -446,7 +446,7 @@ class TestDynamicStateGeneratorUpdated(unittest.TestCase):
         with patch(
             "src.network_state.utils.graph._topologies_are_equal"
         ) as mock_topologies_equal, patch(
-            "src.network_state.routing_algorithms.routing_algorithm_factory.get_routing_algorithm"
+            "src.network_state.generate_network_state.get_routing_algorithm"
         ) as mock_factory, patch(
             "src.network_state.generate_network_state._build_topologies"
         ) as mock_build, patch(
