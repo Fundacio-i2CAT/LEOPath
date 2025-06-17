@@ -12,6 +12,7 @@ from src.tles.generate_tles_from_scratch import generate_tles_from_scratch_with_
 from src.tles.read_tles import read_tles
 from src.topology.satellite.satellite import Satellite
 from src.topology.topology import ConstellationData, GroundStation
+from src.topology.isl_builder import setup_isls_in_the_same_orbit, generate_plus_grid_isls
 
 log = None
 
@@ -84,62 +85,6 @@ def setup_ground_stations(config):
     return ground_stations
 
 
-def setup_isls_in_the_same_orbit(num_orbits: int, sats_per_orbit: int):
-    """
-    Returns a list of undirected ISLs for satellites in the same orbit.
-    Each orbit is a ring of satellites connected in a closed loop.
-    """
-    undirected_isls = []
-    for orbit in range(num_orbits):
-        base = orbit * sats_per_orbit
-        # Connect satellites in this orbit in a ring
-        for i in range(sats_per_orbit):
-            src = base + i
-            dst = base + ((i + 1) % sats_per_orbit)
-            undirected_isls.append((src, dst))
-    log.info(
-        f"Created {len(undirected_isls)} intra-orbit ISLs (rings) for {num_orbits} orbits; undirected_isls={undirected_isls}"
-    )
-    return undirected_isls
-
-
-def generate_plus_grid_isls(n_orbits, n_sats_per_orbit, isl_shift=0, idx_offset=0):
-    """
-    Generate plus grid ISL file.
-
-    :param n_orbits:                Number of orbits
-    :param n_sats_per_orbit:        Number of satellites per orbit
-    :param isl_shift:               ISL shift between orbits (e.g., if satellite id in orbit is X,
-                                    does it also connect to the satellite at X in the adjacent orbit)
-    :param idx_offset:              Index offset (e.g., if you have multiple shells)
-    """
-    if n_orbits < 3 or n_sats_per_orbit < 3:
-        raise ValueError("Number of x and y must each be at least 3")
-
-    list_isls = []
-    for i in range(n_orbits):
-        for j in range(n_sats_per_orbit):
-            sat = i * n_sats_per_orbit + j
-            # Link to the next in the orbit
-            sat_same_orbit = i * n_sats_per_orbit + ((j + 1) % n_sats_per_orbit)
-            sat_adjacent_orbit = ((i + 1) % n_orbits) * n_sats_per_orbit + (
-                (j + isl_shift) % n_sats_per_orbit
-            )
-            # Same orbit
-            list_isls.append(
-                (idx_offset + min(sat, sat_same_orbit), idx_offset + max(sat, sat_same_orbit))
-            )
-            # Adjacent orbit
-            list_isls.append(
-                (
-                    idx_offset + min(sat, sat_adjacent_orbit),
-                    idx_offset + max(sat, sat_adjacent_orbit),
-                )
-            )
-    log.info(f"Created {len(list_isls)}; undirected_isls='{list_isls}'")
-    return list_isls
-
-
 def calculate_link_params(config):
     """Calculates maximum link lengths based on configuration."""
     sat_config = config["satellite"]
@@ -184,7 +129,8 @@ def execute_simulation_run(config, parsed_tles_data, sim_satellites, ground_stat
     undirected_isls = generate_plus_grid_isls(
         n_orbits=parsed_tles_data["n_orbits"],
         n_sats_per_orbit=parsed_tles_data["n_sats_per_orbit"],
-        idx_offset=0,
+        isl_shift=0,  # Optional: adjust for diagonal connections
+        idx_offset=0  # Optional: use if combining with other constellations
     )
 
     gsl_node_ids = list(range(num_sats)) + [gs.id for gs in ground_stations]

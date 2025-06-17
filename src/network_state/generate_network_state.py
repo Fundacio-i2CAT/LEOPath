@@ -56,12 +56,10 @@ def generate_dynamic_state(
     prev_topology = None
 
     time_steps = range(offset_ns, simulation_end_time_ns, time_step_ns)
-    pbar = tqdm(total=total_iterations, desc="Dynamic State Progress")  # Create tqdm progress bar
+    pbar = tqdm(total=total_iterations, desc="Overall Simulation Progress")
 
     for i, time_since_epoch_ns in enumerate(time_steps):
-        _log_progress(
-            i, progress_interval, time_since_epoch_ns, total_iterations, pbar
-        )  # Pass pbar
+        _log_progress(i, progress_interval, time_since_epoch_ns, total_iterations, pbar)
         try:
             current_output, current_topology = _generate_state_for_step(
                 epoch=epoch,
@@ -191,13 +189,22 @@ def _build_and_prepare_topology(constellation_data, ground_stations, list_gsl_in
 
 
 def _log_topology_stats(current_topology, gs_sat_visibility_list, time_since_epoch_ns):
+    # Convert nanoseconds to a readable format (HH:MM:SS)
+    seconds_since_epoch = time_since_epoch_ns / 1e9
+    hours = int(seconds_since_epoch // 3600)
+    minutes = int((seconds_since_epoch % 3600) // 60)
+    seconds = int(seconds_since_epoch % 60)
+    time_formatted = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
     num_visible_gsls = sum(len(vis_list) for vis_list in gs_sat_visibility_list)
-    log.info(f"  > Time {time_since_epoch_ns} ns: Found {num_visible_gsls} visible GSLs.")
     log.info(
-        f"  > Time {time_since_epoch_ns} ns: Graph has {current_topology.graph.number_of_nodes()} nodes and {current_topology.graph.number_of_edges()} edges before comparison."
+        f"  > Time {time_formatted} ({time_since_epoch_ns} ns): Found {num_visible_gsls} visible GSLs."
     )
     log.info(
-        f"  > Topology at t={time_since_epoch_ns} ns: "
+        f"  > Time {time_formatted} ({time_since_epoch_ns} ns): Graph has {current_topology.graph.number_of_nodes()} nodes and {current_topology.graph.number_of_edges()} edges before comparison."
+    )
+    log.info(
+        f"  > Topology at t={time_formatted} ({time_since_epoch_ns} ns): "
         f"{current_topology.graph.number_of_nodes()} nodes, "
         f"{current_topology.graph.number_of_edges()} edges."
     )
