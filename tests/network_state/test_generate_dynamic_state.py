@@ -1,9 +1,8 @@
 import unittest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, call, patch
 
 import ephem
 import networkx as nx
-from astropy import units as astro_units
 
 # Use a fixed time for reproducibility instead of relying on current time
 from astropy.time import Time

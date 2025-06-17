@@ -5,7 +5,9 @@ from unittest.mock import MagicMock
 
 import ephem
 
-from src.network_state.routing_algorithms.shortest_path_link_state_routing.fstate_calculation import calculate_fstate_shortest_path_object_no_gs_relay
+from src.network_state.routing_algorithms.shortest_path_link_state_routing.fstate_calculation import (
+    calculate_fstate_shortest_path_object_no_gs_relay,
+)
 from src.topology.satellite.satellite import Satellite
 from src.topology.topology import (
     ConstellationData,

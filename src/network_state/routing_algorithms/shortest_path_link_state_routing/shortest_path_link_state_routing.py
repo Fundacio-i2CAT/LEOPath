@@ -1,5 +1,6 @@
 from src.network_state.routing_algorithms.routing_algorithm import RoutingAlgorithm
 from src.topology.topology import ConstellationData, GroundStation, LEOTopology
+
 from .one_iface_free_bw_allocation_only_over_isls import algorithm_free_one_only_over_isls
 
 

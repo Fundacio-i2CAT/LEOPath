@@ -20,7 +20,6 @@ class TestEndToEndRefactored(unittest.TestCase):
         Uses sequential IDs matching the old test's analysis (Sats 0-11, GS 12=Manila, 13=Dalian).
         """
         # --- Inputs ---
-        output_dir = None
         epoch = Time("2000-01-01 00:00:00", scale="tdb")  # Match TLE epoch
         dynamic_state_algorithm = "shortest_path_link_state"
         prev_output = None  # Check each step independently

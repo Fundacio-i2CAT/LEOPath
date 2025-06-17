@@ -141,7 +141,9 @@ class TestEndToEndWithSyntheticTLEs(unittest.TestCase):
             result_state_t0, "generate_dynamic_state_at returned None at t=0 for single orbit"
         )
         self.assertIsNotNone(result_state_t0, "result_state_t0 is None")
-        self.assertIsNotNone(result_state_t0, "result_state_t0 is None before checking 'fstate' key")
+        self.assertIsNotNone(
+            result_state_t0, "result_state_t0 is None before checking 'fstate' key"
+        )
         self.assertIn("fstate", result_state_t0)
         fstate_t0 = result_state_t0["fstate"]
         print("Generated fstate at t=0 for single orbit:")

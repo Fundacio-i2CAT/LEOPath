@@ -23,6 +23,7 @@
 
 from src import logger
 from src.topology.topology import ConstellationData, GroundStation, LEOTopology
+
 from .fstate_calculation import calculate_fstate_shortest_path_object_no_gs_relay
 
 log = logger.get_logger(__name__)

@@ -5,7 +5,6 @@ from astropy.time import Time
 
 from src.network_state.generate_network_state import (
     generate_dynamic_state,
-    _generate_state_for_step,
 )
 from src.topology.topology import ConstellationData, GroundStation, Satellite
 
@@ -385,12 +384,7 @@ class TestDynamicStateIntegration(unittest.TestCase):
 
         # Simulation Time Parameters (3 steps)
         time_step_s = 1
-        duration_s = 3
-        offset_s = 0
         time_step_ns = int(time_step_s * 1e9)
-        simulation_end_time_ns = int(duration_s * 1e9)  # Includes t=0, t=1s, t=2s
-        offset_ns = int(offset_s * 1e9)
-
         # Max lengths
         max_gsl_length_m = 1089686.4181956202
         max_isl_length_m = 5016591.2330984278
@@ -523,7 +517,9 @@ class TestDynamicStateIntegration(unittest.TestCase):
         self.assertIsNotNone(result_state_dict, "generate_dynamic_state loop returned None")
         self.assertIsInstance(result_states, list, "Final state object should be a list")
         self.assertIn("fstate", result_state_dict, "Final state dictionary missing 'fstate' key")
-        self.assertIn("bandwidth", result_state_dict, "Final state dictionary missing 'bandwidth' key")
+        self.assertIn(
+            "bandwidth", result_state_dict, "Final state dictionary missing 'bandwidth' key"
+        )
 
         # Check bandwidth state
         expected_bandwidth = {node_id: 1.0 for node_id in all_node_ids}

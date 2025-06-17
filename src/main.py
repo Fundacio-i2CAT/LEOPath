@@ -1,7 +1,7 @@
 import argparse
+import datetime
 import math
 import os
-import datetime
 
 import yaml
 
@@ -12,6 +12,8 @@ from src.tles.generate_tles_from_scratch import generate_tles_from_scratch_with_
 from src.tles.read_tles import read_tles
 from src.topology.satellite.satellite import Satellite
 from src.topology.topology import ConstellationData, GroundStation
+
+log = None
 
 
 def load_config(config_path):
