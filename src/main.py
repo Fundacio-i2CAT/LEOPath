@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import math
 import os
 
@@ -11,6 +12,8 @@ from src.tles.generate_tles_from_scratch import generate_tles_from_scratch_with_
 from src.tles.read_tles import read_tles
 from src.topology.satellite.satellite import Satellite
 from src.topology.topology import ConstellationData, GroundStation
+
+log = None
 
 
 def load_config(config_path):
@@ -81,11 +84,60 @@ def setup_ground_stations(config):
     return ground_stations
 
 
-def setup_isls_in_a_whole_orbit(num_sats: int):
-    undirected_isls = [(i, i + 1) for i in range(num_sats - 1)] if num_sats > 1 else []
-    if num_sats > 1:
-        undirected_isls.append((num_sats - 1, 0))
+def setup_isls_in_the_same_orbit(num_orbits: int, sats_per_orbit: int):
+    """
+    Returns a list of undirected ISLs for satellites in the same orbit.
+    Each orbit is a ring of satellites connected in a closed loop.
+    """
+    undirected_isls = []
+    for orbit in range(num_orbits):
+        base = orbit * sats_per_orbit
+        # Connect satellites in this orbit in a ring
+        for i in range(sats_per_orbit):
+            src = base + i
+            dst = base + ((i + 1) % sats_per_orbit)
+            undirected_isls.append((src, dst))
+    log.info(
+        f"Created {len(undirected_isls)} intra-orbit ISLs (rings) for {num_orbits} orbits; undirected_isls={undirected_isls}"
+    )
     return undirected_isls
+
+
+def generate_plus_grid_isls(n_orbits, n_sats_per_orbit, isl_shift=0, idx_offset=0):
+    """
+    Generate plus grid ISL file.
+
+    :param n_orbits:                Number of orbits
+    :param n_sats_per_orbit:        Number of satellites per orbit
+    :param isl_shift:               ISL shift between orbits (e.g., if satellite id in orbit is X,
+                                    does it also connect to the satellite at X in the adjacent orbit)
+    :param idx_offset:              Index offset (e.g., if you have multiple shells)
+    """
+    if n_orbits < 3 or n_sats_per_orbit < 3:
+        raise ValueError("Number of x and y must each be at least 3")
+
+    list_isls = []
+    for i in range(n_orbits):
+        for j in range(n_sats_per_orbit):
+            sat = i * n_sats_per_orbit + j
+            # Link to the next in the orbit
+            sat_same_orbit = i * n_sats_per_orbit + ((j + 1) % n_sats_per_orbit)
+            sat_adjacent_orbit = ((i + 1) % n_orbits) * n_sats_per_orbit + (
+                (j + isl_shift) % n_sats_per_orbit
+            )
+            # Same orbit
+            list_isls.append(
+                (idx_offset + min(sat, sat_same_orbit), idx_offset + max(sat, sat_same_orbit))
+            )
+            # Adjacent orbit
+            list_isls.append(
+                (
+                    idx_offset + min(sat, sat_adjacent_orbit),
+                    idx_offset + max(sat, sat_adjacent_orbit),
+                )
+            )
+    log.info(f"Created {len(list_isls)}; undirected_isls='{list_isls}'")
+    return list_isls
 
 
 def calculate_link_params(config):
@@ -124,7 +176,16 @@ def execute_simulation_run(config, parsed_tles_data, sim_satellites, ground_stat
     )
 
     num_sats = len(sim_satellites)
-    undirected_isls = setup_isls_in_a_whole_orbit(num_sats)
+    # Intra orbit only!
+    # undirected_isls = setup_isls_in_the_same_orbit(
+    #     num_orbits=parsed_tles_data["n_orbits"], sats_per_orbit=parsed_tles_data["n_sats_per_orbit"]
+    # )
+    # Intra orbit + inter orbit ISLs
+    undirected_isls = generate_plus_grid_isls(
+        n_orbits=parsed_tles_data["n_orbits"],
+        n_sats_per_orbit=parsed_tles_data["n_sats_per_orbit"],
+        idx_offset=0,
+    )
 
     gsl_node_ids = list(range(num_sats)) + [gs.id for gs in ground_stations]
     list_gsl_interfaces_info = [
@@ -141,7 +202,6 @@ def execute_simulation_run(config, parsed_tles_data, sim_satellites, ground_stat
 
     log.info("Starting dynamic state generation...")
     all_states = generate_dynamic_state(
-        output_dynamic_state_dir=sim_config["output_dir"],
         epoch=parsed_tles_data["epoch"],
         simulation_end_time_ns=simulation_end_time_ns,
         time_step_ns=time_step_ns,
@@ -170,6 +230,10 @@ def main():
     )
     args = parser.parse_args()
     config = load_config(args.config)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_config = config["logging"]
+    base_name, ext = os.path.splitext(log_config["file_name"])
+    log_config["file_name"] = f"{base_name}_{timestamp}{ext}"
     setup_logging(config)
     parsed_tles_data, sim_satellites = setup_tles_and_satellites(config)
     ground_stations = setup_ground_stations(config)

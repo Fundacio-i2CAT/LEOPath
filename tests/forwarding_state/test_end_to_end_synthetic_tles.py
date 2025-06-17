@@ -3,7 +3,7 @@ import unittest
 
 from src import logger
 from src.distance_tools import geodetic2cartesian
-from src.network_state.generate_network_state import generate_dynamic_state_at
+from src.network_state.generate_network_state import _generate_state_for_step
 from src.tles.generate_tles_from_scratch import generate_tles_from_scratch_with_sgp
 from src.tles.read_tles import read_tles  # You might need to ensure this is accessible
 from src.topology.satellite.satellite import Satellite
@@ -53,11 +53,10 @@ class TestEndToEndWithSyntheticTLEs(unittest.TestCase):
         self.assertEqual(
             len(sim_satellites), num_sats_per_orbit, "Incorrect number of satellites processed."
         )
-        output_dir = None
         # The epoch from TLE generation is fixed to 2000-01-01 00:00:00 by generate_tles_from_scratch
         # The read_tles function correctly parses this.
         sim_epoch = parsed_tles_data["epoch"]  # Use the epoch read from the TLE file
-        dynamic_state_algorithm = "algorithm_free_one_only_over_isls"
+        dynamic_state_algorithm = "shortest_path_link_state"
         altitude_m = 630000
         earth_radius = 6378135.0
         satellite_cone_radius_m = altitude_m / math.tan(math.radians(30.0))
@@ -127,8 +126,7 @@ class TestEndToEndWithSyntheticTLEs(unittest.TestCase):
             for node_id in gsl_node_ids
         ]
         print(f"\n--- Checking Full State for Single Orbit at t=0 ns ({constellation_name}) ---")
-        result_state_t0, topology_t0 = generate_dynamic_state_at(
-            output_dynamic_state_dir=output_dir,
+        result_state_t0, topology_t0 = _generate_state_for_step(
             epoch=sim_epoch,  # Use the astropy.Time object here, as generate_dynamic_state_at likely needs it
             time_since_epoch_ns=0,
             constellation_data=constellation_data,
@@ -141,6 +139,10 @@ class TestEndToEndWithSyntheticTLEs(unittest.TestCase):
         )
         self.assertIsNotNone(
             result_state_t0, "generate_dynamic_state_at returned None at t=0 for single orbit"
+        )
+        self.assertIsNotNone(result_state_t0, "result_state_t0 is None")
+        self.assertIsNotNone(
+            result_state_t0, "result_state_t0 is None before checking 'fstate' key"
         )
         self.assertIn("fstate", result_state_t0)
         fstate_t0 = result_state_t0["fstate"]

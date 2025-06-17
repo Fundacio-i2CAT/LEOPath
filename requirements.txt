@@ -53,6 +53,7 @@ six==1.17.0
 skyfield==1.53
 statsmodels==0.14.4
 StrEnum==0.4.15
+tqdm==4.67.1
 types-PyYAML==6.0.12.20250516
 typing-inspection==0.4.0
 typing_extensions==4.13.2
