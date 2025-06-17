@@ -6,7 +6,9 @@ from unittest.mock import MagicMock, patch
 import ephem  # For mocking spec
 
 # Function/Module to test
-from src.network_state.routing_algorithms import algorithm_free_one_only_over_isls
+from src.network_state.routing_algorithms.shortest_path_link_state_routing import (
+    one_iface_free_bw_allocation_only_over_isls,
+)
 from src.topology.satellite.satellite import Satellite
 from src.topology.topology import (
     ConstellationData,
@@ -120,7 +122,7 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
         # --- Patch the helper function ---
         # Patch where it's looked up: in the algorithm module itself
         patcher = patch(
-            "src.network_state.routing_algorithms.algorithm_free_one_only_over_isls.calculate_fstate_shortest_path_object_no_gs_relay"
+            "src.network_state.routing_algorithms.shortest_path_link_state_routing.one_iface_free_bw_allocation_only_over_isls.calculate_fstate_shortest_path_object_no_gs_relay"
         )
         self.addCleanup(patcher.stop)
         self.mock_fstate_calculator = patcher.start()
@@ -131,7 +133,7 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
 
         # Patch logger (optional, useful for checking log calls)
         patcher_log = patch(
-            "src.network_state.routing_algorithms.algorithm_free_one_only_over_isls.log",
+            "src.network_state.routing_algorithms.shortest_path_link_state_routing.one_iface_free_bw_allocation_only_over_isls.log",
             MagicMock(),
         )
         self.addCleanup(patcher_log.stop)
@@ -140,14 +142,13 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
     def test_state_calculation_basic(self):
         """Test basic calculation of bandwidth and call to fstate helper."""
 
-        result = algorithm_free_one_only_over_isls.algorithm_free_one_only_over_isls(
+        result = one_iface_free_bw_allocation_only_over_isls.algorithm_free_one_only_over_isls(
             time_since_epoch_ns=self.time_ns,
             constellation_data=self.constellation_data,
             ground_stations=self.ground_stations,
             topology_with_isls=self.mock_topology,
             ground_station_satellites_in_range=self.visibility,
             list_gsl_interfaces_info=self.gsl_info,
-            prev_output=None,  # Test with no previous output first
         )
 
         # 1. Assert Bandwidth Calculation
@@ -182,14 +183,13 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
     def test_previous_output_handling(self):
         """Test that previous output is processed (though not currently passed to helper)."""
 
-        result = algorithm_free_one_only_over_isls.algorithm_free_one_only_over_isls(
+        result = one_iface_free_bw_allocation_only_over_isls.algorithm_free_one_only_over_isls(
             time_since_epoch_ns=self.time_ns,
             constellation_data=self.constellation_data,
             ground_stations=self.ground_stations,
             topology_with_isls=self.mock_topology,
             ground_station_satellites_in_range=self.visibility,
             list_gsl_interfaces_info=self.gsl_info,
-            prev_output=self.prev_output_data,  # Pass previous output
         )
 
         # Assert helper was still called correctly (prev_output['fstate'] is extracted but not used in call)
@@ -209,14 +209,13 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
         # Provide a shorter list (missing info for node 3)
         short_gsl_info = self.gsl_info[:-1]  # Only nodes 0, 1, 2
 
-        result = algorithm_free_one_only_over_isls.algorithm_free_one_only_over_isls(
+        result = one_iface_free_bw_allocation_only_over_isls.algorithm_free_one_only_over_isls(
             time_since_epoch_ns=self.time_ns,
             constellation_data=self.constellation_data,
             ground_stations=self.ground_stations,
             topology_with_isls=self.mock_topology,
             ground_station_satellites_in_range=self.visibility,
             list_gsl_interfaces_info=short_gsl_info,  # Use short list
-            prev_output=None,
         )
 
         # Assert bandwidth: Node 3 should have default BW=0 due to fallback
@@ -241,14 +240,13 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
         test_exception = ValueError("F-state calc failed")
         self.mock_fstate_calculator.side_effect = test_exception
 
-        result = algorithm_free_one_only_over_isls.algorithm_free_one_only_over_isls(
+        result = one_iface_free_bw_allocation_only_over_isls.algorithm_free_one_only_over_isls(
             time_since_epoch_ns=self.time_ns,
             constellation_data=self.constellation_data,
             ground_stations=self.ground_stations,
             topology_with_isls=self.mock_topology,
             ground_station_satellites_in_range=self.visibility,
             list_gsl_interfaces_info=self.gsl_info,
-            prev_output=None,
         )
 
         # Assert fstate is empty dictionary on error

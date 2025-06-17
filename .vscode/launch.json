@@ -5,18 +5,6 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: Full Starlink Constellation",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "src.examples.run_starlink_full_constellation_no_isls"
-        },
-        {
-            "name": "Python Debugger: Explore Simulation Results",
-            "type": "debugpy",
-            "request": "launch",
-            "module": "src.examples.explore_results"
-        },
-        {
             "name": "Python Debugger: Main with Ether Config",
             "type": "debugpy",
             "request": "launch",

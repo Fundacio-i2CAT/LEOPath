@@ -5,7 +5,6 @@ from astropy.time import Time
 
 from src.network_state.generate_network_state import (
     generate_dynamic_state,
-    generate_dynamic_state_at,
 )
 from src.topology.topology import ConstellationData, GroundStation, Satellite
 
@@ -17,11 +16,9 @@ class TestDynamicStateIntegration(unittest.TestCase):
         Integration test using sequential IDs 0..N-1.
         Checks fstate and bandwidth at t=0.
         """
-        output_dir = None
         epoch = Time("2000-01-01 00:00:00", scale="tdb")
-        time_since_epoch_ns = 0
-        dynamic_state_algorithm = "algorithm_free_one_only_over_isls"
-        prev_output = None
+        time_since_epoch_ns = 1
+        dynamic_state_algorithm = "shortest_path_link_state"
         max_gsl_length_m = 1089686.4181956202
         max_isl_length_m = 5016591.2330984278
 
@@ -99,7 +96,6 @@ class TestDynamicStateIntegration(unittest.TestCase):
                 "z": 2647959.98,
             },
         ]
-        # Use correct keyword args for GroundStation constructor
         ground_stations = [
             GroundStation(
                 gid=d["gid"],
@@ -126,20 +122,18 @@ class TestDynamicStateIntegration(unittest.TestCase):
         list_gsl_interfaces_info = [
             {"id": i, "number_of_interfaces": 1, "aggregate_max_bandwidth": 1.0} for i in range(8)
         ]
-
-        # --- Execute ---
-        result_state_dict, result_topology = generate_dynamic_state_at(
-            output_dynamic_state_dir=output_dir,
+        result_states = generate_dynamic_state(
             epoch=epoch,
-            time_since_epoch_ns=time_since_epoch_ns,
+            simulation_end_time_ns=time_since_epoch_ns,
+            time_step_ns=1,
+            offset_ns=0,
             constellation_data=constellation_data,
             ground_stations=ground_stations,
             undirected_isls=undirected_isls,
             list_gsl_interfaces_info=list_gsl_interfaces_info,
             dynamic_state_algorithm=dynamic_state_algorithm,
-            prev_output=prev_output,
-            prev_topology=None,
         )
+        result_state_dict = result_states[0]
 
         # --- Assertions ---
         self.assertIsNotNone(result_state_dict, "generate_dynamic_state_at returned None")
@@ -191,11 +185,9 @@ class TestDynamicStateIntegration(unittest.TestCase):
         Uses TLE data known to work from test_equator_scenario_t0.
         """
         # --- Inputs ---
-        output_dir = None
         epoch = Time("2000-01-01 00:00:00", scale="tdb")  # Match TLE epoch
-        time_since_epoch_ns = 0
-        dynamic_state_algorithm = "algorithm_free_one_only_over_isls"
-        prev_output = None
+        time_since_epoch_ns = 1
+        dynamic_state_algorithm = "shortest_path_link_state"
         # Use max lengths from other test for consistency with TLEs
         max_gsl_length_m = 1089686.4181956202
         max_isl_length_m = 5016591.2330984278
@@ -313,29 +305,28 @@ class TestDynamicStateIntegration(unittest.TestCase):
             {"id": node_id, "number_of_interfaces": 1, "aggregate_max_bandwidth": 1.0}
             for node_id in all_node_ids
         ]
-
-        # --- Execute ---
-        result_state, _ = generate_dynamic_state_at(
-            output_dynamic_state_dir=output_dir,
+        result_states = generate_dynamic_state(
             epoch=epoch,
-            time_since_epoch_ns=time_since_epoch_ns,
+            simulation_end_time_ns=time_since_epoch_ns,
+            time_step_ns=1,
+            offset_ns=0,
             constellation_data=constellation_data,
             ground_stations=ground_stations,
             undirected_isls=undirected_isls,
             list_gsl_interfaces_info=list_gsl_interfaces_info,
             dynamic_state_algorithm=dynamic_state_algorithm,
-            prev_output=prev_output,
-            prev_topology=None,
         )
+        result_state_dict = result_states[0]
 
         # --- Assertions ---
-        self.assertIsNotNone(result_state, "generate_dynamic_state_at returned None")
-        self.assertIn("fstate", result_state)
-        self.assertIn("bandwidth", result_state)
+        self.assertIsNotNone(result_state_dict, "generate_dynamic_state_at returned None")
+        self.assertIsNotNone(result_state_dict, "result_state_dict is None")
+        self.assertIn("fstate", result_state_dict)
+        self.assertIn("bandwidth", result_state_dict)
 
         # Assert Bandwidth state (uses non-sequential IDs)
         expected_bandwidth = {node_id: 1.0 for node_id in all_node_ids}
-        self.assertDictEqual(result_state["bandwidth"], expected_bandwidth)
+        self.assertDictEqual(result_state_dict["bandwidth"], expected_bandwidth)
 
         # Assert Forwarding state (using the correctly translated dictionary)
         expected_fstate = {
@@ -379,7 +370,7 @@ class TestDynamicStateIntegration(unittest.TestCase):
 
         self.maxDiff = None
         self.assertDictEqual(
-            result_state["fstate"], expected_fstate, "F-state mismatch for non-sequential IDs."
+            result_state_dict["fstate"], expected_fstate, "F-state mismatch for non-sequential IDs."
         )
 
     def test_full_loop_short_run(self):
@@ -388,19 +379,12 @@ class TestDynamicStateIntegration(unittest.TestCase):
         Runs for 3 steps (t=0, 1s, 2s) and checks the exact final state.
         Uses non-sequential IDs with equator TLE data.
         """
-        # --- Inputs ---
-        output_dir = None
         epoch = Time("2000-01-01 00:00:00", scale="tdb")
-        dynamic_state_algorithm = "algorithm_free_one_only_over_isls"
+        dynamic_state_algorithm = "shortest_path_link_state"
 
         # Simulation Time Parameters (3 steps)
         time_step_s = 1
-        duration_s = 3
-        offset_s = 0
         time_step_ns = int(time_step_s * 1e9)
-        simulation_end_time_ns = int(duration_s * 1e9)  # Includes t=0, t=1s, t=2s
-        offset_ns = int(offset_s * 1e9)
-
         # Max lengths
         max_gsl_length_m = 1089686.4181956202
         max_isl_length_m = 5016591.2330984278
@@ -518,34 +502,33 @@ class TestDynamicStateIntegration(unittest.TestCase):
             for node_id in all_node_ids
         ]
 
-        # --- Execute the Full Loop ---
-        final_state = generate_dynamic_state(
-            output_dynamic_state_dir=output_dir,
+        result_states = generate_dynamic_state(
             epoch=epoch,
-            simulation_end_time_ns=simulation_end_time_ns,
+            simulation_end_time_ns=time_step_ns,  # Only one step
             time_step_ns=time_step_ns,
-            offset_ns=offset_ns,
+            offset_ns=0,
             constellation_data=constellation_data,
             ground_stations=ground_stations,
             undirected_isls=undirected_isls,
             list_gsl_interfaces_info=list_gsl_interfaces_info,
             dynamic_state_algorithm=dynamic_state_algorithm,
         )
-
-        # --- Assertions ---
-        self.assertIsNotNone(final_state, "generate_dynamic_state loop returned None")
-        self.assertIsInstance(final_state, list, "Final state object should be a list")
-        self.assertIn("fstate", final_state[0])
-        self.assertIn("bandwidth", final_state[0])
+        result_state_dict = result_states[0]
+        self.assertIsNotNone(result_state_dict, "generate_dynamic_state loop returned None")
+        self.assertIsInstance(result_states, list, "Final state object should be a list")
+        self.assertIn("fstate", result_state_dict, "Final state dictionary missing 'fstate' key")
+        self.assertIn(
+            "bandwidth", result_state_dict, "Final state dictionary missing 'bandwidth' key"
+        )
 
         # Check bandwidth state
         expected_bandwidth = {node_id: 1.0 for node_id in all_node_ids}
         self.assertDictEqual(
-            final_state[0]["bandwidth"], expected_bandwidth, "Final bandwidth state mismatch"
+            result_state_dict["bandwidth"], expected_bandwidth, "Final bandwidth state mismatch"
         )
 
         # Check fstate is not empty
-        self.assertTrue(final_state[0]["fstate"], "Final fstate dictionary is empty")
+        self.assertTrue(result_state_dict["fstate"], "Final fstate dictionary is empty")
 
         expected_final_fstate = {
             (10, 100): (20, 0, 0),
@@ -577,8 +560,9 @@ class TestDynamicStateIntegration(unittest.TestCase):
             (400, 200): (-1, -1, -1),
             (400, 300): (-1, -1, -1),
         }
-
         self.maxDiff = None  # Show full diff on failure
         self.assertDictEqual(
-            final_state[0]["fstate"], expected_final_fstate, "Final fstate mismatch after loop"
+            result_state_dict["fstate"],
+            expected_final_fstate,
+            "Final fstate mismatch after loop",
         )

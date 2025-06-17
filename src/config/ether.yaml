@@ -1,25 +1,24 @@
----
 constellation:
-  name: "ETHERDemoSingleOrbit"
-  num_orbits: 1
+  name: "Starlink-550"
+  num_orbits: 22
   num_sats_per_orbit: 72
-  phase_diff: false
-  inclination_degree: 51.9
+  phase_diff: true
+  inclination_degree: 53
   eccentricity: 0.0000001
   arg_of_perigee_degree: 0.0
-  mean_motion_rev_per_day: 14.80
-  tle_output_filename: "tles_single_orbit_sgp.txt.tmp"
+  mean_motion_rev_per_day: 15.19
+  tle_output_filename: "tles_starlink_550_sgp.txt.tmp"
 
 simulation:
-  dynamic_state_algorithm: "algorithm_free_one_only_over_isls"
+  dynamic_state_algorithm: shortest_path_link_state
   output_dir: null # Set to a path or keep null
   end_time_hours: 24
-  time_step_minutes: 1
+  time_step_minutes: 10
   offset_ns: 0
 
 satellite:
   altitude_m: 550000
-  cone_angle_degrees: 30.0
+  cone_angle_degrees: 25.0
 
 earth:
   radius_m: 6378135.0
@@ -36,10 +35,10 @@ ground_stations:
     elevation_m: 30.0
 
 network:
-  gsl_interfaces:  
+  gsl_interfaces:
     number_of_interfaces: 1
     aggregate_max_bandwidth: 1.0
 
 logging:
-  is_debug: true
+  is_debug: false
   file_name: "simulation.log"
