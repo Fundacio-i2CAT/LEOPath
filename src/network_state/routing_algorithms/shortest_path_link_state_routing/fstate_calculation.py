@@ -141,25 +141,28 @@ def _calculate_sat_to_gs_fstate(
 
 def _get_satellite_possibilities(
     possible_dst_sats: List[Tuple[float, int]],
-    curr_sat_idx: int, 
+    curr_sat_idx: int,
     node_to_index: Dict[int, int],
-    dist_matrix: np.ndarray
+    dist_matrix: np.ndarray,
 ) -> List[Tuple[float, int]]:
     possibilities = []
     for visibility_info in possible_dst_sats:
         dist_gs_to_sat_m, visible_sat_id = visibility_info
         visible_sat_idx = node_to_index.get(visible_sat_id)
         if visible_sat_idx is not None:
+            # Get the distance from current satellite to this visible satellite
             dist_curr_to_visible_sat = dist_matrix[curr_sat_idx, visible_sat_idx]
+            # If a path exists (distance is not infinity):
             if not np.isinf(dist_curr_to_visible_sat):
+                # distance(current_sat → visible_sat) + distance(visible_sat → ground_station)
                 total_dist = dist_curr_to_visible_sat + dist_gs_to_sat_m
                 possibilities.append((total_dist, visible_sat_id))
-    possibilities.sort()
+    possibilities.sort()  # Shortest path distance will be first
     return possibilities
 
 
 def _get_next_hop_decision(
-    possibilities: List[Tuple[float, int]],
+    possible_sat_gs_routes: List[Tuple[float, int]],
     curr_sat_id: int,
     node_to_index: Dict[int, int],
     sat_subgraph: nx.Graph,
@@ -171,43 +174,86 @@ def _get_next_hop_decision(
     next_hop_decision = (-1, -1, -1)
     distance_to_ground_station_m = float("inf")
 
-    if possibilities:
-        distance_to_ground_station_m, dst_sat_id = possibilities[0]
+    if possible_sat_gs_routes:
+        distance_to_ground_station_m, dst_sat_id = possible_sat_gs_routes[0]  # Shortest is first
         dst_sat_idx = node_to_index.get(dst_sat_id)
         if dst_sat_idx is None:
             return next_hop_decision, distance_to_ground_station_m
 
         if curr_sat_id != dst_sat_id:
-            best_neighbor_dist_m = float("inf")
-            for neighbor_id in sat_subgraph.neighbors(curr_sat_id):
-                neighbor_idx = node_to_index.get(neighbor_id)
-                if neighbor_idx is not None:
-                    try:
-                        link_weight = sat_subgraph.edges[curr_sat_id, neighbor_id]["weight"]
-                        dist_neighbor_to_dst_sat = dist_matrix[neighbor_idx, dst_sat_idx]
-                        if not np.isinf(dist_neighbor_to_dst_sat):
-                            distance_m = link_weight + dist_neighbor_to_dst_sat
-                            if distance_m < best_neighbor_dist_m:
-                                my_if = sat_neighbor_to_if.get((curr_sat_id, neighbor_id), -1)
-                                next_hop_if = sat_neighbor_to_if.get((neighbor_id, curr_sat_id), -1)
-                                next_hop_decision = (neighbor_id, my_if, next_hop_if)
-                                best_neighbor_dist_m = distance_m
-                    except KeyError:
-                        log.warning(
-                            f"KeyError for edge ({curr_sat_id}, {neighbor_id}) in sat_subgraph."
-                        )
+            next_hop_decision = _handle_multihop_path(
+                curr_sat_id,
+                dst_sat_idx,
+                sat_subgraph,
+                node_to_index,
+                dist_matrix,
+                sat_neighbor_to_if,
+            )
         else:
-            try:
-                dst_satellite = topology_with_isls.get_satellite(dst_sat_id)
-                num_isls_dst_sat = dst_satellite.number_isls
-                my_gsl_if = num_isls_dst_sat
-                next_hop_gsl_if = 0
-                next_hop_decision = (dst_gs_node_id, my_gsl_if, next_hop_gsl_if)
-            except KeyError:
-                log.error(f"Could not find satellite object {dst_sat_id} for GS exit hop.")
-                next_hop_decision = (-1, -1, -1)
+            next_hop_decision = _handle_direct_gs_path(
+                dst_sat_id, dst_gs_node_id, topology_with_isls
+            )
 
     return next_hop_decision, distance_to_ground_station_m
+
+
+def _handle_multihop_path(
+    curr_sat_id: int,
+    dst_sat_idx: int,
+    sat_subgraph: nx.Graph,
+    node_to_index: Dict[int, int],
+    dist_matrix: np.ndarray,
+    sat_neighbor_to_if: Dict[Tuple[int, int], int],
+) -> Tuple[int, int, int]:
+    """
+    Handle routing when current satellite needs to route through other satellites.
+
+    Returns:
+        Tuple[int, int, int]: (next_hop_id, local_interface, remote_interface)
+    """
+    next_hop_decision = (-1, -1, -1)
+    best_neighbor_dist_m = float("inf")
+
+    for neighbor_id in sat_subgraph.neighbors(curr_sat_id):
+        neighbor_idx = node_to_index.get(neighbor_id)
+        if neighbor_idx is None:
+            continue
+
+        try:
+            link_weight = sat_subgraph.edges[curr_sat_id, neighbor_id]["weight"]
+            dist_neighbor_to_dst_sat = dist_matrix[neighbor_idx, dst_sat_idx]
+
+            if not np.isinf(dist_neighbor_to_dst_sat):
+                distance_m = link_weight + dist_neighbor_to_dst_sat
+                if distance_m < best_neighbor_dist_m:
+                    my_if = sat_neighbor_to_if.get((curr_sat_id, neighbor_id), -1)
+                    next_hop_if = sat_neighbor_to_if.get((neighbor_id, curr_sat_id), -1)
+                    next_hop_decision = (neighbor_id, my_if, next_hop_if)
+                    best_neighbor_dist_m = distance_m
+        except KeyError:
+            log.warning(f"KeyError for edge ({curr_sat_id}, {neighbor_id}) in sat_subgraph.")
+
+    return next_hop_decision
+
+
+def _handle_direct_gs_path(
+    dst_sat_id: int, dst_gs_node_id: int, topology_with_isls: LEOTopology
+) -> Tuple[int, int, int]:
+    """
+    Handle routing when current satellite can directly communicate with the ground station.
+
+    Returns:
+        Tuple[int, int, int]: (ground_station_id, local_gsl_interface, gs_interface)
+    """
+    try:
+        dst_satellite = topology_with_isls.get_satellite(dst_sat_id)
+        num_isls_dst_sat = dst_satellite.number_isls
+        my_gsl_if = num_isls_dst_sat
+        next_hop_gsl_if = 0
+        return (dst_gs_node_id, my_gsl_if, next_hop_gsl_if)
+    except KeyError:
+        log.error(f"Could not find satellite object {dst_sat_id} for GS exit hop.")
+        return (-1, -1, -1)
 
 
 def _calculate_gs_to_gs_fstate(
