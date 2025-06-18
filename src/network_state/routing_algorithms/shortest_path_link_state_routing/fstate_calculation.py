@@ -1,9 +1,9 @@
 # fstate_calculation.py (Refactored Function)
 
 import math
-
 import networkx as nx
 import numpy as np
+from typing import Dict, List, Tuple
 
 from src import logger
 from src.topology.topology import GroundStation, LEOTopology
@@ -35,7 +35,9 @@ def calculate_fstate_shortest_path_object_no_gs_relay(
     if not satellite_node_ids:
         log.warning("No valid satellite nodes found in the graph for path calculation.")
         return {}
-
+    # maps satellite node IDs to integer indices for efficient matrix operations
+    # node_to_index dictionary allows efficient O(1) lookups to find the corresponding position
+    # in the distance matrix for any given satellite ID
     node_to_index = {node_id: index for index, node_id in enumerate(satellite_node_ids)}
     # We compute subgraph because GSs are always either a src or dst, but never an intermediate node.
     satellite_only_subgraph = full_graph.subgraph(satellite_node_ids)
@@ -86,17 +88,17 @@ def calculate_fstate_shortest_path_object_no_gs_relay(
 
 
 def _calculate_sat_to_gs_fstate(
-    topology_with_isls,
-    ground_stations,
-    ground_station_satellites_in_range,
-    nodelist,
-    node_to_index,
-    sat_subgraph,
-    dist_matrix,
-    sat_neighbor_to_if,
-    dist_satellite_to_ground_station,
-    fstate,
-):
+    topology_with_isls: LEOTopology,
+    ground_stations: List[GroundStation],
+    ground_station_satellites_in_range: List[List[Tuple[float, int]]],
+    nodelist: List[int],
+    node_to_index: Dict[int, int],
+    sat_subgraph: nx.Graph,
+    dist_matrix: np.ndarray,
+    sat_neighbor_to_if: Dict[Tuple[int, int], int],
+    dist_satellite_to_ground_station: Dict[Tuple[int, int], float],
+    fstate: Dict[Tuple[int, int], Tuple[int, int, int]],
+) -> None:
     for curr_sat_id in nodelist:
         curr_sat_idx = node_to_index[curr_sat_id]
         try:
@@ -137,7 +139,12 @@ def _calculate_sat_to_gs_fstate(
             fstate[(curr_sat_id, dst_gs_node_id)] = next_hop_decision
 
 
-def _get_satellite_possibilities(possible_dst_sats, curr_sat_idx, node_to_index, dist_matrix):
+def _get_satellite_possibilities(
+    possible_dst_sats: List[Tuple[float, int]],
+    curr_sat_idx: int, 
+    node_to_index: Dict[int, int],
+    dist_matrix: np.ndarray
+) -> List[Tuple[float, int]]:
     possibilities = []
     for visibility_info in possible_dst_sats:
         dist_gs_to_sat_m, visible_sat_id = visibility_info
@@ -152,15 +159,15 @@ def _get_satellite_possibilities(possible_dst_sats, curr_sat_idx, node_to_index,
 
 
 def _get_next_hop_decision(
-    possibilities,
-    curr_sat_id,
-    node_to_index,
-    sat_subgraph,
-    dist_matrix,
-    sat_neighbor_to_if,
-    topology_with_isls,
-    dst_gs_node_id,
-):
+    possibilities: List[Tuple[float, int]],
+    curr_sat_id: int,
+    node_to_index: Dict[int, int],
+    sat_subgraph: nx.Graph,
+    dist_matrix: np.ndarray,
+    sat_neighbor_to_if: Dict[Tuple[int, int], int],
+    topology_with_isls: LEOTopology,
+    dst_gs_node_id: int,
+) -> Tuple[Tuple[int, int, int], float]:
     next_hop_decision = (-1, -1, -1)
     distance_to_ground_station_m = float("inf")
 
@@ -204,13 +211,13 @@ def _get_next_hop_decision(
 
 
 def _calculate_gs_to_gs_fstate(
-    topology_with_isls,
-    ground_stations,
-    ground_station_satellites_in_range,
-    node_to_index,
-    dist_satellite_to_ground_station,
-    fstate,
-):
+    topology_with_isls: LEOTopology,
+    ground_stations: List[GroundStation],
+    ground_station_satellites_in_range: List[List[Tuple[float, int]]],
+    node_to_index: Dict[int, int],
+    dist_satellite_to_ground_station: Dict[Tuple[int, int], float],
+    fstate: Dict[Tuple[int, int], Tuple[int, int, int]],
+) -> None:
     for src_idx, src_gs in enumerate(ground_stations):
         src_gs_node_id = src_gs.id
         for dst_idx, dst_gs in enumerate(ground_stations):
