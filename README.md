@@ -1,5 +1,7 @@
 # LEO Routing Simulation Framework
 
+![lrsim_logo.jpeg](lrsim_logo.png)
+
 A simulation framework for analyzing routing algorithms in Low Earth Orbit (LEO) satellite constellations.
 
 ## Overview
@@ -42,6 +44,23 @@ Run the main simulation with one of the provided configurations:
 ```bash
 python -m src.main --config src/config/ether.yaml
 ```
+
+The result of the simulation will be stored in a log file under the root of the project. Note that the data structure that represents the forwarding state in every time step is as follows:
+
+```source
+[src-node],[dst-node],[next-hop],[src-interface-id],[next-hop-interface-id]
+[src-node],[dst-node],[next-hop],[src-interface-id],[next-hop-interface-id]
+...
+[src-node],[dst-node],[next-hop],[src-interface-id],[next-hop-interface-id]
+```
+
+Example:
+
+```source
+301,992,340,3,5
+```
+
+Translates to: a packet at node 301 destined for 992 will be sent to 340. Node 301 will enqueue it in interface 3 and will send it to the interface 5 of node 340.
 
 You can modify existing configuration files or create your own in the config directory.
 
@@ -99,18 +118,6 @@ ground_stations:
 * `config` - Configuration files
 * `satellite_visualisation` - Visualization components
 * `requirements.txt` - Project dependencies
-
-## Requirements
-
-Key dependencies (see requirements.txt for complete list):
-
-* ephem
-* networkx
-* matplotlib
-* numpy
-* pandas
-* czml3 (for visualization)
-* pytest (for testing)
 
 ## License
 
