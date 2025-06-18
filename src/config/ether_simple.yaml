@@ -1,0 +1,47 @@
+constellation:
+  name: "Starlink-550"
+  num_orbits: 15
+  num_sats_per_orbit: 15
+  phase_diff: true
+  inclination_degree: 40 # Changed from 53 to 60 degrees
+  eccentricity: 0.0000001
+  arg_of_perigee_degree: 0.0
+  mean_motion_rev_per_day: 15.19
+  tle_output_filename: "ether_simple.txt"
+
+simulation:
+  dynamic_state_algorithm: shortest_path_link_state
+  end_time_hours: 24
+  time_step_minutes: 5
+  offset_ns: 0
+
+satellite:
+  altitude_m: 600000 # Changed from 550000 to 600000 meters
+  cone_angle_degrees: 27.0 # Changed from 25.0 then 30.0, finally to 29.0 degrees
+
+earth:
+  radius_m: 6378135.0
+  isl_min_altitude_m: 80000
+
+ground_stations:
+  - name: "London"
+    latitude: 51.5074
+    longitude: -0.1278
+    elevation_m: 30.0
+  - name: "Perth"
+    latitude: -31.9505
+    longitude: 115.8605
+    elevation_m: 30.0
+  - name: "New York"
+    latitude: 40.7128
+    longitude: -74.0060
+    elevation_m: 30.0
+
+network:
+  gsl_interfaces:
+    number_of_interfaces: 1
+    aggregate_max_bandwidth: 1.0
+
+logging:
+  is_debug: false
+  file_name: "simulation.log"
