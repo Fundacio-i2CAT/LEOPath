@@ -2,7 +2,7 @@ import math
 import unittest
 
 from src import logger
-from src.distance_tools import geodetic2cartesian
+from src.topology.distance_tools import geodetic2cartesian
 from src.network_state.generate_network_state import _generate_state_for_step
 from src.tles.generate_tles_from_scratch import generate_tles_from_scratch_with_sgp
 from src.tles.read_tles import read_tles  # You might need to ensure this is accessible

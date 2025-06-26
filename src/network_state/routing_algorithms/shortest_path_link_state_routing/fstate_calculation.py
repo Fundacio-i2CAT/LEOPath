@@ -100,43 +100,98 @@ def _calculate_sat_to_gs_fstate(
     fstate: Dict[Tuple[int, int], Tuple[int, int, int]],
 ) -> None:
     for curr_sat_id in nodelist:
-        curr_sat_idx = node_to_index[curr_sat_id]
-        try:
-            topology_with_isls.get_satellite(curr_sat_id)
-        except KeyError:
-            log.error(
-                f"Could not find satellite object {curr_sat_id} (should exist based on nodelist)."
-            )
+        if not _is_valid_satellite(topology_with_isls, curr_sat_id):
             continue
 
-        for gs_idx, dst_gs in enumerate(ground_stations):
-            dst_gs_node_id = dst_gs.id
-            if gs_idx >= len(ground_station_satellites_in_range):
-                continue
-            possible_dst_sats = ground_station_satellites_in_range[gs_idx]
-            if possible_dst_sats:
-                log.debug(
-                    f"  > FSTATE: Sat {curr_sat_id} -> GS {dst_gs.id}. Visible sats: {possible_dst_sats}"
-                )
-            possibilities = _get_satellite_possibilities(
-                possible_dst_sats, curr_sat_idx, node_to_index, dist_matrix
-            )
+        curr_sat_idx = node_to_index[curr_sat_id]
+        _process_satellite_ground_station_routing(
+            curr_sat_id,
+            curr_sat_idx,
+            topology_with_isls,
+            ground_stations,
+            ground_station_satellites_in_range,
+            node_to_index,
+            sat_subgraph,
+            dist_matrix,
+            sat_neighbor_to_if,
+            dist_satellite_to_ground_station,
+            fstate,
+        )
 
-            next_hop_decision, distance_to_ground_station_m = _get_next_hop_decision(
-                possibilities,
-                curr_sat_id,
-                node_to_index,
-                sat_subgraph,
-                dist_matrix,
-                sat_neighbor_to_if,
-                topology_with_isls,
-                dst_gs_node_id,
-            )
 
-            dist_satellite_to_ground_station[(curr_sat_id, dst_gs_node_id)] = (
-                distance_to_ground_station_m
+def _is_valid_satellite(topology: LEOTopology, sat_id: int) -> bool:
+    """Verify if the satellite exists in the topology."""
+    try:
+        topology.get_satellite(sat_id)
+        return True
+    except KeyError:
+        log.error(f"Could not find satellite object {sat_id} (should exist based on nodelist).")
+        return False
+
+
+def _process_satellite_ground_station_routing(
+    curr_sat_id: int,
+    curr_sat_idx: int,
+    topology_with_isls: LEOTopology,
+    ground_stations: List[GroundStation],
+    ground_station_satellites_in_range: List[List[Tuple[float, int]]],
+    node_to_index: Dict[int, int],
+    sat_subgraph: nx.Graph,
+    dist_matrix: np.ndarray,
+    sat_neighbor_to_if: Dict[Tuple[int, int], int],
+    dist_satellite_to_ground_station: Dict[Tuple[int, int], float],
+    fstate: Dict[Tuple[int, int], Tuple[int, int, int]],
+) -> None:
+    """Process routing from a specific satellite to all ground stations."""
+    for gs_idx, dst_gs in enumerate(ground_stations):
+        if not _is_valid_ground_station_index(gs_idx, ground_station_satellites_in_range):
+            continue
+        dst_gs_node_id = dst_gs.id
+        possible_dst_sats = ground_station_satellites_in_range[gs_idx]
+        if possible_dst_sats:
+            log.debug(
+                f"  > FSTATE: Sat {curr_sat_id} -> GS {dst_gs.id}. Visible sats: {possible_dst_sats}"
             )
-            fstate[(curr_sat_id, dst_gs_node_id)] = next_hop_decision
+        # Find all possible paths and determine best next hop
+        possible_paths = _get_satellite_possibilities(
+            possible_dst_sats, curr_sat_idx, node_to_index, dist_matrix
+        )
+        next_hop_decision, distance_to_ground_station_m = _get_next_hop_decision(
+            possible_paths,
+            curr_sat_id,
+            node_to_index,
+            sat_subgraph,
+            dist_matrix,
+            sat_neighbor_to_if,
+            topology_with_isls,
+            dst_gs_node_id,
+        )
+        _store_routing_decision(
+            curr_sat_id,
+            dst_gs_node_id,
+            next_hop_decision,
+            distance_to_ground_station_m,
+            dist_satellite_to_ground_station,
+            fstate,
+        )
+
+
+def _is_valid_ground_station_index(gs_idx: int, ground_station_satellites_in_range: list) -> bool:
+    """Check if the ground station index is valid."""
+    return gs_idx < len(ground_station_satellites_in_range)
+
+
+def _store_routing_decision(
+    sat_id: int,
+    gs_id: int,
+    next_hop_decision: Tuple[int, int, int],
+    distance: float,
+    dist_satellite_to_ground_station: Dict[Tuple[int, int], float],
+    fstate: Dict[Tuple[int, int], Tuple[int, int, int]],
+) -> None:
+    """Store the calculated routing decision in the forwarding tables."""
+    dist_satellite_to_ground_station[(sat_id, gs_id)] = distance
+    fstate[(sat_id, gs_id)] = next_hop_decision
 
 
 def _get_satellite_possibilities(

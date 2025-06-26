@@ -6,7 +6,7 @@ import os
 import yaml
 
 from src import logger
-from src.distance_tools import geodetic2cartesian
+from src.topology.distance_tools import geodetic2cartesian
 from src.network_state.generate_network_state import generate_dynamic_state
 from src.tles.generate_tles_from_scratch import generate_tles_from_scratch_with_sgp
 from src.tles.read_tles import read_tles

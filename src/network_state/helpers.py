@@ -2,7 +2,7 @@ import numpy as np
 from astropy.time import Time
 
 from src import logger
-from src.distance_tools import distance_tools
+from src.topology import distance_tools
 from src.topology.topology import ConstellationData, GroundStation, LEOTopology
 
 log = logger.get_logger(__name__)
@@ -112,37 +112,20 @@ def _build_topologies(orbital_data: ConstellationData, ground_stations: list[Gro
     """
     topology_with_isls = LEOTopology(orbital_data, ground_stations)
     topology_only_gs = LEOTopology(orbital_data, ground_stations)  # May not be needed later
-
-    # Add satellite nodes using their IDs
-    for (
-        sat
-    ) in (
-        orbital_data.satellites
-    ):  # Assuming orbital_data.satellites has Satellite objects or ephem.Body
-        # We need the ID. If it holds ephem.Body, we might need to adjust.
-        # Assuming for now constellation_data holds Satellite objects for consistency
-        # with get_satellite. If it holds ephem.Body, we need a way to get the intended ID.
-        # Let's proceed assuming sat.id exists.
+    for sat in orbital_data.satellites:
         if hasattr(sat, "id"):
             topology_with_isls.graph.add_node(sat.id)
             topology_only_gs.graph.add_node(sat.id)
         else:
-            # This case occurs if constellation_data.satellites holds ephem.Body directly
-            # We need a way to map ephem.Body back to the intended sat ID (0..N-1 or unique IDs)
-            # For now, log a warning. This indicates an inconsistency to be resolved.
             log.warning(
                 "Satellite object in constellation_data lacks 'id' attribute. Node addition may be incorrect."
             )
-            # Fallback? Maybe try adding based on index? Requires care.
-
-    # Add ground station nodes using their IDs
     for gs in ground_stations:
         topology_with_isls.graph.add_node(gs.id)  # Add GS to main graph too for GSLs
         topology_only_gs.graph.add_node(gs.id)
-
     log.debug(
         f"  > Built topologies with {len(topology_with_isls.graph.nodes())} initial nodes."
-    )  # More accurate node count
+    )
     log.debug(f"  > Max. range GSL......... {orbital_data.max_gsl_length_m} m")
     log.debug(f"  > Max. range ISL......... {orbital_data.max_isl_length_m} m")
     return topology_with_isls, topology_only_gs
@@ -164,11 +147,9 @@ def _compute_gsl_interface_information(topology: LEOTopology):
         return
 
     constellation_data = topology.constellation_data
-    # Access satellite count via constellation_data, GS count via topology
     num_sats = constellation_data.number_of_satellites
     num_gs = topology.number_of_ground_stations
     expected_len = num_sats + num_gs
-
     if len(topology.gsl_interfaces_info) != expected_len:
         log.warning(
             f"Length of topology.gsl_interfaces_info ({len(topology.gsl_interfaces_info)}) "
@@ -176,10 +157,7 @@ def _compute_gsl_interface_information(topology: LEOTopology):
         )
 
     log.debug("GSL INTERFACE INFORMATION (from topology.gsl_interfaces_info):")
-
     try:
-        # Extract number_of_interfaces, handle potential missing keys or non-dict items
-        # Adapt slicing based on actual length vs expected num_sats
         actual_len = len(topology.gsl_interfaces_info)
         sat_if_counts = [
             info.get("number_of_interfaces", 0)
@@ -209,7 +187,7 @@ def _compute_gsl_interface_information(topology: LEOTopology):
 
 
 def _compute_ground_station_satellites_in_range(
-    topology: LEOTopology, current_time: Time  # Expects Time object
+    topology: LEOTopology, current_time: Time
 ) -> list:  # Returns visibility list
     """
     Computes GS<->Sat visibility based on distance at current_time.
