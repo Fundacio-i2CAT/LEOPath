@@ -22,7 +22,7 @@ def calculate_fstate_shortest_path_object_no_gs_relay(
 ) -> dict:
     """
     Calculates forwarding state using shortest paths over ISLs only (no GS relays).
-    
+
     Args:
         topology_with_isls: Network topology with ISL links
         ground_stations: List of ground stations
@@ -35,7 +35,7 @@ def calculate_fstate_shortest_path_object_no_gs_relay(
     gsl_attachments = gsl_attachment_strategy.select_attachments(
         topology_with_isls, ground_stations, current_time
     )
-    
+
     # Convert single attachments to the expected format for compatibility
     # TODO: Refactor the routing algorithm to work directly with single attachments
     ground_station_satellites_in_range = []

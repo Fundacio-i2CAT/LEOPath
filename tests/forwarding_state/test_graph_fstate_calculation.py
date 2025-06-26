@@ -20,7 +20,7 @@ from src.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachm
 
 class MockGSLAttachmentStrategy(GSLAttachmentStrategy):
     """Mock GSL attachment strategy that returns predefined attachments for testing."""
-    
+
     def __init__(self, attachments):
         """
         Args:
@@ -28,11 +28,11 @@ class MockGSLAttachmentStrategy(GSLAttachmentStrategy):
                         If satellite_id is -1, indicates no attachment.
         """
         self.attachments = attachments
-    
+
     @property
     def name(self):
         return "mock_strategy"
-    
+
     def select_attachments(self, topology, ground_stations, current_time):
         """Return the predefined attachments."""
         return self.attachments
@@ -74,7 +74,7 @@ class TestFstateCalculationRefactored(unittest.TestCase):
             sat.number_isls = num_isls_per_sat_map.get(sat.id, 0)
         if len(gsl_visibility_list) != len(ground_station_list):
             raise ValueError("Length mismatch: gsl_visibility_list vs ground_station_list")
-        
+
         # Convert the single GSL attachment format to the new attachment format
         # gsl_visibility_list now contains single (distance, satellite_id) tuples for each ground station
         attachments = []
@@ -85,7 +85,7 @@ class TestFstateCalculationRefactored(unittest.TestCase):
             else:
                 # No attachment
                 attachments.append((-1, -1))
-        
+
         mock_strategy = MockGSLAttachmentStrategy(attachments)
         return topology, mock_strategy
 

@@ -41,7 +41,7 @@ class NearestSatelliteStrategy(GSLAttachmentStrategy):
 
         for gs in ground_stations:
             nearest_satellite = (-1.0, -1)  # Default: no satellite found (distance, sat_id)
-            min_distance = float('inf')
+            min_distance = float("inf")
 
             for sat in topology.get_satellites():
                 try:
@@ -58,7 +58,7 @@ class NearestSatelliteStrategy(GSLAttachmentStrategy):
                     if distance <= max_gs_range and distance < min_distance:
                         min_distance = distance
                         nearest_satellite = (distance, sat.id)
-                        
+
                 except Exception as e:
                     log.warning(
                         f"Error calculating distance for GS {gs.id} to satellite {sat.id}: {e}"
@@ -66,7 +66,9 @@ class NearestSatelliteStrategy(GSLAttachmentStrategy):
 
             result.append(nearest_satellite)
             if nearest_satellite[1] != -1:
-                log.debug(f"GS {gs.id}: Attached to satellite {nearest_satellite[1]} at distance {nearest_satellite[0]:.2f}m")
+                log.debug(
+                    f"GS {gs.id}: Attached to satellite {nearest_satellite[1]} at distance {nearest_satellite[0]:.2f}m"
+                )
             else:
                 log.warning(f"GS {gs.id}: No visible satellites found")
 

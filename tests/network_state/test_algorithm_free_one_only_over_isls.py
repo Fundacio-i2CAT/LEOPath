@@ -20,7 +20,7 @@ from src.topology.topology import (
 
 class MockGSLAttachmentStrategy(GSLAttachmentStrategy):
     """Mock GSL attachment strategy for testing."""
-    
+
     def __init__(self, visibility_data):
         """
         Initialize with visibility data.
@@ -28,10 +28,10 @@ class MockGSLAttachmentStrategy(GSLAttachmentStrategy):
         tuples for the corresponding ground station.
         """
         self.visibility_data = visibility_data
-    
+
     def name(self) -> str:
         return "mock_strategy"
-    
+
     def select_attachments(self, topology, ground_stations, current_time):
         """Return the mock visibility data as single attachments per ground station."""
         result = []
@@ -141,7 +141,7 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
 
         # Create mock GSL attachment strategy with the visibility data
         self.mock_gsl_strategy = MockGSLAttachmentStrategy(self.visibility)
-        
+
         # Create test time
         self.test_time = Time("2024-05-19 12:00:00")
 
@@ -200,9 +200,7 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
         )
 
         # 3. Assert F-State Result
-        self.assertEqual(
-            result["fstate"], self.expected_fstate_result, "F-state result mismatch"
-        )
+        self.assertEqual(result["fstate"], self.expected_fstate_result, "F-state result mismatch")
         self.assertEqual(
             result["fstate"],
             self.mock_fstate_calculator.return_value,
@@ -283,9 +281,7 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
         )
 
         # Assert fstate is empty dictionary on error
-        self.assertDictEqual(
-            result["fstate"], {}, "F-state should be empty on helper exception"
-        )
+        self.assertDictEqual(result["fstate"], {}, "F-state should be empty on helper exception")
 
         # Assert bandwidth was still calculated
         expected_bandwidth = {0: 100.0, 1: 110.0, 2: 50.0, 3: 60.0}
