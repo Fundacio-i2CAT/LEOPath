@@ -184,14 +184,16 @@ class TestEndToEndRefactored(unittest.TestCase):
         # For the new single-attachment GSL system, we focus on basic functionality
         # rather than specific route expectations which have changed.
         # The key test is that the system generates a valid state without errors.
-        
+
         print(f"Valid routes at t=0: {len([v for v in fstate_t0.values() if v != (-1, -1, -1)])}")
-        print(f"Routes that found paths: {[(k, v) for k, v in fstate_t0.items() if v != (-1, -1, -1)]}")
-        
+        print(
+            f"Routes that found paths: {[(k, v) for k, v in fstate_t0.items() if v != (-1, -1, -1)]}"
+        )
+
         # --- Simplified tests for later time steps ---
         # Focus on system stability rather than specific routing outcomes
         test_times = [18 * 10**9, 27.6 * 10**9, 74.3 * 10**9]
-        
+
         for time_ns in test_times:
             time_since_epoch_ns_int = int(time_ns)
             print(f"\n--- Testing system stability at t={time_since_epoch_ns_int} ns ---")
@@ -209,29 +211,29 @@ class TestEndToEndRefactored(unittest.TestCase):
             )
 
             # Test basic functionality: state generation should succeed
-            self.assertIsNotNone(
-                result_state, f"State generation failed at t={time_ns}"
-            )
+            self.assertIsNotNone(result_state, f"State generation failed at t={time_ns}")
             self.assertIn("fstate", result_state)
             self.assertIn("bandwidth", result_state)
             self.assertIsInstance(result_state["fstate"], dict)
             self.assertIsInstance(result_state["bandwidth"], dict)
-            
+
             # Test that some routes are computed (system is functional)
             fstate = result_state["fstate"]
             valid_routes = {k: v for k, v in fstate.items() if v != (-1, -1, -1)}
             self.assertGreater(len(valid_routes), 0, f"No valid routes found at t={time_ns}")
-            
+
             print(f"  Valid routes: {len(valid_routes)}")
             print(f"  Total routes: {len(fstate)}")
-            
+
             # Check that the Manila-Dalian route exists (if it should)
             manila_dalian_route = fstate.get((GS_MANILA_ID, GS_DALIAN_ID))
             if manila_dalian_route and manila_dalian_route != (-1, -1, -1):
                 print(f"  Manila->Dalian route: {manila_dalian_route}")
             else:
-                print("  Manila->Dalian route: No path found (expected in single-attachment system)")
-        
+                print(
+                    "  Manila->Dalian route: No path found (expected in single-attachment system)"
+                )
+
         print("\n=== End-to-end test completed successfully ===")
         print("The new single-attachment GSL system is working correctly.")
 
