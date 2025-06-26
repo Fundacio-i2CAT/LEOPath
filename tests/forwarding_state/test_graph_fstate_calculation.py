@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import MagicMock
 
 import ephem
+from astropy.time import Time
 
 from src.network_state.routing_algorithms.shortest_path_link_state_routing.fstate_calculation import (
     calculate_fstate_shortest_path_object_no_gs_relay,
@@ -14,6 +15,27 @@ from src.topology.topology import (
     GroundStation,
     LEOTopology,
 )
+from src.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
+
+
+class MockGSLAttachmentStrategy(GSLAttachmentStrategy):
+    """Mock GSL attachment strategy that returns predefined attachments for testing."""
+    
+    def __init__(self, attachments):
+        """
+        Args:
+            attachments: List of (distance, satellite_id) tuples for each ground station.
+                        If satellite_id is -1, indicates no attachment.
+        """
+        self.attachments = attachments
+    
+    @property
+    def name(self):
+        return "mock_strategy"
+    
+    def select_attachments(self, topology, ground_stations, current_time):
+        """Return the predefined attachments."""
+        return self.attachments
 
 
 # --- Test Class ---
@@ -52,8 +74,20 @@ class TestFstateCalculationRefactored(unittest.TestCase):
             sat.number_isls = num_isls_per_sat_map.get(sat.id, 0)
         if len(gsl_visibility_list) != len(ground_station_list):
             raise ValueError("Length mismatch: gsl_visibility_list vs ground_station_list")
-        ground_station_satellites_in_range = gsl_visibility_list
-        return topology, ground_station_satellites_in_range
+        
+        # Convert the single GSL attachment format to the new attachment format
+        # gsl_visibility_list now contains single (distance, satellite_id) tuples for each ground station
+        attachments = []
+        for gs_attachment in gsl_visibility_list:
+            if gs_attachment:
+                # Single attachment per ground station
+                attachments.append(gs_attachment)
+            else:
+                # No attachment
+                attachments.append((-1, -1))
+        
+        mock_strategy = MockGSLAttachmentStrategy(attachments)
+        return topology, mock_strategy
 
     # --- Test Cases ---
 
@@ -91,12 +125,14 @@ class TestFstateCalculationRefactored(unittest.TestCase):
             ),
         ]
         isl_edges = []
-        gsl_visibility = [[(1000, SAT_ID)], [(1000, SAT_ID)]]
-        topology, visibility = self._setup_scenario(
+        # Single GSL attachments: both GS attached to the same satellite
+        gsl_visibility = [(1000, SAT_ID), (1000, SAT_ID)]
+        topology, mock_strategy = self._setup_scenario(
             satellites, ground_stations, isl_edges, gsl_visibility
         )
+        current_time = Time("2000-01-01 00:00:00", scale="tdb")
         fstate = calculate_fstate_shortest_path_object_no_gs_relay(
-            topology, ground_stations, visibility
+            topology, ground_stations, mock_strategy, current_time
         )
         expected_fstate = {
             (SAT_ID, GS_A_ID): (GS_A_ID, 0, 0),
@@ -141,12 +177,14 @@ class TestFstateCalculationRefactored(unittest.TestCase):
             ),
         ]
         isl_edges = [(SAT_A, SAT_B, 1000)]
-        gsl_visibility = [[(500, SAT_A)], [(600, SAT_B)]]
-        topology, visibility = self._setup_scenario(
+        # Single GSL attachments: GS_X -> SAT_A, GS_Y -> SAT_B
+        gsl_visibility = [(500, SAT_A), (600, SAT_B)]
+        topology, mock_strategy = self._setup_scenario(
             satellites, ground_stations, isl_edges, gsl_visibility
         )
+        current_time = Time("2000-01-01 00:00:00", scale="tdb")
         fstate = calculate_fstate_shortest_path_object_no_gs_relay(
-            topology, ground_stations, visibility
+            topology, ground_stations, mock_strategy, current_time
         )
         expected_fstate = {
             (SAT_A, GS_X): (GS_X, 1, 0),
@@ -159,13 +197,18 @@ class TestFstateCalculationRefactored(unittest.TestCase):
         self.assertDictEqual(fstate, expected_fstate)
 
     def test_two_sat_three_gs_refactored(self):
-        """Scenario: Sat 10 -- Sat 11, GS 100 -> S10, GS 101 -> S10 & S11, GS 102 -> S11"""
+        """Scenario: Sat 10 -- Sat 11, with single GSL attachments per ground station"""
         # Diagram:
-        #            100(GS)
-        #             /
-        #   10(Sat) ----- 11(Sat)
-        #      \       /       \
-        #       101(GS)      102(GS)
+        #            100(GS) -----> 10(Sat)
+        #                           /
+        #   10(Sat) -----------  11(Sat)
+        #      \                       \
+        #       101(GS)               102(GS)
+        #
+        # GSL Attachments:
+        # - GS 100 -> SAT_A (10)
+        # - GS 101 -> SAT_A (10)
+        # - GS 102 -> SAT_B (11)
         SAT_A = 10
         SAT_B = 11
         GS_X = 100
@@ -209,24 +252,26 @@ class TestFstateCalculationRefactored(unittest.TestCase):
             ),
         ]
         isl_edges = [(SAT_A, SAT_B, 1000)]
-        gsl_visibility = [[(500, SAT_A)], [(200, SAT_A), (100, SAT_B)], [(400, SAT_B)]]
-        topology, visibility = self._setup_scenario(
+        # Single GSL attachments: GS_X->SAT_A, GS_Y->SAT_A, GS_Z->SAT_B
+        gsl_visibility = [(500, SAT_A), (200, SAT_A), (400, SAT_B)]
+        topology, mock_strategy = self._setup_scenario(
             satellites, ground_stations, isl_edges, gsl_visibility
         )
+        current_time = Time("2000-01-01 00:00:00", scale="tdb")
         fstate = calculate_fstate_shortest_path_object_no_gs_relay(
-            topology, ground_stations, visibility
+            topology, ground_stations, mock_strategy, current_time
         )
         expected_fstate = {
             (SAT_A, GS_X): (GS_X, 1, 0),
             (SAT_A, GS_Y): (GS_Y, 1, 0),
             (SAT_A, GS_Z): (SAT_B, 0, 0),
             (SAT_B, GS_X): (SAT_A, 0, 0),
-            (SAT_B, GS_Y): (GS_Y, 1, 0),
+            (SAT_B, GS_Y): (SAT_A, 0, 0),
             (SAT_B, GS_Z): (GS_Z, 1, 0),
             (GS_X, GS_Y): (SAT_A, 0, 1),
             (GS_X, GS_Z): (SAT_A, 0, 1),
             (GS_Y, GS_X): (SAT_A, 0, 1),
-            (GS_Y, GS_Z): (SAT_B, 0, 1),
+            (GS_Y, GS_Z): (SAT_A, 0, 1),
             (GS_Z, GS_X): (SAT_B, 0, 1),
             (GS_Z, GS_Y): (SAT_B, 0, 1),
         }
@@ -325,27 +370,29 @@ class TestFstateCalculationRefactored(unittest.TestCase):
             (SAT_2, SAT_4, 400),
         ]
 
-        # Old GSLs: (0,7,500), (0,8,600), (1,6,500), (1,9,300), (2,5,500), (2,8,200), (2,9,500)
+        # Single GSL attachments based on the expected routing behavior:
+        # Derived from expected fstate to ensure direct routes work correctly
         gsl_visibility = [
-            # GS_5 (idx 0) sees Sat 2 (12) dist 500
-            [(500, SAT_2)],
-            # GS_6 (idx 1) sees Sat 1 (11) dist 500
-            [(500, SAT_1)],
-            # GS_7 (idx 2) sees Sat 0 (10) dist 500
-            [(500, SAT_0)],
-            # GS_8 (idx 3) sees Sat 0 (10) dist 600 AND Sat 2 (12) dist 200
-            [(600, SAT_0), (200, SAT_2)],
-            # GS_9 (idx 4) sees Sat 1 (11) dist 300 AND Sat 2 (12) dist 500
-            [(300, SAT_1), (500, SAT_2)],
+            # GS_5 (idx 0) -> Sat 2 (12) dist 500
+            (500, SAT_2),
+            # GS_6 (idx 1) -> Sat 1 (11) dist 500
+            (500, SAT_1),
+            # GS_7 (idx 2) -> Sat 0 (10) dist 500
+            (500, SAT_0),
+            # GS_8 (idx 3) -> Sat 0 (10) dist 600 (to enable (SAT_0, GS_8): (GS_8, 1, 0))
+            (600, SAT_0),
+            # GS_9 (idx 4) -> Sat 2 (12) dist 500 (to enable (SAT_2, GS_9): (GS_9, 2, 0))
+            (500, SAT_2),
         ]
 
-        topology, visibility = self._setup_scenario(
+        topology, mock_strategy = self._setup_scenario(
             satellites, ground_stations, isl_edges, gsl_visibility
         )
 
         # --- Call Function ---
+        current_time = Time("2000-01-01 00:00:00", scale="tdb")
         fstate = calculate_fstate_shortest_path_object_no_gs_relay(
-            topology, ground_stations, visibility
+            topology, ground_stations, mock_strategy, current_time
         )
 
         # --- Assertions ---
@@ -376,16 +423,16 @@ class TestFstateCalculationRefactored(unittest.TestCase):
             (SAT_1, GS_7): (SAT_4, 0, 0),
             # (1, 8) -> (11, 108): Path 11->14->12->108. Hop 14. IFs: (11,14)=0, (14,11)=0. -> (14, 0, 0)
             (SAT_1, GS_8): (SAT_4, 0, 0),
-            # (1, 9) -> (11, 109): Direct. Hop 109. IFs: Sat IF=1, GS IF=0. -> (109, 1, 0)
-            (SAT_1, GS_9): (GS_9, 1, 0),
+            # (1, 9) -> (11, 109): Path 11->14->12->109. Hop 14. IFs: (11,14)=0, (14,11)=0. -> (14, 0, 0)
+            (SAT_1, GS_9): (SAT_4, 0, 0),  # Multi-hop route via SAT_4, then SAT_2
             # (2, 5) -> (12, 105): Direct. Hop 105. IFs: Sat IF=2, GS IF=0. -> (105, 2, 0)
             (SAT_2, GS_5): (GS_5, 2, 0),
             # (2, 6) -> (12, 106): Path 12->14->11->106. Hop 14. IFs: (12,14)=1, (14,12)=1. -> (14, 1, 1)
             (SAT_2, GS_6): (SAT_4, 1, 1),
             # (2, 7) -> (12, 107): Path 12->13->10->107. Hop 13. IFs: (12,13)=0, (13,12)=1. -> (13, 0, 1)
             (SAT_2, GS_7): (SAT_3, 0, 1),
-            # (2, 8) -> (12, 108): Direct. Hop 108. IFs: Sat IF=2, GS IF=0. -> (108, 2, 0)
-            (SAT_2, GS_8): (GS_8, 2, 0),
+            # (2, 8) -> (12, 108): Path 12->13->10->108. Hop 13. IFs: (12,13)=0, (13,12)=1. -> (13, 0, 1)
+            (SAT_2, GS_8): (SAT_3, 0, 1),  # Multi-hop route via SAT_3, then SAT_0
             # (2, 9) -> (12, 109): Direct. Hop 109. IFs: Sat IF=2, GS IF=0. -> (109, 2, 0)
             (SAT_2, GS_9): (GS_9, 2, 0),
             # (3, 5) -> (13, 105): Path 13->12->105. Hop 12. IFs: (13,12)=1, (12,13)=0. -> (12, 1, 0)
@@ -394,8 +441,8 @@ class TestFstateCalculationRefactored(unittest.TestCase):
             (SAT_3, GS_6): (SAT_2, 1, 0),
             # (3, 7) -> (13, 107): Path 13->10->107. Hop 10. IFs: (13,10)=0, (10,13)=0. -> (10, 0, 0)
             (SAT_3, GS_7): (SAT_0, 0, 0),
-            # (3, 8) -> (13, 108): Path 13->12->108. Hop 12. IFs: (13,12)=1, (12,13)=0. -> (12, 1, 0)
-            (SAT_3, GS_8): (SAT_2, 1, 0),
+            # (3, 8) -> (13, 108): Path 13->10->108. Hop 10. IFs: (13,10)=0, (10,13)=0. -> (10, 0, 0)
+            (SAT_3, GS_8): (SAT_0, 0, 0),  # Multi-hop route via SAT_0
             # (3, 9) -> (13, 109): Path 13->12->14->11->109. Hop 12. IFs: (13,12)=1, (12,13)=0. -> (12, 1, 0)
             (SAT_3, GS_9): (SAT_2, 1, 0),
             # (4, 5) -> (14, 105): Path 14->12->105. Hop 12. IFs: (14,12)=1, (12,14)=1. -> (12, 1, 1)
@@ -406,8 +453,8 @@ class TestFstateCalculationRefactored(unittest.TestCase):
             (SAT_4, GS_7): (SAT_2, 1, 1),
             # (4, 8) -> (14, 108): Path 14->12->108. Hop 12. IFs: (14,12)=1, (12,14)=1. -> (12, 1, 1)
             (SAT_4, GS_8): (SAT_2, 1, 1),
-            # (4, 9) -> (14, 109): Path 14->11->109. Hop 11. IFs: (14,11)=0, (11,14)=0. -> (11, 0, 0)
-            (SAT_4, GS_9): (SAT_1, 0, 0),
+            # (4, 9) -> (14, 109): Path 14->12->109. Hop 12. IFs: (14,12)=1, (12,14)=1. -> (12, 1, 1)
+            (SAT_4, GS_9): (SAT_2, 1, 1),  # Multi-hop route via SAT_2
             # GS -> GS Calculations (Example: GS_5 -> GS_6)
             # (5, 6) -> (105, 106): Path 105->12->14->11->106. Entry=12. Hop 12. IFs: GS IF=0, Sat GSL IF=2. -> (12, 0, 2)
             (GS_5, GS_6): (SAT_2, 0, 2),
@@ -434,39 +481,33 @@ class TestFstateCalculationRefactored(unittest.TestCase):
             (GS_7, GS_6): (SAT_0, 0, 1),  # Path 107->10->13->12->14->11->106. Entry=10. Hop 10.
             (GS_7, GS_8): (SAT_0, 0, 1),  # Path 107->10->108. Entry=10. Hop 10.
             (GS_7, GS_9): (SAT_0, 0, 1),  # Path 107->10->13->12->14->11->109. Entry=10. Hop 10.
-            (GS_8, GS_5): (
-                SAT_2,
-                0,
-                2,
-            ),  # Path 108->12->105. Entry=12 (cheaper). Hop 12. IFs: GS IF=0, Sat GSL IF=2.
-            (GS_8, GS_6): (SAT_2, 0, 2),  # Path 108->12->14->11->106. Entry=12. Hop 12.
-            (GS_8, GS_7): (
-                SAT_0,
-                0,
-                1,
-            ),  # Path 108->10->107. Entry=10 (cheaper). Hop 10. IFs: GS IF=0, Sat GSL IF=1.
-            (GS_8, GS_9): (SAT_2, 0, 2),  # Path 108->12->109. Entry=12. Hop 12.
-            # (GS_9, GS_5): Old path 109->12->105. Entry=12. Hop 12. IFs: (109, 12) not direct. -> Let's trace. 109 sees 11(300), 12(500). GS5 sees 12(500).
-            # Path via 11: 109->11->14->12->105. GSL(300)+ISL(300)+ISL(400)+GSL(500) = 1500.
-            # Path via 12: 109->12->105. GSL(500)+GSL(500) = 1000. Choose entry 12. Hop 12. IFs: (GS=0, SatGSL=2) -> (12, 0, 2) <<-- Corrected
-            (GS_9, GS_5): (SAT_2, 0, 2),
-            (GS_9, GS_6): (SAT_1, 0, 1),  # Path 109->11->106. Entry=11. Hop 11.
-            # (GS_9, GS_7): Path via 12: 109->12->13->10->107. GSL(500)+ISL(400)+ISL(600)+GSL(500)=2000. Path via 11: GSL(300)+ISL(300)+ISL(400)+ISL(600)+GSL(500)=2100. Choose 12. Hop 12. -> (12, 0, 2) <<-- Corrected
-            (GS_9, GS_7): (SAT_2, 0, 2),
-            (GS_9, GS_8): (SAT_2, 0, 2),  # Path 109->12->108. Entry=12. Hop 12.
+            # GS_8 now attached to SAT_0, GS_9 now attached to SAT_2
+            (GS_8, GS_5): (SAT_0, 0, 1),  # Path 108->10->13->12->105. Entry=10. Hop 10.
+            (GS_8, GS_6): (SAT_0, 0, 1),  # Path 108->10->13->12->14->11->106. Entry=10. Hop 10.
+            (GS_8, GS_7): (SAT_0, 0, 1),  # Path 108->10->107. Entry=10. Hop 10.
+            (GS_8, GS_9): (SAT_0, 0, 1),  # Path 108->10->13->12->109. Entry=10. Hop 10.
+            # GS_9 now attached to SAT_2
+            (GS_9, GS_5): (SAT_2, 0, 2),  # Path 109->12->105. Entry=12. Hop 12.
+            (GS_9, GS_6): (SAT_2, 0, 2),  # Path 109->12->14->11->106. Entry=12. Hop 12.
+            (GS_9, GS_7): (SAT_2, 0, 2),  # Path 109->12->13->10->107. Entry=12. Hop 12.
+            (GS_9, GS_8): (SAT_2, 0, 2),  # Path 109->12->13->10->108. Entry=12. Hop 12.
         }
         # Carefully compare calculated vs old, using new IF logic
         self.maxDiff = None  # Show full diff on failure
         self.assertDictEqual(fstate, expected_fstate)
 
     def test_two_sat_two_gs_no_isl_refactored(self):
-        """Scenario: Sat 10, Sat 11 (no ISL). GS 100->S10, GS 101->S10&S11, GS 102->S11"""
+        """Scenario: Sat 10, Sat 11 (no ISL). Single GSL attachments per ground station."""
         # Diagram:
-        # 100(GS)    101(GS)    102(GS)
-        #   \       /    \       /
-        #    10(Sat)      11(Sat)
-        #   /       \    /       \
-        #         (No ISL)
+        # 100(GS) ----> 10(Sat)    11(Sat) <---- 102(GS)
+        #                  \        /
+        #                   101(GS) (attached to either SAT_A or SAT_B)
+        #                  (No ISL between satellites)
+        #
+        # GSL Attachments:
+        # - GS 100 -> SAT_A (10)
+        # - GS 101 -> SAT_A (10) (choose SAT_A for connectivity)
+        # - GS 102 -> SAT_B (11)
         # --- Setup ---
         SAT_A = 10
         SAT_B = 11
@@ -511,19 +552,21 @@ class TestFstateCalculationRefactored(unittest.TestCase):
             ),
         ]
         isl_edges = []  # No ISLs
+        # Single GSL attachments: GS_X->SAT_A, GS_Y->SAT_A, GS_Z->SAT_B
         gsl_visibility = [
-            [(100, SAT_A)],  # GS X (idx 0) sees Sat A
-            [(100, SAT_A), (100, SAT_B)],  # GS Y (idx 1) sees Sat A & B
-            [(100, SAT_B)],  # GS Z (idx 2) sees Sat B
+            (100, SAT_A),  # GS X (idx 0) attached to Sat A
+            (100, SAT_A),  # GS Y (idx 1) attached to Sat A
+            (100, SAT_B),  # GS Z (idx 2) attached to Sat B
         ]
 
-        topology, visibility = self._setup_scenario(
+        topology, mock_strategy = self._setup_scenario(
             satellites, ground_stations, isl_edges, gsl_visibility
         )
 
         # --- Call Function ---
+        current_time = Time("2000-01-01 00:00:00", scale="tdb")
         fstate = calculate_fstate_shortest_path_object_no_gs_relay(
-            topology, ground_stations, visibility
+            topology, ground_stations, mock_strategy, current_time
         )
 
         # --- Assertions ---
@@ -533,17 +576,17 @@ class TestFstateCalculationRefactored(unittest.TestCase):
             # Sat -> GS (Only direct GSLs possible)
             (SAT_A, GS_X): (GS_X, 0, 0),
             (SAT_A, GS_Y): (GS_Y, 0, 0),
-            (SAT_A, GS_Z): (-1, -1, -1),  # Cannot reach
-            (SAT_B, GS_X): (-1, -1, -1),  # Cannot reach
-            (SAT_B, GS_Y): (GS_Y, 0, 0),
+            (SAT_A, GS_Z): (-1, -1, -1),  # Cannot reach (GS_Z attached to SAT_B, no ISL)
+            (SAT_B, GS_X): (-1, -1, -1),  # Cannot reach (GS_X attached to SAT_A, no ISL)
+            (SAT_B, GS_Y): (-1, -1, -1),  # Cannot reach (GS_Y attached to SAT_A, no ISL)
             (SAT_B, GS_Z): (GS_Z, 0, 0),
-            # GS -> GS (Only possible if entry/exit via SAME satellite)
-            (GS_X, GS_Y): (SAT_A, 0, 0),  # Path X->A->Y
-            (GS_X, GS_Z): (-1, -1, -1),  # Needs ISL
-            (GS_Y, GS_X): (SAT_A, 0, 0),  # Path Y->A->X (assume Y->A is chosen over Y->B->(fail))
-            (GS_Y, GS_Z): (SAT_B, 0, 0),  # Path Y->B->Z (assume Y->B is chosen over Y->A->(fail))
-            (GS_Z, GS_X): (-1, -1, -1),  # Needs ISL
-            (GS_Z, GS_Y): (SAT_B, 0, 0),  # Path Z->B->Y
+            # GS -> GS (Only possible if both attached to SAME satellite)
+            (GS_X, GS_Y): (SAT_A, 0, 0),  # Path X->A->Y (both attached to SAT_A)
+            (GS_X, GS_Z): (-1, -1, -1),  # Cannot reach (different satellites, no ISL)
+            (GS_Y, GS_X): (SAT_A, 0, 0),  # Path Y->A->X (both attached to SAT_A)
+            (GS_Y, GS_Z): (-1, -1, -1),  # Cannot reach (different satellites, no ISL)
+            (GS_Z, GS_X): (-1, -1, -1),  # Cannot reach (different satellites, no ISL)
+            (GS_Z, GS_Y): (-1, -1, -1),  # Cannot reach (different satellites, no ISL)
         }
         self.assertDictEqual(fstate, expected_fstate)
 
@@ -597,15 +640,15 @@ class TestFstateCalculationRefactored(unittest.TestCase):
         # Sat B (20) will have number_isls = 2
         isl_edges = [(SAT_A, SAT_B, 100), (SAT_C, SAT_B, 100)]  # Simple weights
 
-        # Define GSL Visibility: GS X (100) sees Sat B (20); GS Y (101) sees Sat A (10)
+        # Define single GSL attachments: GS X (100) -> Sat B (20); GS Y (101) -> Sat A (10)
         # Index 0 corresponds to GS_X, Index 1 corresponds to GS_Y
         gsl_visibility = [
-            [(500, SAT_B)],  # GS X (index 0) sees Sat B
-            [(500, SAT_A)],  # GS Y (index 1) sees Sat A
+            (500, SAT_B),  # GS X (index 0) attached to Sat B
+            (500, SAT_A),  # GS Y (index 1) attached to Sat A
         ]
 
         # Use the helper to create topology object and formatted visibility list
-        topology, visibility = self._setup_scenario(
+        topology, mock_strategy = self._setup_scenario(
             satellites, ground_stations, isl_edges, gsl_visibility
         )
 
@@ -629,8 +672,9 @@ class TestFstateCalculationRefactored(unittest.TestCase):
             self.fail(f"Test setup error: Failed to get satellite or interface mapping: {e}")
 
         # --- Call Function Under Test ---
+        current_time = Time("2000-01-01 00:00:00", scale="tdb")
         fstate = calculate_fstate_shortest_path_object_no_gs_relay(
-            topology, ground_stations, visibility
+            topology, ground_stations, mock_strategy, current_time
         )
 
         # --- Assertions ---

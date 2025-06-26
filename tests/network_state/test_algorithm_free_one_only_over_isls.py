@@ -3,9 +3,10 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-import ephem  # For mocking spec
+import ephem
+from astropy.time import Time
 
-# Function/Module to test
+from src.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
 from src.network_state.routing_algorithms.shortest_path_link_state_routing import (
     one_iface_free_bw_allocation_only_over_isls,
 )
@@ -17,16 +18,40 @@ from src.topology.topology import (
 )
 
 
-# --- Mock Helper Classes (Can reuse from previous tests) ---
-class MockLEOTopologyRefined(LEOTopology):
+class MockGSLAttachmentStrategy(GSLAttachmentStrategy):
+    """Mock GSL attachment strategy for testing."""
+    
+    def __init__(self, visibility_data):
+        """
+        Initialize with visibility data.
+        visibility_data: list of lists, where each inner list contains (distance, satellite_id)
+        tuples for the corresponding ground station.
+        """
+        self.visibility_data = visibility_data
+    
+    def name(self) -> str:
+        return "mock_strategy"
+    
+    def select_attachments(self, topology, ground_stations, current_time):
+        """Return the mock visibility data as single attachments per ground station."""
+        result = []
+        for gs_idx, gs in enumerate(ground_stations):
+            if gs_idx < len(self.visibility_data) and self.visibility_data[gs_idx]:
+                # Return the first (and should be only) attachment for this GS
+                result.append(self.visibility_data[gs_idx][0])
+            else:
+                # No attachment for this ground station
+                result.append((-1.0, -1))
+        return result
+
+
+class MockLEOTopology(LEOTopology):
     """Minimal mock for LEOTopology needed by the algorithm test."""
 
     def __init__(self, constellation_data: ConstellationData, ground_stations: list[GroundStation]):
-        # Store args, methods like get_satellite are needed if accessed
         self.constellation_data = constellation_data
         self.ground_stations = ground_stations
         self.number_of_ground_stations = len(ground_stations)
-        # Add attributes accessed by the algorithm if any (graph, sat_neighbor_to_if not directly used?)
         self.graph = None  # Not directly used by algorithm if helper is mocked
         self.sat_neighbor_to_if = {}  # Not directly used by algorithm if helper is mocked
 
@@ -40,10 +65,7 @@ class MockLEOTopologyRefined(LEOTopology):
                 return sat
         raise KeyError(f"Mock Satellite with ID {sat_id} not found")
 
-    # Add get_ground_stations if needed
 
-
-# --- Test Class ---
 class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
 
     def setUp(self):
@@ -97,7 +119,7 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
         )
 
         # Create mock Topology object
-        self.mock_topology = MockLEOTopologyRefined(self.constellation_data, self.ground_stations)
+        self.mock_topology = MockLEOTopology(self.constellation_data, self.ground_stations)
 
         # Example Visibility Data ([list per GS index])
         self.visibility = [
@@ -116,6 +138,12 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
 
         # Example Previous Output
         self.prev_output_data = {"fstate": {"prev": "state"}, "bandwidth": {0: 99.0}}
+
+        # Create mock GSL attachment strategy with the visibility data
+        self.mock_gsl_strategy = MockGSLAttachmentStrategy(self.visibility)
+        
+        # Create test time
+        self.test_time = Time("2024-05-19 12:00:00")
 
         self.enable_logs = False
 
@@ -147,7 +175,8 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
             constellation_data=self.constellation_data,
             ground_stations=self.ground_stations,
             topology_with_isls=self.mock_topology,
-            ground_station_satellites_in_range=self.visibility,
+            gsl_attachment_strategy=self.mock_gsl_strategy,
+            current_time=self.test_time,
             list_gsl_interfaces_info=self.gsl_info,
         )
 
@@ -159,23 +188,23 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
             3: 60.0,  # GS 3
         }
         self.assertDictEqual(
-            result.get("bandwidth"), expected_bandwidth, "Bandwidth state calculation mismatch"
+            result["bandwidth"], expected_bandwidth, "Bandwidth state calculation mismatch"
         )
 
         # 2. Assert F-State Helper Call
         self.mock_fstate_calculator.assert_called_once_with(
             self.mock_topology,
             self.ground_stations,
-            self.visibility,
-            # Note: prev_fstate_obj is NOT currently passed by the algorithm code
+            self.mock_gsl_strategy,
+            self.test_time,
         )
 
         # 3. Assert F-State Result
         self.assertEqual(
-            result.get("fstate"), self.expected_fstate_result, "F-state result mismatch"
+            result["fstate"], self.expected_fstate_result, "F-state result mismatch"
         )
         self.assertEqual(
-            result.get("fstate"),
+            result["fstate"],
             self.mock_fstate_calculator.return_value,
             "Returned fstate differs from helper return",
         )
@@ -188,21 +217,23 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
             constellation_data=self.constellation_data,
             ground_stations=self.ground_stations,
             topology_with_isls=self.mock_topology,
-            ground_station_satellites_in_range=self.visibility,
+            gsl_attachment_strategy=self.mock_gsl_strategy,
+            current_time=self.test_time,
             list_gsl_interfaces_info=self.gsl_info,
         )
 
-        # Assert helper was still called correctly (prev_output['fstate'] is extracted but not used in call)
+        # Assert helper was still called correctly with the new interface
         self.mock_fstate_calculator.assert_called_once_with(
             self.mock_topology,
             self.ground_stations,
-            self.visibility,
+            self.mock_gsl_strategy,
+            self.test_time,
         )
 
         # Assert results are still based on current calculation
-        self.assertEqual(result.get("fstate"), self.expected_fstate_result)
+        self.assertEqual(result["fstate"], self.expected_fstate_result)
         expected_bandwidth = {0: 100.0, 1: 110.0, 2: 50.0, 3: 60.0}
-        self.assertDictEqual(result.get("bandwidth"), expected_bandwidth)
+        self.assertDictEqual(result["bandwidth"], expected_bandwidth)
 
     def test_gsl_interface_info_length_mismatch(self):
         """Test handling when list_gsl_interfaces_info is shorter than expected."""
@@ -214,14 +245,15 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
             constellation_data=self.constellation_data,
             ground_stations=self.ground_stations,
             topology_with_isls=self.mock_topology,
-            ground_station_satellites_in_range=self.visibility,
+            gsl_attachment_strategy=self.mock_gsl_strategy,
+            current_time=self.test_time,
             list_gsl_interfaces_info=short_gsl_info,  # Use short list
         )
 
         # Assert bandwidth: Node 3 should have default BW=0 due to fallback
         expected_bandwidth = {0: 100.0, 1: 110.0, 2: 50.0, 3: 0.0}  # Node 3 gets default BW
         self.assertDictEqual(
-            result.get("bandwidth"), expected_bandwidth, "Bandwidth incorrect with short info list"
+            result["bandwidth"], expected_bandwidth, "Bandwidth incorrect with short info list"
         )
 
         # Assert warning was logged
@@ -232,7 +264,7 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
 
         # Assert fstate calculation still happened and result is included
         self.mock_fstate_calculator.assert_called_once()
-        self.assertEqual(result.get("fstate"), self.expected_fstate_result)
+        self.assertEqual(result["fstate"], self.expected_fstate_result)
 
     def test_fstate_calculator_exception(self):
         """Test behavior when the fstate helper raises an exception."""
@@ -245,18 +277,19 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
             constellation_data=self.constellation_data,
             ground_stations=self.ground_stations,
             topology_with_isls=self.mock_topology,
-            ground_station_satellites_in_range=self.visibility,
+            gsl_attachment_strategy=self.mock_gsl_strategy,
+            current_time=self.test_time,
             list_gsl_interfaces_info=self.gsl_info,
         )
 
         # Assert fstate is empty dictionary on error
         self.assertDictEqual(
-            result.get("fstate"), {}, "F-state should be empty on helper exception"
+            result["fstate"], {}, "F-state should be empty on helper exception"
         )
 
         # Assert bandwidth was still calculated
         expected_bandwidth = {0: 100.0, 1: 110.0, 2: 50.0, 3: 60.0}
-        self.assertDictEqual(result.get("bandwidth"), expected_bandwidth)
+        self.assertDictEqual(result["bandwidth"], expected_bandwidth)
 
         # Assert exception was logged
         self.mock_log.exception.assert_called_once_with(
