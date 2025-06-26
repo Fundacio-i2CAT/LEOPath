@@ -5,8 +5,11 @@ import networkx as nx
 import numpy as np
 from typing import Dict, List, Tuple
 
+from astropy.time import Time
+
 from src import logger
 from src.topology.topology import GroundStation, LEOTopology
+from src.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
 
 log = logger.get_logger(__name__)
 
@@ -14,12 +17,34 @@ log = logger.get_logger(__name__)
 def calculate_fstate_shortest_path_object_no_gs_relay(
     topology_with_isls: LEOTopology,
     ground_stations: list[GroundStation],
-    ground_station_satellites_in_range: list,
+    gsl_attachment_strategy: GSLAttachmentStrategy,
+    current_time: Time,
 ) -> dict:
     """
     Calculates forwarding state using shortest paths over ISLs only (no GS relays).
+    
+    Args:
+        topology_with_isls: Network topology with ISL links
+        ground_stations: List of ground stations
+        gsl_attachment_strategy: Strategy for selecting GSL attachments
+        current_time: Current simulation time for satellite positioning
     """
     log.debug("Calculating shortest path fstate object (no GS relay)")
+
+    # Use the GSL attachment strategy to compute visibility
+    gsl_attachments = gsl_attachment_strategy.select_attachments(
+        topology_with_isls, ground_stations, current_time
+    )
+    
+    # Convert single attachments to the expected format for compatibility
+    # TODO: Refactor the routing algorithm to work directly with single attachments
+    ground_station_satellites_in_range = []
+    for gs_idx, (distance, sat_id) in enumerate(gsl_attachments):
+        if sat_id != -1:  # Valid attachment
+            ground_station_satellites_in_range.append([(distance, sat_id)])
+        else:  # No attachment found
+            ground_station_satellites_in_range.append([])
+            log.warning(f"Ground station {gs_idx} has no satellite attachment")
 
     full_graph = topology_with_isls.graph
     sat_neighbor_to_if = topology_with_isls.sat_neighbor_to_if

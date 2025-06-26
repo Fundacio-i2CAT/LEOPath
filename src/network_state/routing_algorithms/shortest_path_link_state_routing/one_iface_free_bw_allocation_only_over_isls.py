@@ -21,8 +21,11 @@
 # SOFTWARE.
 
 
+from astropy.time import Time
+
 from src import logger
 from src.topology.topology import ConstellationData, GroundStation, LEOTopology
+from src.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
 
 from .fstate_calculation import calculate_fstate_shortest_path_object_no_gs_relay
 
@@ -34,7 +37,8 @@ def algorithm_free_one_only_over_isls(
     constellation_data: ConstellationData,
     ground_stations: list[GroundStation],
     topology_with_isls: LEOTopology,
-    ground_station_satellites_in_range: list,  # TODO specify type, e.g. List[Tuple[float, int]]
+    gsl_attachment_strategy: GSLAttachmentStrategy,
+    current_time: Time,
     list_gsl_interfaces_info: list,  # Info about bandwidth per node/interface
 ) -> dict:
     """
@@ -54,7 +58,8 @@ def algorithm_free_one_only_over_isls(
     :param ground_stations: List of GroundStation objects.
     :param topology_with_isls: LEOTopology object containing the graph with ISL links calculated.
                                Also contains ISL interface mapping (sat_neighbor_to_if).
-    :param ground_station_satellites_in_range: List where index=gs_idx, value=list of (distance, sat_id) tuples visible to that GS.
+    :param gsl_attachment_strategy: Strategy for selecting which satellites are visible to each ground station.
+    :param current_time: Current simulation time for satellite positioning.
     :param list_gsl_interfaces_info: List of dicts, one per sat/GS, with bandwidth info.
     :param prev_output: Dictionary containing 'fstate' and 'bandwidth' objects from the previous step.
     :param enable_verbose_logs: Boolean to enable detailed logging.
@@ -66,7 +71,7 @@ def algorithm_free_one_only_over_isls(
         constellation_data, ground_stations, list_gsl_interfaces_info
     )
     fstate = _calculate_forwarding_state(
-        topology_with_isls, ground_stations, ground_station_satellites_in_range
+        topology_with_isls, ground_stations, gsl_attachment_strategy, current_time
     )
 
     return {
@@ -114,7 +119,8 @@ def _calculate_bandwidth_state(
 def _calculate_forwarding_state(
     topology_with_isls: LEOTopology,
     ground_stations: list[GroundStation],
-    ground_station_satellites_in_range: list,
+    gsl_attachment_strategy: GSLAttachmentStrategy,
+    current_time: Time,
 ) -> dict:
     """
     Returns the forwarding state object using shortest path calculation.
@@ -123,7 +129,8 @@ def _calculate_forwarding_state(
         fstate = calculate_fstate_shortest_path_object_no_gs_relay(
             topology_with_isls,
             ground_stations,
-            ground_station_satellites_in_range,
+            gsl_attachment_strategy,
+            current_time,
         )
         log.debug("Calculated forwarding state object.")
         return fstate
