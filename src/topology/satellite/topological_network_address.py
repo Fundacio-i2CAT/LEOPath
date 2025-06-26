@@ -157,6 +157,68 @@ class TopologicalNetworkAddress:
             )
             raise
 
+    @staticmethod
+    def from_6grupa(satellite_id: int) -> "TopologicalNetworkAddress":
+        """
+        Create a TopologicalNetworkAddress for a satellite based on a simple mapping from satellite ID.
+        This is a basic implementation that maps satellite IDs to topological coordinates.
+
+        For a more realistic implementation, this should map based on the actual constellation
+        structure (orbital planes, satellites per plane, etc.).
+
+        Args:
+            satellite_id: The satellite ID (0-based)
+
+        Returns:
+            TopologicalNetworkAddress for the satellite (subnet_index=0)
+        """
+        if satellite_id < 0:
+            raise ValueError(f"satellite_id must be non-negative, got {satellite_id}")
+
+        # Simple mapping: assume single shell, satellites distributed across planes
+        # This is a basic implementation - in a real system this would map to actual constellation structure
+        shell_id = 0  # Single shell for simplicity
+
+        # For a Starlink-like constellation with 22 planes and ~72 sats per plane:
+        # We'll use a simple division to determine plane and position within plane
+        # This assumes satellites are numbered sequentially across planes
+
+        # Estimate constellation size based on common configurations
+        # If we have more satellites than fit in one shell, we can add more shells
+        max_sats_per_shell = MAX_PLANES * MAX_SATS_PER_PLANE
+
+        if satellite_id >= max_sats_per_shell:
+            # Multiple shells needed
+            shell_id = satellite_id // max_sats_per_shell
+            sat_id_in_shell = satellite_id % max_sats_per_shell
+        else:
+            shell_id = 0
+            sat_id_in_shell = satellite_id
+
+        # Validate shell_id is within bounds
+        if shell_id >= MAX_SHELLS:
+            raise ValueError(
+                f"satellite_id {satellite_id} would require shell_id {shell_id}, which exceeds MAX_SHELLS {MAX_SHELLS}"
+            )
+
+        # Distribute satellites across planes
+        # Simple strategy: fill planes sequentially
+        plane_id = sat_id_in_shell // MAX_SATS_PER_PLANE
+        sat_index = sat_id_in_shell % MAX_SATS_PER_PLANE
+
+        # Validate the computed values
+        if plane_id >= MAX_PLANES:
+            raise ValueError(
+                f"satellite_id {satellite_id} would require plane_id {plane_id}, which exceeds MAX_PLANES {MAX_PLANES}"
+            )
+
+        # subnet_index = 0 for satellites (not ground stations)
+        subnet_index = 0
+
+        return TopologicalNetworkAddress(
+            shell_id=shell_id, plane_id=plane_id, sat_index=sat_index, subnet_index=subnet_index
+        )
+
     def __str__(self) -> str:
         kind = "Sat" if self.is_satellite else f"GS[{self.subnet_index}]"
         return f"TopoAddr(sh:{self.shell_id}, o:{self.plane_id}, s:{self.sat_index}, x:{kind})"

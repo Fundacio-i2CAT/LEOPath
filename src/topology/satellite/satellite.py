@@ -30,6 +30,8 @@ class Satellite:
         id: int,
         ephem_obj_manual: ephem.Body,
         ephem_obj_direct: ephem.Body,
+        orbital_plane_id: Optional[int] = None,
+        satellite_id: Optional[int] = None,
         sixgrupa_addr: Optional[TopologicalNetworkAddress] = None,
     ):
         """
@@ -44,3 +46,23 @@ class Satellite:
         self.number_gsls = 0
         self.id = id
         self.sixgrupa_addr = sixgrupa_addr
+        self.orbital_plane_id = orbital_plane_id
+        self.satellite_id = satellite_id
+        self.forwarding_table: dict[int, int] = (
+            {}
+        )  # Maps 6G-RUPA (serialized) address  to interface number
+
+    def get_6grupa_addr_from(
+        self, neighbor_satellite_id: int
+    ) -> Optional[TopologicalNetworkAddress]:
+        """
+        Get the 6G-RUPA address of a neighbor satellite.
+        :param neighbor_satellite_id: Neighbor satellite ID
+        :return: 6G-RUPA address of the neighbor satellite or None if not available
+        """
+        try:
+            # Generate the topological address for the neighbor satellite
+            return TopologicalNetworkAddress.from_6grupa(neighbor_satellite_id)
+        except Exception:
+            # Log the error but don't crash the system
+            return None
