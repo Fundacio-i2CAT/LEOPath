@@ -8,6 +8,8 @@ import yaml
 from src import logger
 from src.topology.distance_tools import geodetic2cartesian
 from src.network_state.generate_network_state import generate_dynamic_state
+# Import GSL attachment strategies to ensure they are registered
+from src.network_state.gsl_attachment.gsl_attachment_strategies import *  # noqa: F403, F401
 from src.tles.generate_tles_from_scratch import generate_tles_from_scratch_with_sgp
 from src.tles.read_tles import read_tles
 from src.topology.satellite.satellite import Satellite
@@ -214,7 +216,10 @@ def execute_simulation_run(config, parsed_tles_data, sim_satellites, ground_stat
     )
     log.info(f"Generated {len(all_states)} dynamic states.")
     for idx, state in enumerate(all_states):
-        log.info(f"Generated fstate at step {idx}: {state['fstate']}")
+        if 'fstate' in state:
+            log.info(f"Generated fstate at step {idx}: {state['fstate']}")
+        else:
+            log.warning(f"No fstate generated at step {idx}: {state}")
     log.info("Simulation finished. ✅")
     return all_states
 
