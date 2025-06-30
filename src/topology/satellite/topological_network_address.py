@@ -219,6 +219,50 @@ class TopologicalNetworkAddress:
             shell_id=shell_id, plane_id=plane_id, sat_index=sat_index, subnet_index=subnet_index
         )
 
+    def topological_distance_to(self, other: "TopologicalNetworkAddress") -> float:
+        """
+        Calculate the topological distance to another address.
+
+        This computes a distance metric based on the topological coordinates,
+        which can be used for routing decisions without needing shortest path algorithms.
+
+        Args:
+            other: The target topological address
+
+        Returns:
+            float: Topological distance (lower values indicate closer addresses)
+        """
+        # Get satellite addresses (in case one is a ground station)
+        self_sat = self.get_satellite_address()
+        other_sat = other.get_satellite_address()
+
+        # If same satellite, distance is 0
+        if (
+            self_sat.shell_id == other_sat.shell_id
+            and self_sat.plane_id == other_sat.plane_id
+            and self_sat.sat_index == other_sat.sat_index
+        ):
+            return 0.0
+
+        # Different shells have highest distance
+        if self_sat.shell_id != other_sat.shell_id:
+            shell_diff = abs(self_sat.shell_id - other_sat.shell_id)
+            return 1000.0 + shell_diff * 100.0
+
+        # Same shell, different planes
+        if self_sat.plane_id != other_sat.plane_id:
+            # Calculate plane distance considering wraparound
+            plane_diff = abs(self_sat.plane_id - other_sat.plane_id)
+            plane_diff_wrap = MAX_PLANES - plane_diff
+            plane_distance = min(plane_diff, plane_diff_wrap)
+            return 100.0 + plane_distance * 10.0
+
+        # Same shell and plane, different satellite index
+        sat_diff = abs(self_sat.sat_index - other_sat.sat_index)
+        sat_diff_wrap = MAX_SATS_PER_PLANE - sat_diff
+        sat_distance = min(sat_diff, sat_diff_wrap)
+        return 1.0 + sat_distance
+
     def __str__(self) -> str:
         kind = "Sat" if self.is_satellite else f"GS[{self.subnet_index}]"
         return f"TopoAddr(sh:{self.shell_id}, o:{self.plane_id}, s:{self.sat_index}, x:{kind})"
