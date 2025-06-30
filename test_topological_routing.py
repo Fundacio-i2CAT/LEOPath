@@ -46,7 +46,7 @@ def test_topological_address():
 
         # Test creating address from satellite ID (single shell assumption)
         for sat_id in [0, 1, 50, 100]:
-            addr = TopologicalNetworkAddress.from_6grupa(sat_id)
+            addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat_id)
             print(f"✓ Satellite {sat_id} -> Address: {addr}")
 
             # Test round-trip conversion

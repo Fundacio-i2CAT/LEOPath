@@ -62,7 +62,7 @@ class Satellite:
         """
         try:
             # Generate the topological address for the neighbor satellite
-            return TopologicalNetworkAddress.from_6grupa(neighbor_satellite_id)
+            return TopologicalNetworkAddress.set_address_from_orbital_parameters(neighbor_satellite_id)
         except Exception:
             # Log the error but don't crash the system
             return None

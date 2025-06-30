@@ -38,7 +38,7 @@ class TestTopologicalVsShortestPathRouting(unittest.TestCase):
                 f"2 25544  51.640{i:02d} 339.704{i:02d} 0003572  86.486{i:02d} 273.608{i:02d} 15.48919103270233"
             )
             sat = Satellite(id=sat_id, ephem_obj_manual=sat_body, ephem_obj_direct=sat_body)
-            sat.sixgrupa_addr = TopologicalNetworkAddress.from_6grupa(sat_id)
+            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat_id)
             satellites.append(sat)
         
         # Create ground stations
@@ -221,7 +221,7 @@ class TestTopologicalVsShortestPathRouting(unittest.TestCase):
         # Test address generation
         addresses = []
         for sat_id in satellite_ids:
-            addr = TopologicalNetworkAddress.from_6grupa(sat_id)
+            addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat_id)
             addresses.append((sat_id, addr))
             
             # All should be satellite addresses in single shell

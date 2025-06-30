@@ -158,7 +158,7 @@ class TopologicalNetworkAddress:
             raise
 
     @staticmethod
-    def from_6grupa(satellite_id: int) -> "TopologicalNetworkAddress":
+    def set_address_from_orbital_parameters(satellite_id: int) -> "TopologicalNetworkAddress":
         """
         Create a TopologicalNetworkAddress for a satellite based on a simple mapping from satellite ID.
         This is a basic implementation that maps satellite IDs to topological coordinates.
