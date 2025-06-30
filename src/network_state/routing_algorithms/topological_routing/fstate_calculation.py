@@ -1,5 +1,5 @@
 import networkx as nx
-import numpy as np
+from typing import Optional
 
 from src import logger
 from src.topology.topology import GroundStation, LEOTopology, ConstellationData
@@ -144,7 +144,6 @@ def calculate_fstate_topological_routing_no_gs_relay(
     except Exception as e:
         log.exception(f"Error getting satellite IDs from topology: {e}")
         return {}
-
     satellite_node_ids = sorted(
         [node_id for node_id in full_graph.nodes() if node_id in all_satellite_ids]
     )
@@ -166,6 +165,15 @@ def calculate_fstate_topological_routing_no_gs_relay(
         _fill_forwarding_tables_in_every_satellite(
             satellite_node_ids, satellite_only_subgraph, topology_with_isls
         )
+        # Also assign GS addresses for initial GSL attachments
+        for gs_idx, gs in enumerate(ground_stations):
+            curr_sat_id = None
+            if gs_idx < len(ground_station_satellites_in_range):
+                satellites = ground_station_satellites_in_range[gs_idx]
+                if satellites:
+                    _, curr_sat_id = satellites[0]
+            if curr_sat_id is not None:
+                _perform_renumbering_for_gs(gs, None, curr_sat_id, topology_with_isls)
         graph_has_changed = True  # Force recalculation on first run
 
     # Step 2: Check if we can reuse previous state
@@ -174,12 +182,11 @@ def calculate_fstate_topological_routing_no_gs_relay(
         return prev_fstate
 
     # Step 3: Handle ground station link changes (renumbering if needed)
-    for gs_idx, gs in enumerate(ground_stations):
-        if gs_idx < len(ground_station_satellites_in_range):
-            gsl_satellites = ground_station_satellites_in_range[gs_idx]
-            if gsl_satellites:  # GSL has changed
-                log.debug(f"GSL changed for GS {gs.id}, performing renumbering")
-                _perform_renumbering_for_gs(gs, gsl_satellites, topology_with_isls)
+    gsl_changes = _detect_gsl_changes(ground_stations, ground_station_satellites_in_range)
+    for gs_idx, (prev_sat_id, curr_sat_id) in gsl_changes.items():
+        gs = ground_stations[gs_idx]
+        log.debug(f"GSL changed for GS {gs.id}: {prev_sat_id} -> {curr_sat_id}")
+        _perform_renumbering_for_gs(gs, prev_sat_id, curr_sat_id, topology_with_isls)
 
     # Step 4: Calculate satellite-to-GS forwarding state
     fstate: dict[tuple, tuple] = {}
@@ -210,25 +217,156 @@ def _set_sixgrupa_addresses_to_all_nodes(topology: LEOTopology):
     log.debug("Setting 6GRUPA addresses to all satellite nodes")
     for satellite in topology.get_satellites():
         try:
-            address = TopologicalNetworkAddress.from_6grupa(satellite.id)
+            address = TopologicalNetworkAddress.set_address_from_orbital_parameters(satellite.id)
             satellite.sixgrupa_addr = address
             log.debug(f"Assigned 6G-RUPA address {address} to satellite {satellite.id}")
         except Exception as e:
             log.error(f"Failed to assign 6G-RUPA address to satellite {satellite.id}: {e}")
 
 
-def _perform_renumbering_for_gs(gs: GroundStation, gsl_satellites: list, topology: LEOTopology):
+def _detect_gsl_changes(
+    ground_stations: list[GroundStation],
+    ground_station_satellites_in_range: list,
+) -> dict[int, tuple[Optional[int], Optional[int]]]:
+    """
+    Detect GSL changes by comparing current attachments with previous ones.
+
+    Args:
+        ground_stations: List of ground stations
+        ground_station_satellites_in_range: Current satellite attachments per GS
+
+    Returns:
+        dict: Maps GS index to (previous_sat_id, new_sat_id) for changed GSLs
+    """
+    gsl_changes = {}
+
+    for gs_idx, gs in enumerate(ground_stations):
+        if gs_idx >= len(ground_station_satellites_in_range):
+            continue
+
+        gsl_satellites = ground_station_satellites_in_range[gs_idx]
+        current_sat_id = None
+
+        # Get the best (closest) satellite currently attached to this GS
+        if gsl_satellites:
+            # Sort by distance and take the closest one
+            sorted_sats = sorted(gsl_satellites, key=lambda x: x[0])
+            if sorted_sats:
+                current_sat_id = sorted_sats[0][1]  # (distance, sat_id)
+
+        # Check if attachment has changed
+        previous_sat_id = gs.previous_attached_satellite_id
+
+        if previous_sat_id != current_sat_id:
+            log.debug(f"GSL change detected for GS {gs.id}: {previous_sat_id} -> {current_sat_id}")
+            gsl_changes[gs_idx] = (previous_sat_id, current_sat_id)
+
+            # Update the stored previous satellite ID
+            gs.previous_attached_satellite_id = current_sat_id
+
+    return gsl_changes
+
+
+def _assign_gs_address_from_satellite(
+    gs: GroundStation, satellite_id: int, gs_subnet_index: int, topology: LEOTopology
+) -> Optional[TopologicalNetworkAddress]:
+    """
+    Assign a 6grupa address to a ground station based on its attached satellite.
+
+    Args:
+        gs: The ground station
+        satellite_id: ID of the satellite this GS is attached to
+        gs_subnet_index: Subnet index for this GS under the satellite
+        topology: Topology containing satellites
+
+    Returns:
+        TopologicalNetworkAddress for the ground station
+    """
+    try:
+        # Get the satellite's 6grupa address
+        satellite = topology.get_satellite(satellite_id)
+        if not hasattr(satellite, "sixgrupa_addr") or not satellite.sixgrupa_addr:
+            # If satellite doesn't have an address, create one
+            sat_address = TopologicalNetworkAddress.set_address_from_orbital_parameters(
+                satellite_id
+            )
+            satellite.sixgrupa_addr = sat_address
+        else:
+            sat_address = satellite.sixgrupa_addr
+
+        # Create GS address with same shell, plane, sat_index but different subnet_index
+        gs_address = TopologicalNetworkAddress(
+            shell_id=sat_address.shell_id,
+            plane_id=sat_address.plane_id,
+            sat_index=sat_address.sat_index,
+            subnet_index=gs_subnet_index,
+        )
+
+        log.debug(
+            f"Assigned 6grupa address {gs_address} to GS {gs.id} "
+            f"(attached to satellite {satellite_id})"
+        )
+
+        return gs_address
+
+    except Exception as e:
+        log.error(f"Failed to assign 6grupa address to GS {gs.id}: {e}")
+        return None
+
+
+def _perform_renumbering_for_gs(
+    gs: GroundStation, prev_sat_id: Optional[int], curr_sat_id: Optional[int], topology: LEOTopology
+):
     """
     Perform renumbering when a ground station's satellite links change.
 
-    This is a placeholder for the renumbering logic. In a full implementation,
-    this would handle address reassignment when GSL topology changes.
+    Updates the GS's 6grupa address to match the new satellite attachment.
     """
-    log.debug(
-        f"Renumbering for GS {gs.id} with satellites: {[sat_id for _, sat_id in gsl_satellites]}"
-    )
-    # TODO: Implement actual renumbering logic if needed
-    # For now, this is a no-op as the basic algorithm doesn't require complex renumbering
+    log.debug(f"Renumbering for GS {gs.id} from satellite {prev_sat_id} to {curr_sat_id}")
+
+    if curr_sat_id is not None:
+        # Get the satellite's 6grupa address to match coordinates
+        try:
+            satellite = topology.get_satellite(curr_sat_id)
+            if satellite.sixgrupa_addr is None:
+                satellite.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(curr_sat_id)
+            sat_addr = satellite.sixgrupa_addr
+        except Exception:
+            log.error(f"Failed to get satellite {curr_sat_id} address for GS {gs.id} renumbering")
+            return
+        
+        # Count how many GSs are already attached to this satellite to assign unique subnet_index
+        # Look for GSs that have 6grupa addresses matching this satellite's coordinates
+        used_subnet_indices = set()
+        for other_gs in topology.get_ground_stations():
+            if (other_gs != gs
+                and hasattr(other_gs, 'sixgrupa_addr')
+                and other_gs.sixgrupa_addr is not None):
+                other_addr = other_gs.sixgrupa_addr
+                # Check if this GS is attached to the same satellite (same coordinates)
+                if (other_addr.shell_id == sat_addr.shell_id
+                    and other_addr.plane_id == sat_addr.plane_id
+                    and other_addr.sat_index == sat_addr.sat_index):
+                    used_subnet_indices.add(other_addr.subnet_index)
+        
+        # Find the next available subnet_index > 0 (0 is reserved for satellite)
+        subnet_index = 1
+        while subnet_index in used_subnet_indices:
+            subnet_index += 1
+        
+        # Assign new address based on the current satellite
+        gs_address = _assign_gs_address_from_satellite(gs, curr_sat_id, subnet_index, topology)
+        if gs_address:
+            gs.sixgrupa_addr = gs_address
+            gs.previous_attached_satellite_id = curr_sat_id  # Update the previous attachment
+            log.info(f"Renumbered GS {gs.id} to new address {gs_address}")
+        else:
+            log.warning(f"Renumbering GS {gs.id} failed, address assignment returned None")
+    else:
+        # No current satellite - clear the address
+        gs.sixgrupa_addr = None
+        gs.previous_attached_satellite_id = None  # Clear previous attachment
+        log.debug(f"GS {gs.id} detached, cleared 6grupa address")
 
 
 def _fill_forwarding_tables_in_every_satellite(
@@ -236,17 +374,26 @@ def _fill_forwarding_tables_in_every_satellite(
     satellite_only_subgraph: nx.Graph,
     topology_with_isls: LEOTopology,
 ):
+    """
+    Fill forwarding tables in every satellite based on neighbor 6grupa addresses.
+    """
     for satellite_id in satellite_node_ids:
-        for neighbor_id in satellite_only_subgraph.neighbors(satellite_id):
-            interface = topology_with_isls.sat_neighbor_to_if.get((satellite_id, neighbor_id))
-            log.debug(f"Satellite {satellite_id} -> Neighbor {neighbor_id}: {interface}")
+        try:
             satellite = topology_with_isls.get_satellite(satellite_id)
-            neighbor_address = satellite.get_6grupa_addr_from(neighbor_id)
-            if neighbor_address and interface is not None:
-                satellite.forwarding_table[neighbor_address.to_integer()] = interface
-                log.debug(
-                    f"Forwarding entry added for satellite {satellite_id} to neighbor {neighbor_id}: address {neighbor_address}, interface {interface}"
-                )
+            for neighbor_id in satellite_only_subgraph.neighbors(satellite_id):
+                interface = topology_with_isls.sat_neighbor_to_if.get((satellite_id, neighbor_id))
+                if interface is not None:
+                    try:
+                        neighbor_address = TopologicalNetworkAddress.set_address_from_orbital_parameters(neighbor_id)
+                        satellite.forwarding_table[neighbor_address.to_integer()] = interface
+                        log.debug(
+                            f"Forwarding entry added for satellite {satellite_id} to neighbor {neighbor_id}: "
+                            f"address {neighbor_address}, interface {interface}"
+                        )
+                    except Exception as e:
+                        log.warning(f"Failed to add forwarding entry for satellite {satellite_id} -> {neighbor_id}: {e}")
+        except Exception as e:
+            log.error(f"Failed to process satellite {satellite_id} for forwarding table: {e}")
 
 
 def _calculate_sat_to_gs_fstate(
@@ -263,25 +410,13 @@ def _calculate_sat_to_gs_fstate(
     """
     Calculate satellite-to-ground-station forwarding state using topological routing.
 
-    This implements the core routing logic:
+    This implements the core topological routing logic:
     - For each satellite, determine next hop to reach each ground station
-    - Use direct paths when available (single hop via GSL)
-    - Use multi-hop ISL paths when direct connection not available
+    - Use topological distance calculations based on 6grupa addresses
     """
-    log.debug("Calculating satellite-to-GS forwarding state")
-
-    # Calculate distance matrix for shortest paths if needed for multi-hop routing
-    try:
-        log.debug(f"Calculating shortest paths on satellite subgraph for {len(nodelist)} nodes...")
-        dist_matrix = nx.floyd_warshall_numpy(sat_subgraph, nodelist=nodelist, weight="weight")
-        log.debug("Shortest path calculation complete.")
-    except (nx.NetworkXError, Exception) as e:
-        log.error(f"Error during shortest path calculation: {e}")
-        # Use simplified routing without distance matrix
-        dist_matrix = None
+    log.debug("Calculating satellite-to-GS forwarding state using topological routing")
 
     for curr_sat_id in nodelist:
-        curr_sat_idx = node_to_index[curr_sat_id]
         try:
             curr_satellite = topology_with_isls.get_satellite(curr_sat_id)
         except KeyError:
@@ -294,127 +429,139 @@ def _calculate_sat_to_gs_fstate(
                 continue
 
             possible_dst_sats = ground_station_satellites_in_range[gs_idx]
-            if possible_dst_sats:
-                log.debug(
-                    f"FSTATE: Sat {curr_sat_id} -> GS {dst_gs.id}. Visible sats: {[sat_id for _, sat_id in possible_dst_sats]}"
-                )
+            if not possible_dst_sats:
+                continue
 
-            # Get possible paths to this ground station
-            possibilities = _get_satellite_possibilities(
-                possible_dst_sats, curr_sat_idx, node_to_index, dist_matrix
+            log.debug(
+                f"FSTATE: Sat {curr_sat_id} -> GS {dst_gs.id}. Visible sats: {[sat_id for _, sat_id in possible_dst_sats]}"
             )
 
-            # Determine next hop decision
-            next_hop_decision, distance_to_ground_station_m = _get_next_hop_decision(
-                possibilities,
-                curr_sat_id,
-                curr_satellite,
-                sat_subgraph,
-                sat_neighbor_to_if,
-                topology_with_isls,
-                dst_gs_node_id,
-            )
+            # Find the best destination satellite using topological distance
+            best_dst_sat_id = None
+            best_total_distance = float("inf")
+            
+            for dist_gs_to_sat_m, visible_sat_id in possible_dst_sats:
+                try:
+                    # Get 6grupa address of the destination satellite
+                    dest_sat_address = TopologicalNetworkAddress.set_address_from_orbital_parameters(visible_sat_id)
+                    
+                    # Calculate topological distance from current satellite to destination satellite
+                    if hasattr(curr_satellite, 'sixgrupa_addr') and curr_satellite.sixgrupa_addr:
+                        topo_distance = curr_satellite.sixgrupa_addr.topological_distance_to(dest_sat_address)
+                        total_distance = topo_distance + (dist_gs_to_sat_m / 1000000.0)  # Convert to similar scale
+                        
+                        if total_distance < best_total_distance:
+                            best_total_distance = total_distance
+                            best_dst_sat_id = visible_sat_id
+                    else:
+                        log.warning(f"Satellite {curr_sat_id} has no 6grupa address assigned")
+                        
+                except Exception as e:
+                    log.warning(f"Failed to process destination satellite {visible_sat_id}: {e}")
+                    continue
 
-            if next_hop_decision is not None:
-                dist_satellite_to_ground_station[(curr_sat_id, dst_gs_node_id)] = (
-                    distance_to_ground_station_m
+            if best_dst_sat_id is None:
+                continue
+                
+            # Get destination satellite address for routing decision
+            try:
+                dest_sat_address = TopologicalNetworkAddress.set_address_from_orbital_parameters(best_dst_sat_id)
+                
+                # Determine next hop using topological routing
+                next_hop_decision, distance_to_ground_station_m = _get_next_hop_decision_topological(
+                    curr_sat_id,
+                    curr_satellite,
+                    dest_sat_address,
+                    sat_subgraph,
+                    sat_neighbor_to_if,
+                    topology_with_isls,
+                    dst_gs_node_id,
                 )
-                fstate[(curr_sat_id, dst_gs_node_id)] = next_hop_decision
-                log.debug(
-                    f"Fstate entry: Sat {curr_sat_id} -> GS {dst_gs_node_id} via {next_hop_decision}"
-                )
+
+                if next_hop_decision is not None:
+                    dist_satellite_to_ground_station[(curr_sat_id, dst_gs_node_id)] = (
+                        distance_to_ground_station_m
+                    )
+                    fstate[(curr_sat_id, dst_gs_node_id)] = next_hop_decision
+                    log.debug(
+                        f"Fstate entry: Sat {curr_sat_id} -> GS {dst_gs_node_id} via {next_hop_decision}"
+                    )
+                    
+            except Exception as e:
+                log.warning(f"Failed to create routing decision for satellite {curr_sat_id} to GS {dst_gs_node_id}: {e}")
+                continue
 
 
-def _get_satellite_possibilities(possible_dst_sats, curr_sat_idx, node_to_index, dist_matrix):
-    """
-    Get list of possible destination satellites for reaching a ground station.
-
-    Returns list of (total_distance, visible_sat_id) tuples sorted by distance.
-    """
-    possibilities = []
-
-    if not possible_dst_sats:
-        return possibilities
-
-    for visibility_info in possible_dst_sats:
-        dist_gs_to_sat_m, visible_sat_id = visibility_info
-        visible_sat_idx = node_to_index.get(visible_sat_id)
-
-        if visible_sat_idx is not None:
-            if dist_matrix is not None:
-                # Use shortest path distance if available
-                dist_curr_to_visible_sat = dist_matrix[curr_sat_idx, visible_sat_idx]
-                if not np.isinf(dist_curr_to_visible_sat):
-                    total_dist = dist_curr_to_visible_sat + dist_gs_to_sat_m
-                    possibilities.append((total_dist, visible_sat_id))
-            else:
-                # Fallback: use GSL distance only (direct connection preferred)
-                if curr_sat_idx == visible_sat_idx:
-                    # Direct connection - use GSL distance
-                    possibilities.append((dist_gs_to_sat_m, visible_sat_id))
-                # For non-direct connections without distance matrix, skip
-
-    possibilities.sort()  # Sort by total distance
-    return possibilities
-
-
-def _get_next_hop_decision(
-    possibilities,
-    curr_sat_id,
+def _get_next_hop_decision_topological(
+    curr_sat_id: int,
     curr_satellite,
+    destination_address: TopologicalNetworkAddress,
     sat_subgraph,
     sat_neighbor_to_if,
     topology_with_isls,
-    dst_gs_node_id,
-):
+    dst_gs_node_id: int,
+) -> tuple:
     """
-    Determine the next hop decision for reaching a ground station.
-
-    Implements the routing logic:
-    1. Try direct GSL connection if available
-    2. Use multi-hop ISL path to reach a satellite with GSL connection
-
+    Determine the next hop decision using topological routing (no Dijkstra required).
+    
+    This implements true topological routing where each satellite computes the next hop
+    by looking at neighbor's 6grupa addresses and performing a distance function.
+    
+    Args:
+        curr_sat_id: Current satellite ID
+        curr_satellite: Current satellite object
+        destination_address: 6grupa address of the destination satellite
+        sat_subgraph: Satellite-only subgraph
+        sat_neighbor_to_if: Interface mapping
+        topology_with_isls: Topology object
+        dst_gs_node_id: Destination ground station ID
+        
     Returns:
         tuple: (next_hop_interface_or_decision, distance) or (None, inf) if no path
     """
-    if not possibilities:
-        log.debug(f"No possibilities for satellite {curr_sat_id} to reach GS {dst_gs_node_id}")
+    if not hasattr(curr_satellite, 'sixgrupa_addr') or not curr_satellite.sixgrupa_addr:
+        log.warning(f"Satellite {curr_sat_id} has no 6grupa address assigned")
         return None, float("inf")
-
-    # Get the best (closest) destination satellite
-    best_distance, best_dst_sat_id = possibilities[0]
-
-    # Check if this is a direct connection (same satellite)
-    if curr_sat_id == best_dst_sat_id:
+    
+    my_address = curr_satellite.sixgrupa_addr
+    my_distance_to_dest = my_address.topological_distance_to(destination_address)
+    
+    # Check if we are already at the destination satellite
+    if my_distance_to_dest == 0.0:
         # Direct GSL connection - use special interface designation
         log.debug(f"Direct GSL path: Sat {curr_sat_id} -> GS {dst_gs_node_id}")
-        return ("GSL", dst_gs_node_id), best_distance
-
-    # Multi-hop path needed - find next hop neighbor
-    try:
-        if sat_subgraph.has_node(curr_sat_id) and sat_subgraph.has_node(best_dst_sat_id):
-            # Use NetworkX to find shortest path
-            path = nx.shortest_path(sat_subgraph, curr_sat_id, best_dst_sat_id, weight="weight")
-            if len(path) > 1:
-                next_hop_sat_id = path[1]  # Next satellite in path
-
-                # Get the interface to the next hop
-                interface = sat_neighbor_to_if.get((curr_sat_id, next_hop_sat_id))
+        return ("GSL", dst_gs_node_id), 0.0
+    
+    # Find the best neighbor using topological distance
+    best_neighbor_id = None
+    best_distance = my_distance_to_dest
+    best_interface = None
+    
+    # Check all neighbors
+    for neighbor_id in sat_subgraph.neighbors(curr_sat_id):
+        try:
+            neighbor_address = TopologicalNetworkAddress.set_address_from_orbital_parameters(neighbor_id)
+            neighbor_distance_to_dest = neighbor_address.topological_distance_to(destination_address)
+            
+            # If this neighbor is closer to destination, consider it
+            if neighbor_distance_to_dest < best_distance:
+                interface = sat_neighbor_to_if.get((curr_sat_id, neighbor_id))
                 if interface is not None:
-                    log.debug(
-                        f"Multi-hop ISL path: Sat {curr_sat_id} -> {next_hop_sat_id} (if {interface}) -> ... -> Sat {best_dst_sat_id} -> GS {dst_gs_node_id}"
-                    )
-                    return interface, best_distance
-                else:
-                    log.warning(f"No interface found for ISL {curr_sat_id} -> {next_hop_sat_id}")
-            else:
-                log.warning(f"Path too short: {path}")
-        else:
-            log.warning(f"Nodes not found in subgraph: {curr_sat_id}, {best_dst_sat_id}")
-
-    except (nx.NetworkXNoPath, nx.NetworkXError) as e:
-        log.warning(
-            f"No path found from satellite {curr_sat_id} to satellite {best_dst_sat_id}: {e}"
+                    best_distance = neighbor_distance_to_dest
+                    best_neighbor_id = neighbor_id
+                    best_interface = interface
+                    
+        except Exception:
+            # Skip this neighbor if we can't get its address
+            continue
+    
+    if best_neighbor_id is not None:
+        log.debug(
+            f"Topological routing: Sat {curr_sat_id} -> {best_neighbor_id} (if {best_interface}) "
+            f"towards destination with distance {best_distance}"
         )
-
+        return best_interface, best_distance
+    
+    # No better neighbor found - this shouldn't happen in a connected graph
+    log.warning(f"No better neighbor found for satellite {curr_sat_id} to reach destination")
     return None, float("inf")
