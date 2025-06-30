@@ -24,7 +24,7 @@ class TestTopologicalNetworkAddress(unittest.TestCase):
         
         for sat_id, expected_shell, expected_plane, expected_sat_idx in test_cases:
             with self.subTest(sat_id=sat_id):
-                addr = TopologicalNetworkAddress.from_6grupa(sat_id)
+                addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat_id)
                 
                 self.assertEqual(addr.shell_id, expected_shell, 
                                f"Incorrect shell_id for satellite {sat_id}")
@@ -132,8 +132,8 @@ class TestTopologicalNetworkAddress(unittest.TestCase):
         for sat_id in sat_ids:
             with self.subTest(sat_id=sat_id):
                 # Generate address twice - should be identical
-                addr1 = TopologicalNetworkAddress.from_6grupa(sat_id)
-                addr2 = TopologicalNetworkAddress.from_6grupa(sat_id)
+                addr1 = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat_id)
+                addr2 = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat_id)
                 
                 self.assertEqual(addr1, addr2, 
                                f"Address generation not deterministic for satellite {sat_id}")
@@ -150,7 +150,7 @@ class TestTopologicalNetworkAddress(unittest.TestCase):
         # Generate addresses for sequential satellite IDs
         addresses = []
         for sat_id in range(20):
-            addr = TopologicalNetworkAddress.from_6grupa(sat_id)
+            addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat_id)
             addresses.append((sat_id, addr))
         
         # Verify all are satellite addresses
@@ -206,7 +206,7 @@ class TestTopologicalNetworkAddress(unittest.TestCase):
         for sat_id in large_sat_ids:
             with self.subTest(sat_id=sat_id):
                 try:
-                    addr = TopologicalNetworkAddress.from_6grupa(sat_id)
+                    addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat_id)
                     
                     # Should be a valid satellite address
                     self.assertTrue(addr.is_satellite)

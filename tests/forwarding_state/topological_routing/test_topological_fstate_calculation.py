@@ -150,7 +150,7 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
         
         # Initialize 6GRUPA addresses
         for sat in satellites:
-            sat.sixgrupa_addr = TopologicalNetworkAddress.from_6grupa(sat.id)
+            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat.id)
         
         fstate = calculate_fstate_topological_routing_no_gs_relay(
             topology,
@@ -221,7 +221,7 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
         
         # Initialize 6GRUPA addresses
         for sat in satellites:
-            sat.sixgrupa_addr = TopologicalNetworkAddress.from_6grupa(sat.id)
+            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat.id)
         
         fstate = calculate_fstate_topological_routing_no_gs_relay(
             topology,
@@ -296,7 +296,7 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
         
         # Initialize 6GRUPA addresses
         for sat in satellites:
-            sat.sixgrupa_addr = TopologicalNetworkAddress.from_6grupa(sat.id)
+            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat.id)
         
         fstate = calculate_fstate_topological_routing_no_gs_relay(
             topology,
@@ -357,7 +357,7 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
         
         # Initialize 6GRUPA addresses
         for sat in satellites:
-            sat.sixgrupa_addr = TopologicalNetworkAddress.from_6grupa(sat.id)
+            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat.id)
         
         fstate = calculate_fstate_topological_routing_no_gs_relay(
             topology,
@@ -387,7 +387,7 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
         
         # Test address assignment
         for sat in satellites:
-            addr = TopologicalNetworkAddress.from_6grupa(sat.id)
+            addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat.id)
             sat.sixgrupa_addr = addr
             
             # Verify address properties
@@ -427,7 +427,7 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
         
         # Initialize addresses and run algorithm
         for sat in satellites:
-            sat.sixgrupa_addr = TopologicalNetworkAddress.from_6grupa(sat.id)
+            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat.id)
         
         fstate = calculate_fstate_topological_routing_no_gs_relay(
             topology,
@@ -476,7 +476,7 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
         
         # Initialize addresses
         for sat in satellites:
-            sat.sixgrupa_addr = TopologicalNetworkAddress.from_6grupa(sat.id)
+            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat.id)
         
         # First run - compute initial state
         fstate1 = calculate_fstate_topological_routing_no_gs_relay(
