@@ -49,7 +49,7 @@ def generate_shells_js(
         for link_key, link_data in orbit_links.items():
             sat1_data = sat_objs_from_elements[link_data["sat1"]]
             sat2_data = sat_objs_from_elements[link_data["sat2"]]
-            viz_string += "viewer.entities.add({{\n"
+            viz_string += "viewer.entities.add({\n"
             viz_string += f"    name: 'elementLink_{shell_idx}_{link_key}',\n"
             viz_string += "    polyline: {\n"
             viz_string += (

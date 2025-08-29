@@ -10,3 +10,4 @@ cov.xml
 *.pkl
 visualisation_output
 *.tmp
+output/

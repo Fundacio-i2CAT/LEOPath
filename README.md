@@ -37,7 +37,36 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Running Simulations
+### Docker (Recommended)
+
+The easiest way to run the simulator is using Docker:
+
+```bash
+# Run simulation with default configuration
+./run-docker.sh run
+
+# Run with specific configuration
+./run-docker.sh -c src/config/ether.yaml run
+
+# Generate visualization
+./run-docker.sh visualize
+
+# Start web server for visualizations
+./run-docker.sh serve
+
+# Clean up containers
+./run-docker.sh clean
+```
+
+All outputs are automatically organized in the `output/` directory:
+- `output/logs/` - Simulation logs
+- `output/simulation/` - Simulation results
+- `output/tles/` - Generated TLE files
+- `output/visualizations/` - HTML visualizations
+
+View visualizations at: http://localhost:8080/output/visualizations/
+
+### Running Simulations (Local Development)
 
 Run the main simulation with one of the provided configurations:
 

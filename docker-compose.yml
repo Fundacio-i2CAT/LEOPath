@@ -1,0 +1,67 @@
+services:
+  leo-routing-simu:
+    build: .
+    image: leo-routing-simu:latest
+    container_name: leo-routing-simu
+    volumes:
+      # Mount local config directory to allow easy config modifications
+      - ./src/config:/app/src/config
+      # Mount organized output directories to persist all results
+      - ./output/logs:/app/logs
+      - ./output/tles:/app/tle_output
+      - ./output/simulation:/app/simulation_output
+      - ./output/visualizations:/app/visualisation_output
+      # Mount current directory for development
+      - .:/app/output:delegated
+    working_dir: /app/output
+    environment:
+      - PYTHONPATH=/app
+    # Default configuration - can be overridden
+    command: ["src/config/ether_simple.yaml"]
+    
+  # Service for running the full constellation
+  leo-routing-simu-full:
+    build: .
+    image: leo-routing-simu:latest
+    container_name: leo-routing-simu-full
+    volumes:
+      - ./src/config:/app/src/config
+      - ./output/logs:/app/logs
+      - ./output/tles:/app/tle_output
+      - ./output/simulation:/app/simulation_output
+      - ./output/visualizations:/app/visualisation_output
+      - .:/app/output:delegated
+    working_dir: /app/output
+    environment:
+      - PYTHONPATH=/app
+    command: ["src/config/ether.yaml"]
+    
+  # Service for visualization
+  leo-routing-viz:
+    build: .
+    image: leo-routing-simu:latest
+    container_name: leo-routing-viz
+    volumes:
+      - ./src/config:/app/src/config
+      - ./output/logs:/app/logs
+      - ./output/tles:/app/tle_output
+      - ./output/simulation:/app/simulation_output
+      - ./output/visualizations:/app/visualisation_output
+      - .:/app/output:delegated
+    working_dir: /app/output
+    environment:
+      - PYTHONPATH=/app
+    entrypoint: ["python", "-m", "src.satellite_visualisation.cesium_builder.main"]
+    command: ["src/config/ether_simple.yaml"]
+    
+  # HTTP server for viewing visualizations
+  viz-server:
+    image: nginx:alpine
+    container_name: leo-routing-viz-server
+    ports:
+      - "8080:80"
+    volumes:
+      # Mount the entire project directory to serve all files
+      - .:/usr/share/nginx/html:ro
+    depends_on:
+      - leo-routing-viz

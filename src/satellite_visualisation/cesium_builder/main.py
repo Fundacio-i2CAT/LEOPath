@@ -8,9 +8,9 @@ from .html_builder import write_html_file
 from .js_generator import generate_ground_stations_js, generate_shells_js
 
 SCRIPT_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TOP_HTML_FILE = os.path.join(SCRIPT_BASE_DIR, "static_html/top.html")
-BOTTOM_HTML_FILE = os.path.join(SCRIPT_BASE_DIR, "static_html/bottom.html")
-DEFAULT_OUT_DIR_NAME = "visualisation_output"
+TOP_HTML_FILE = os.path.join(os.path.dirname(SCRIPT_BASE_DIR), "static_html/top.html")
+BOTTOM_HTML_FILE = os.path.join(os.path.dirname(SCRIPT_BASE_DIR), "static_html/bottom.html")
+DEFAULT_OUT_DIR_NAME = "/app/visualisation_output"
 
 
 def generate_visualization_js(config_data, config_file_path_abs):
@@ -46,8 +46,8 @@ def main():
     parser.add_argument(
         "--output_dir",
         type=str,
-        default=os.path.join(SCRIPT_BASE_DIR, DEFAULT_OUT_DIR_NAME),
-        help=f"Directory to save the output HTML file. Default: ./{DEFAULT_OUT_DIR_NAME} (relative to script location)",
+        default=DEFAULT_OUT_DIR_NAME,
+        help=f"Directory to save the output HTML file. Default: {DEFAULT_OUT_DIR_NAME} (organized output directory)",
     )
     args = parser.parse_args()
     abs_output_dir = os.path.abspath(args.output_dir)
