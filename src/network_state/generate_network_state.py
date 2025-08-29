@@ -10,6 +10,9 @@ from tqdm import tqdm  # Add this import
 from src import logger
 from src.topology.topology import ConstellationData, GroundStation
 
+# Import GSL attachment strategies to ensure they are registered
+from .gsl_attachment.gsl_attachment_strategies import *  # noqa: F403, F401
+
 from .helpers import _build_topologies, _compute_ground_station_satellites_in_range, _compute_isls
 from .routing_algorithms.routing_algorithm_factory import get_routing_algorithm
 from .utils import graph as graph_utils

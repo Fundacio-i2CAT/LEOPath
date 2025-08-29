@@ -8,9 +8,10 @@ from .html_builder import write_html_file
 from .js_generator import generate_ground_stations_js, generate_shells_js
 
 SCRIPT_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TOP_HTML_FILE = os.path.join(os.path.dirname(SCRIPT_BASE_DIR), "static_html/top.html")
-BOTTOM_HTML_FILE = os.path.join(os.path.dirname(SCRIPT_BASE_DIR), "static_html/bottom.html")
-DEFAULT_OUT_DIR_NAME = "/app/visualisation_output"
+VISUALIZATION_BASE_DIR = os.path.dirname(SCRIPT_BASE_DIR)  # Go up one level to satellite_visualisation
+TOP_HTML_FILE = os.path.join(VISUALIZATION_BASE_DIR, "static_html/top.html")
+BOTTOM_HTML_FILE = os.path.join(VISUALIZATION_BASE_DIR, "static_html/bottom.html")
+DEFAULT_OUT_DIR_NAME = "visualisation_output"
 
 
 def generate_visualization_js(config_data, config_file_path_abs):

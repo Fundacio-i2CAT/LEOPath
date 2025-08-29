@@ -40,9 +40,9 @@ def generate_shells_js(
             viz_string += f"var {js_var} = viewer.entities.add({{\n"
             viz_string += f"    name: '{entity_disp_name}',\n"
             viz_string += f"    position: Cesium.Cartesian3.fromDegrees({math.degrees(sat_data['sat_obj'].sublong)}, {math.degrees(sat_data['sat_obj'].sublat)}, {sat_data['alt_km'] * 1000}),\n"
-            viz_string += "    ellipsoid: {\n"
-            viz_string += "        radii: new Cesium.Cartesian3(20000.0, 20000.0, 20000.0),\n"
-            viz_string += "        material: Cesium.Color.DARKSLATEGRAY.withAlpha(0.7)\n"
+            viz_string += "    point: {\n"
+            viz_string += "        pixelSize: 5,\n"
+            viz_string += f"        color: Cesium.Color.{shell_links_color}\n"
             viz_string += "    }\n});\n"
 
         orbit_links = util.find_orbit_links(sat_objs_from_elements, num_orbs, num_sats_per_orb)
@@ -57,10 +57,10 @@ def generate_shells_js(
                 + f"{math.degrees(sat1_data['sat_obj'].sublong)}, {math.degrees(sat1_data['sat_obj'].sublat)}, {sat1_data['alt_km'] * 1000}, "
                 + f"{math.degrees(sat2_data['sat_obj'].sublong)}, {math.degrees(sat2_data['sat_obj'].sublat)}, {sat2_data['alt_km'] * 1000}]),\n"
             )
-            viz_string += "        width: 0.5,\n        arcType: Cesium.ArcType.NONE,\n"
+            viz_string += "        width: 1.0,\n        arcType: Cesium.ArcType.NONE,\n"
             viz_string += (
-                "        material: new Cesium.PolylineOutlineMaterialProperty({ "
-                + f"color: Cesium.Color.{shell_links_color}.withAlpha(0.4), outlineWidth: 0, outlineColor: Cesium.Color.BLACK }})\n"
+                "        material: new Cesium.PolylineDashMaterialProperty({ "
+                + "color: Cesium.Color.BLACK, dashLength: 10.0, dashPattern: 255 })\n"
             )
             viz_string += "    }\n});\n"
     return viz_string
