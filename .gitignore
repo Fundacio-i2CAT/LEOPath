@@ -8,6 +8,18 @@ temp_gen_data
 cov.xml
 *.log
 *.pkl
+
+# Organized simulation results
+results/
+simulation_output/
+tle_output/
+visualisation_output/
+output/
+
+# Scattered output files (should be organized)
+simulation_*.log
+ether_simple.txt
+*.txt.tmp
 visualisation_output
 *.tmp
 output/
