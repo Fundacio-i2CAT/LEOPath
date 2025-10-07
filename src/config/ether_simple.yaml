@@ -7,7 +7,7 @@ constellation:
   eccentricity: 0.0000001
   arg_of_perigee_degree: 0.0
   mean_motion_rev_per_day: 15.19
-  tle_output_filename: "ether_simple.txt"
+  tle_output_filename: "ether_simple_tles.txt"
 
 simulation:
   dynamic_state_algorithm: shortest_path_link_state
