@@ -511,6 +511,8 @@ pytest tests/topology/test_gsl_attachment_integration.py -v
 
 This code has been developed by **Fundació Privada Internet i Innovació Digital a Catalunya (i2CAT)**.
 
+Portions of this software are based on **Hypatia**, Copyright (c) 2020 ETH Zurich, licensed under the MIT License.
+
 i2CAT is a non-profit research and innovation centre that promotes mission-driven knowledge to solve business challenges, co-create solutions with a transformative impact, empower citizens through open and participative digital social innovation with territorial capillarity, and promote pioneering and strategic initiatives. i2CAT aims to transfer research project results to private companies in order to create social and economic impact via the out-licensing of intellectual property and the creation of spin-offs.
 
 Find more information about i2CAT projects and IP rights at <https://i2cat.net/tech-transfer/>
@@ -553,6 +555,8 @@ Attributions of Third Party Components of this work:
 - **exputil** (from Hypatia) -  <https://github.com/snkas/exputilpy> - MIT license
 - **astropy** Version 7.0.1 -  <https://www.astropy.org/> - BSD 3-Clause License
 - **pytest** Version 8.3.5 -  <https://pytest.org/> - MIT license
+- **pydantic** Version 2.11.4 - <https://docs.pydantic.dev/> - MIT license
+- **Cartopy** Version 0.24.1 - <https://scitools.org.uk/cartopy/docs/latest/> - LGPL-3.0 license
 
 ## Contact
 
