@@ -6,7 +6,7 @@ from astropy.time import Time
 from src.network_state.gsl_attachment.gsl_attachment_strategies.nearest_satellite import (
     NearestSatelliteStrategy,
 )
-from src.topology.topology import LEOTopology, GroundStation, Satellite, ConstellationData
+from src.topology.topology import ConstellationData, GroundStation, LEOTopology, Satellite
 
 
 class TestNearestSatelliteStrategy(unittest.TestCase):

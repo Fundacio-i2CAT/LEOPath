@@ -10,9 +10,11 @@ import unittest
 
 import ephem
 
-from src.network_state.routing_algorithms.routing_algorithm_factory import get_routing_algorithm
 # Import to register the strategy
-from src.network_state.gsl_attachment.gsl_attachment_strategies.nearest_satellite import NearestSatelliteStrategy  # noqa: F401
+from src.network_state.gsl_attachment.gsl_attachment_strategies.nearest_satellite import (  # noqa: F401
+    NearestSatelliteStrategy,
+)
+from src.network_state.routing_algorithms.routing_algorithm_factory import get_routing_algorithm
 from src.topology.satellite.satellite import Satellite
 from src.topology.satellite.topological_network_address import TopologicalNetworkAddress
 from src.topology.topology import (
@@ -33,10 +35,12 @@ class TestTopologicalVsShortestPathRouting(unittest.TestCase):
             # Create a basic orbital body with valid TLE-like parameters
             sat_body = ephem.EarthSatellite(
                 "1 25544U 98067A   21001.00000000  .00001000  00000-0  23027-4 0  9990",
-                f"2 25544  51.640{i:02d} 339.704{i:02d} 0003572  86.486{i:02d} 273.608{i:02d} 15.48919103270233"
+                f"2 25544  51.640{i:02d} 339.704{i:02d} 0003572  86.486{i:02d} 273.608{i:02d} 15.48919103270233",
             )
             sat = Satellite(id=sat_id, ephem_obj_manual=sat_body, ephem_obj_direct=sat_body)
-            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat_id)
+            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(
+                sat_id
+            )
             satellites.append(sat)
 
         # Create ground stations
@@ -97,10 +101,12 @@ class TestTopologicalVsShortestPathRouting(unittest.TestCase):
         bandwidth_info = []
 
         for node_id in all_node_ids:
-            bandwidth_info.append({
-                "id": node_id,
-                "aggregate_max_bandwidth": 1000000000,  # 1 Gbps
-            })
+            bandwidth_info.append(
+                {
+                    "id": node_id,
+                    "aggregate_max_bandwidth": 1000000000,  # 1 Gbps
+                }
+            )
 
         return bandwidth_info
 
@@ -122,7 +128,7 @@ class TestTopologicalVsShortestPathRouting(unittest.TestCase):
         # Manually specify GSL attachments: GS 100 -> Sat 10, GS 101 -> Sat 11
         ground_station_satellites_in_range = [
             [(500, 10)],  # GS 100 (index 0) -> Sat 10
-            [(600, 11)]   # GS 101 (index 1) -> Sat 11
+            [(600, 11)],  # GS 101 (index 1) -> Sat 11
         ]
 
         # Calculate topological forwarding state
@@ -152,7 +158,9 @@ class TestTopologicalVsShortestPathRouting(unittest.TestCase):
         # Verify address assignment worked
         for sat in topology.get_satellites():
             self.assertIsNotNone(sat.sixgrupa_addr, f"Satellite {sat.id} missing 6GRUPA address")
-            self.assertTrue(sat.sixgrupa_addr.is_satellite, f"Satellite {sat.id} has non-satellite address")
+            self.assertTrue(
+                sat.sixgrupa_addr.is_satellite, f"Satellite {sat.id} has non-satellite address"
+            )
 
     def test_triangle_topology_comparison(self):
         """Test topological routing on a triangle topology with one ground station."""
@@ -169,9 +177,7 @@ class TestTopologicalVsShortestPathRouting(unittest.TestCase):
         )
 
         # GS 100 connects to Sat 10
-        ground_station_satellites_in_range = [
-            [(500, 10)]  # GS 100 (index 0) -> Sat 10
-        ]
+        ground_station_satellites_in_range = [[(500, 10)]]  # GS 100 (index 0) -> Sat 10
 
         # Calculate topological forwarding state
         topo_fstate = calculate_fstate_topological_routing_no_gs_relay(
@@ -192,7 +198,7 @@ class TestTopologicalVsShortestPathRouting(unittest.TestCase):
             self.assertIn(route, topo_fstate, f"Topological missing route {route}")
 
         # Sat 10 should have direct GSL connection
-        self.assertEqual(topo_fstate[(10, 100)], ('GSL', 100))
+        self.assertEqual(topo_fstate[(10, 100)], ("GSL", 100))
 
         print(f"Triangle Topology FState: {topo_fstate}")
 
@@ -253,7 +259,7 @@ class TestTopologicalVsShortestPathRouting(unittest.TestCase):
         # GS 100 -> Sat 10, GS 101 -> Sat 13 (opposite ends of chain)
         ground_station_satellites_in_range = [
             [(500, 10)],  # GS 100 -> Sat 10
-            [(600, 13)]   # GS 101 -> Sat 13
+            [(600, 13)],  # GS 101 -> Sat 13
         ]
 
         # Calculate topological forwarding state

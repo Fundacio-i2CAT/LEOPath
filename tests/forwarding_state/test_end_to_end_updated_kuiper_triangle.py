@@ -8,8 +8,8 @@ import unittest
 import ephem
 from astropy.time import Time
 
-from src.topology.distance_tools import geodetic2cartesian
 from src.network_state.generate_network_state import _generate_state_for_step
+from src.topology.distance_tools import geodetic2cartesian
 from src.topology.topology import ConstellationData, GroundStation, Satellite
 
 

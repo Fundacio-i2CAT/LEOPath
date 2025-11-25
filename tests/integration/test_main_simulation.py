@@ -1,10 +1,11 @@
 import os
-import tempfile
-import unittest
-import yaml
 import subprocess
 import sys
+import tempfile
+import unittest
 from pathlib import Path
+
+import yaml
 
 
 class TestMainSimulationIntegration(unittest.TestCase):

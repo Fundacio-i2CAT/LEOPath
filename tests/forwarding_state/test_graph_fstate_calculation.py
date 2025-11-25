@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import ephem
 from astropy.time import Time
 
+from src.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
 from src.network_state.routing_algorithms.shortest_path_link_state_routing.fstate_calculation import (
     calculate_fstate_shortest_path_object_no_gs_relay,
 )
@@ -15,7 +16,6 @@ from src.topology.topology import (
     GroundStation,
     LEOTopology,
 )
-from src.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
 
 
 class MockGSLAttachmentStrategy(GSLAttachmentStrategy):

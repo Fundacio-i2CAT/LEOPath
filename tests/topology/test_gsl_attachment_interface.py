@@ -1,12 +1,12 @@
 import unittest
+from typing import List, Tuple, Dict, Any
 from unittest.mock import MagicMock
-from typing import List, Tuple
 
 from astropy.time import Time
 
-from src.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
 from src.network_state.gsl_attachment.gsl_attachment_factory import GSLAttachmentFactory
-from src.topology.topology import LEOTopology, GroundStation
+from src.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
+from src.topology.topology import GroundStation, LEOTopology
 
 
 class MockGSLAttachmentStrategy(GSLAttachmentStrategy):
@@ -15,7 +15,7 @@ class MockGSLAttachmentStrategy(GSLAttachmentStrategy):
     def __init__(self, strategy_name: str = "mock_strategy"):
         self._strategy_name = strategy_name
         self._call_count = 0
-        self._last_params = {}
+        self._last_params: Dict[str, Any] = {}
 
     def name(self) -> str:
         return self._strategy_name

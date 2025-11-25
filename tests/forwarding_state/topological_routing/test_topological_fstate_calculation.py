@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 
 import ephem
 
+from src.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
 from src.network_state.routing_algorithms.topological_routing.fstate_calculation import (
     calculate_fstate_topological_routing_no_gs_relay,
 )
@@ -21,7 +22,6 @@ from src.topology.topology import (
     GroundStation,
     LEOTopology,
 )
-from src.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
 
 
 class MockGSLAttachmentStrategy(GSLAttachmentStrategy):
@@ -149,7 +149,9 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
 
         # Initialize 6GRUPA addresses
         for sat in satellites:
-            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat.id)
+            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(
+                sat.id
+            )
 
         fstate = calculate_fstate_topological_routing_no_gs_relay(
             topology,
@@ -220,7 +222,9 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
 
         # Initialize 6GRUPA addresses
         for sat in satellites:
-            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat.id)
+            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(
+                sat.id
+            )
 
         fstate = calculate_fstate_topological_routing_no_gs_relay(
             topology,
@@ -234,8 +238,8 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
         # Expected: Direct and multi-hop paths
         expected_entries = {
             (SAT_A, GS_X): ("GSL", GS_X),  # Direct GSL
-            (SAT_A, GS_Y): 0,              # Multi-hop via ISL interface 0 to SAT_B
-            (SAT_B, GS_X): 0,              # Multi-hop via ISL interface 0 to SAT_A
+            (SAT_A, GS_Y): 0,  # Multi-hop via ISL interface 0 to SAT_B
+            (SAT_B, GS_X): 0,  # Multi-hop via ISL interface 0 to SAT_A
             (SAT_B, GS_Y): ("GSL", GS_Y),  # Direct GSL
         }
 
@@ -295,7 +299,9 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
 
         # Initialize 6GRUPA addresses
         for sat in satellites:
-            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat.id)
+            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(
+                sat.id
+            )
 
         fstate = calculate_fstate_topological_routing_no_gs_relay(
             topology,
@@ -309,8 +315,8 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
         # Expected: Direct paths and 2-hop paths
         expected_entries = {
             (SAT_A, GS_X): ("GSL", GS_X),  # Direct GSL
-            (SAT_A, GS_Y): 0,              # Multi-hop: SAT_A -> SAT_B -> SAT_C -> GS_Y
-            (SAT_C, GS_X): 0,              # Multi-hop: SAT_C -> SAT_B -> SAT_A -> GS_X
+            (SAT_A, GS_Y): 0,  # Multi-hop: SAT_A -> SAT_B -> SAT_C -> GS_Y
+            (SAT_C, GS_X): 0,  # Multi-hop: SAT_C -> SAT_B -> SAT_A -> GS_X
             (SAT_C, GS_Y): ("GSL", GS_Y),  # Direct GSL
         }
 
@@ -356,7 +362,9 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
 
         # Initialize 6GRUPA addresses
         for sat in satellites:
-            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat.id)
+            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(
+                sat.id
+            )
 
         fstate = calculate_fstate_topological_routing_no_gs_relay(
             topology,
@@ -369,8 +377,11 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
 
         # Expected: No satellite-to-GS entries since no GSL connectivity
         for sat_id in [SAT_A, SAT_B]:
-            self.assertNotIn((sat_id, GS_X), fstate,
-                             f"Unexpected fstate entry for satellite {sat_id} to GS {GS_X}")
+            self.assertNotIn(
+                (sat_id, GS_X),
+                fstate,
+                f"Unexpected fstate entry for satellite {sat_id} to GS {GS_X}",
+            )
 
     def test_topological_address_assignment(self):
         """
@@ -393,12 +404,16 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
             self.assertEqual(addr.shell_id, 0, "Should use single shell (shell_id=0)")
             self.assertEqual(addr.subnet_index, 0, "Satellites should have subnet_index=0")
             self.assertTrue(addr.is_satellite, "Address should be identified as satellite")
-            self.assertFalse(addr.is_ground_station, "Address should not be identified as ground station")
+            self.assertFalse(
+                addr.is_ground_station, "Address should not be identified as ground station"
+            )
 
             # Test round-trip conversion
             integer_repr = addr.to_integer()
             reconstructed = TopologicalNetworkAddress.from_integer(integer_repr)
-            self.assertEqual(addr, reconstructed, f"Round-trip conversion failed for satellite {sat.id}")
+            self.assertEqual(
+                addr, reconstructed, f"Round-trip conversion failed for satellite {sat.id}"
+            )
 
     def test_forwarding_table_population(self):
         """
@@ -426,7 +441,9 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
 
         # Initialize addresses and run algorithm
         for sat in satellites:
-            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat.id)
+            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(
+                sat.id
+            )
 
         calculate_fstate_topological_routing_no_gs_relay(
             topology,
@@ -439,10 +456,13 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
 
         # Check that forwarding tables were populated
         for sat in satellites:
-            self.assertIsNotNone(sat.forwarding_table, f"Satellite {sat.id} should have a forwarding table")
+            self.assertIsNotNone(
+                sat.forwarding_table, f"Satellite {sat.id} should have a forwarding table"
+            )
             # In a triangle, each satellite should have entries for its 2 neighbors
-            self.assertGreaterEqual(len(sat.forwarding_table), 0,
-                                    f"Satellite {sat.id} should have neighbor entries")
+            self.assertGreaterEqual(
+                len(sat.forwarding_table), 0, f"Satellite {sat.id} should have neighbor entries"
+            )
 
     def test_state_reuse_optimization(self):
         """
@@ -475,7 +495,9 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
 
         # Initialize addresses
         for sat in satellites:
-            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat.id)
+            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(
+                sat.id
+            )
 
         # First run - compute initial state
         fstate1 = calculate_fstate_topological_routing_no_gs_relay(
@@ -520,29 +542,47 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
 
         ground_stations = [
             GroundStation(
-                gid=GS_X, name="GS_X", latitude_degrees_str="0", longitude_degrees_str="0",
-                elevation_m_float=0, cartesian_x=0, cartesian_y=0, cartesian_z=0
+                gid=GS_X,
+                name="GS_X",
+                latitude_degrees_str="0",
+                longitude_degrees_str="0",
+                elevation_m_float=0,
+                cartesian_x=0,
+                cartesian_y=0,
+                cartesian_z=0,
             ),
             GroundStation(
-                gid=GS_Y, name="GS_Y", latitude_degrees_str="0", longitude_degrees_str="0",
-                elevation_m_float=0, cartesian_x=0, cartesian_y=0, cartesian_z=0
+                gid=GS_Y,
+                name="GS_Y",
+                latitude_degrees_str="0",
+                longitude_degrees_str="0",
+                elevation_m_float=0,
+                cartesian_x=0,
+                cartesian_y=0,
+                cartesian_z=0,
             ),
         ]
 
         # Create topology
         constellation_data = ConstellationData(
-            orbits=1, sats_per_orbit=2, epoch="2000-01-01 00:00:00",
-            max_gsl_length_m=1000000, max_isl_length_m=5000000, satellites=satellites
+            orbits=1,
+            sats_per_orbit=2,
+            epoch="2000-01-01 00:00:00",
+            max_gsl_length_m=1000000,
+            max_isl_length_m=5000000,
+            satellites=satellites,
         )
         topology = LEOTopology(constellation_data, ground_stations)
 
         # Set up satellite addresses
         for sat in satellites:
-            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(sat.id)
+            sat.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(
+                sat.id
+            )
 
         from src.network_state.routing_algorithms.topological_routing.fstate_calculation import (
-            _perform_renumbering_for_gs,
             _detect_gsl_changes,
+            _perform_renumbering_for_gs,
         )
 
         # Test initial GSL attachments (both GSs to SAT_A)
@@ -618,12 +658,24 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
         # Create ground stations
         ground_stations = [
             GroundStation(
-                gid=100, name="GS1", latitude_degrees_str="0", longitude_degrees_str="0",
-                elevation_m_float=0, cartesian_x=0, cartesian_y=0, cartesian_z=0
+                gid=100,
+                name="GS1",
+                latitude_degrees_str="0",
+                longitude_degrees_str="0",
+                elevation_m_float=0,
+                cartesian_x=0,
+                cartesian_y=0,
+                cartesian_z=0,
             ),
             GroundStation(
-                gid=101, name="GS2", latitude_degrees_str="0", longitude_degrees_str="0",
-                elevation_m_float=0, cartesian_x=0, cartesian_y=0, cartesian_z=0
+                gid=101,
+                name="GS2",
+                latitude_degrees_str="0",
+                longitude_degrees_str="0",
+                elevation_m_float=0,
+                cartesian_x=0,
+                cartesian_y=0,
+                cartesian_z=0,
             ),
         ]
 
@@ -681,20 +733,32 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
         ground_stations = []
         for i in range(5):  # 5 GSs
             gs = GroundStation(
-                gid=200 + i, name=f"GS_{i}", latitude_degrees_str="0", longitude_degrees_str="0",
-                elevation_m_float=0, cartesian_x=0, cartesian_y=0, cartesian_z=0
+                gid=200 + i,
+                name=f"GS_{i}",
+                latitude_degrees_str="0",
+                longitude_degrees_str="0",
+                elevation_m_float=0,
+                cartesian_x=0,
+                cartesian_y=0,
+                cartesian_z=0,
             )
             ground_stations.append(gs)
 
         # Create topology
         constellation_data = ConstellationData(
-            orbits=1, sats_per_orbit=1, epoch="2000-01-01 00:00:00",
-            max_gsl_length_m=1000000, max_isl_length_m=5000000, satellites=satellites
+            orbits=1,
+            sats_per_orbit=1,
+            epoch="2000-01-01 00:00:00",
+            max_gsl_length_m=1000000,
+            max_isl_length_m=5000000,
+            satellites=satellites,
         )
         topology = LEOTopology(constellation_data, ground_stations)
 
         # Set up satellite address
-        satellites[0].sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(SAT_A)
+        satellites[0].sixgrupa_addr = TopologicalNetworkAddress.set_address_from_orbital_parameters(
+            SAT_A
+        )
 
         from src.network_state.routing_algorithms.topological_routing.fstate_calculation import (
             _perform_renumbering_for_gs,
@@ -749,7 +813,9 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
         self.assertEqual(dist_1_to_1, 0.0, "Distance to same satellite should be 0")
         self.assertGreater(dist_1_to_2, 0, "Adjacent satellite distance should be > 0")
         self.assertLess(dist_1_to_2, 10, "Adjacent satellite distance should be small")
-        self.assertGreater(dist_1_to_3, dist_1_to_2, "Different plane should be farther than same plane")
+        self.assertGreater(
+            dist_1_to_3, dist_1_to_2, "Different plane should be farther than same plane"
+        )
 
     def test_topological_routing_scenario(self):
         """Test a simple routing scenario using topological addresses."""
@@ -773,7 +839,9 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
         # Assume we have MAX_PLANES = 128, so plane 0 and plane 127 should be adjacent
         sat_plane_0 = TopologicalNetworkAddress(shell_id=0, plane_id=0, sat_index=0, subnet_index=0)
         sat_plane_1 = TopologicalNetworkAddress(shell_id=0, plane_id=1, sat_index=0, subnet_index=0)
-        sat_plane_127 = TopologicalNetworkAddress(shell_id=0, plane_id=127, sat_index=0, subnet_index=0)
+        sat_plane_127 = TopologicalNetworkAddress(
+            shell_id=0, plane_id=127, sat_index=0, subnet_index=0
+        )
 
         dist_0_to_1 = sat_plane_0.topological_distance_to(sat_plane_1)
         dist_0_to_127 = sat_plane_0.topological_distance_to(sat_plane_127)
