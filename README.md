@@ -314,7 +314,12 @@ logging:
 
 ### Visualization
 
-After running a simulation, generate interactive 3D visualizations using Cesium:
+After running a simulation, generate interactive 3D visualizations using Cesium.
+
+**Note**: To use the visualization, you need a Cesium Ion Access Token.
+1. Sign up for a free account at [Cesium Ion](https://ion.cesium.com/).
+2. Get your default access token.
+3. Open `src/satellite_visualisation/static_html/top.html` and replace `YOUR_CESIUM_ION_TOKEN` with your actual token.
 
 ```bash
 # Generate visualization from simulation config

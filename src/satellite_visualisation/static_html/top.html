@@ -21,6 +21,8 @@
         <div id="cesiumContainer"></div>
         <script>
         window.onload = function() {
+            // TODO: Replace with your own Cesium Ion Access Token
+            // Get one at https://ion.cesium.com/
             Cesium.Ion.defaultAccessToken = 'YOUR_CESIUM_ION_TOKEN';
             
             var viewer = new Cesium.Viewer('cesiumContainer', {
