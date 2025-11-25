@@ -37,7 +37,6 @@ This tool enables researchers and engineers to study network dynamics, routing p
     - [2. Topological Routing](#2-topological-routing)
     - [Adding Custom Routing Algorithms](#adding-custom-routing-algorithms)
   - [Output Format](#output-format)
-  - [Output Format](#output-format-1)
   - [Testing](#testing)
   - [Contributing](#contributing)
     - [Reporting Issues](#reporting-issues)
@@ -407,9 +406,6 @@ class MyCustomRoutingAlgorithm(RoutingAlgorithm):
         pass
 ```
 
-## Output Format
-
-The simulation generates forwarding state files that describe the routing decisions at each time step.
 
 ## Output Format
 
