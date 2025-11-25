@@ -1,12 +1,15 @@
 # LEO Routing Simulation Framework
 
-![lrsim_logo.jpeg](lrsim_logo.png)
+<img src="i2cat_logo.png" alt="i2CAT Logo" width="150"/>
+<img src="lrsim_logo.png" alt="LRSIM Logo" width="150"/>
 
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-A comprehensive simulation framework for analyzing and comparing routing algorithms in Low Earth Orbit (LEO) satellite constellations. This tool enables researchers and engineers to study network dynamics, routing performance, and connectivity patterns in satellite networks such as Starlink, Kuiper, and other LEO constellations.
+A simple, user-friendly and extensible simulation framework for analyzing and comparing routing algorithms in Low Earth Orbit (LEO) satellite constellations.
+
+This tool enables researchers and engineers to study network dynamics, routing performance, and connectivity patterns in satellite networks such as Starlink, Kuiper, and other LEO constellations.
 
 ## Table of Contents
 
@@ -16,7 +19,6 @@ A comprehensive simulation framework for analyzing and comparing routing algorit
   - [Why LRSIM?](#why-lrsim)
     - [What LRSIM Does](#what-lrsim-does)
     - [What LRSIM Does Not Do](#what-lrsim-does-not-do)
-    - [Design Philosophy](#design-philosophy)
   - [Features](#features)
   - [Prerequisites](#prerequisites)
     - [For Docker Deployment (Recommended)](#for-docker-deployment-recommended)
@@ -51,24 +53,28 @@ A comprehensive simulation framework for analyzing and comparing routing algorit
 
 ## Overview
 
-This project provides a complete toolkit for simulating and analyzing LEO satellite network routing:
+This project provides a simple yet complete toolkit for quickly simulating and analyzing LEO satellite network routing running in commodity hardware.
 
-* **Constellation Simulation**: Model realistic LEO satellite constellations with configurable parameters (altitude, inclination, number of satellites, etc.)
-* **Routing Algorithms**: Compare different routing strategies including traditional shortest-path algorithms and novel topological routing approaches
+* **Very easy to run**: Can run everywhere using docker containers.
+* **Constellation Simulation**: Model realistic LEO satellite constellations with configurable parameters (altitude, inclination, number of satellites, etc.). Just edit te configuration file and that's it.
+* **Real or Custom Constellations**: Simulate well-known constellations like Starlink using the data from Celestrak or create custom configurations just with orbital parameters with synthetic TLE generation.
+* **Routing Algorithms**: Compare different routing strategies and GSL attachment policies through a pluggable architecture.
 * **Network Dynamics**: Simulate time-varying network states with dynamic Inter-Satellite Links (ISLs) and Ground Station Links (GSLs)
 * **Visualization**: Generate interactive 3D visualizations of satellite orbits, connectivity patterns, and ground station coverage using Cesium
 
-The framework currently supports:
+The framework currently supports the following routing algorithms:
 - **Shortest Path Link-State Routing**: Traditional Dijkstra-based routing over satellite networks
 - **Topological Routing**: Novel routing algorithm based on the [6G-RUPA](https://6grupa.com) architecture for improved scalability and reduced control overhead
 
 ## Why LRSIM?
 
-LRSIM is essentially a fork of an existing simulator called [Hypatia](https://github.com/snkas/hypatia). While Hypatia provides valuable foundations for satellite network simulation, it has limitations when executing it or extending it, such as tightly coupled routing logic that makes it difficult to implement and compare new protocols, or inflexible data output formats that complicate analysis.
+LRSIM is essentially a fork of an existing simulator called [Hypatia](https://github.com/snkas/hypatia). While Hypatia provides valuable foundations for satellite network simulation, it has limitations when executing it or extending it, such as tightly coupled routing logic that makes it difficult to implement and compare new protocols or inflexible data output formats that complicate analysis.
+
+LRSIM uses Hypatia core logic but makes it extremely easy to use, maintain and extend.
 
 ### What LRSIM Does
 
-- **Satellite Movement Simulation**: Accurate modeling of satellite orbital mechanics using SGP4 propagation
+- **Satellite Movement Simulation**: Modeling of satellite orbital mechanics using SGP4 propagation model.
 - **Dynamic Link Management**: Automatic management of Inter-Satellite Links (ISLs) and Ground-to-Satellite Links (GSLs) based on visibility and distance constraints
 - **Synthetic TLE Generation**: Creates Two-Line Element sets from orbital parameters, enabling simulation of arbitrary constellation configurations
 - **Pluggable GSL Attachment Strategies**: Flexible framework for implementing different ground station attachment policies (currently includes nearest satellite strategy with extensible architecture)
@@ -86,14 +92,6 @@ LRSIM focuses on **network topology and routing state generation**, not full pro
 
 For packet-level simulations, LRSIM's forwarding state output can be integrated with network simulators like NS-3 (as demonstrated in Hypatia), enabling end-to-end performance evaluation when needed.
 
-### Design Philosophy
-
-LRSIM prioritizes:
-1. **Routing Research Flexibility**: Easy implementation and comparison of novel routing schemes
-2. **Clean Architecture**: Modular design with clear separation of concerns
-3. **Extensibility**: Plugin-based architecture for routing algorithms and GSL strategies
-4. **Analysis-Friendly Outputs**: Structured data formats optimized for post-processing and comparison
-5. **Reproducibility**: Docker-based deployment and comprehensive configuration management
 
 ## Features
 
@@ -103,9 +101,7 @@ LRSIM prioritizes:
 - 🗺️ **Ground Station Integration**: Support for multiple ground stations with realistic visibility constraints
 - 🎨 **3D Visualization**: Interactive web-based visualization using Cesium for constellation analysis
 - 🐳 **Docker Support**: Containerized deployment for reproducible simulations
-- 🧪 **Comprehensive Testing**: Extensive test suite covering topology, routing, and integration scenarios
 - 📝 **Flexible Configuration**: YAML-based configuration for easy simulation setup
-- 📈 **Performance Metrics**: Detailed logging and analysis of routing performance
 
 ## Prerequisites
 
@@ -232,20 +228,6 @@ ls -l output/simulation/
 ./run-simulations.sh clean
 ```
 
-**For local development** (without Docker):
-
-```bash
-# 1. Run simulation
-python -m src.main --config src/config/ether_simple.yaml
-
-# 2. Generate visualization
-python -m src.satellite_visualisation.cesium_builder.main src/config/ether_simple.yaml
-
-# 3. Start local web server
-python -m http.server 8000
-# Open browser to http://localhost:8000/src/satellite_visualisation/visualisation_output/
-```
-
 ## Usage
 
 ### Running Simulations
@@ -256,11 +238,7 @@ The main simulation entry point accepts a configuration file that defines all si
 python -m src.main --config <path-to-config.yaml>
 ```
 
-**Available configurations**:
-- `src/config/ether_simple.yaml` - Simplified constellation (18 orbits, 18 satellites per orbit) for quick testing
-- `src/config/starlink.yaml` - Full-scale Starlink-like constellation (22 orbits, 72 satellites per orbit)
-
-**Available configurations**:
+**Available example configurations**:
 - `src/config/ether_simple.yaml` - Simplified constellation (18 orbits, 18 satellites per orbit) for quick testing
 - `src/config/starlink.yaml` - Full-scale Starlink-like constellation (22 orbits, 72 satellites per orbit)
 
@@ -361,8 +339,6 @@ leo-routing-simu/
 │   ├── main.py                          # Main simulation entry point
 │   ├── logger.py                        # Logging configuration
 │   ├── config/                          # Configuration files
-│   │   ├── ether_simple.yaml
-│   │   └── starlink.yaml
 │   ├── network_state/                   # Network state generation
 │   │   ├── generate_network_state.py   # Dynamic state computation
 │   │   ├── gsl_attachment/             # Ground station link strategies
@@ -382,20 +358,11 @@ leo-routing-simu/
 │       ├── ground_station.py           # Ground station management
 │       └── satellite/                  # Satellite models
 ├── tests/                               # Comprehensive test suite
-│   ├── topology/                       # Topology tests
-│   ├── network_state/                  # Network state tests
-│   ├── forwarding_state/               # Routing tests
-│   └── integration/                    # End-to-end tests
 ├── output/                              # Simulation outputs (generated)
 │   ├── logs/
 │   ├── simulation/
 │   ├── tles/
 │   └── visualizations/
-├── docker-compose.yml                   # Docker composition
-├── Dockerfile                           # Container definition
-├── requirements.txt                     # Python dependencies
-├── pyproject.toml                       # Project configuration
-└── README.md                            # This file
 ```
 
 ## Routing Algorithms
@@ -404,31 +371,15 @@ The framework supports multiple routing algorithms through a pluggable architect
 
 ### 1. Shortest Path Link-State Routing
 
-**Description**: Traditional Dijkstra-based shortest path routing where each node maintains a complete view of the network topology and computes shortest paths to all destinations.
-
-**Use Case**: Baseline comparison for traditional routing approaches in satellite networks.
+**Description**: Traditional Dijkstra-based shortest path routing where each node maintains a complete view of the network topology and computes shortest paths to all destinations. This is basically what Hypatia implements.
 
 **Configuration**: `dynamic_state_algorithm: shortest_path_link_state`
 
-**Characteristics**:
-- Full network topology awareness
-- Optimal path computation based on link metrics
-- High control overhead for topology distribution
-- Suitable for networks with relatively stable topology
-
 ### 2. Topological Routing
 
-**Description**: Novel routing algorithm based on the [6G-RUPA](https://6grupa.com) architecture that exploits the regular geometric structure of LEO constellations. Uses hierarchical topological addressing to reduce routing table sizes and control overhead.
-
-**Use Case**: Scalable routing for large satellite constellations with predictable topology.
+**Description**: Novel routing algorithm based on the [6G-RUPA](https://6grupa.com) architecture that exploits the regular topology of LEO constellations. Uses hierarchical topological addressing to reduce routing table sizes and control overhead.
 
 **Configuration**: `dynamic_state_algorithm: topological_routing`
-
-**Characteristics**:
-- Exploits constellation structure for efficient routing
-- Reduced routing table size through topological addressing
-- Lower control overhead compared to link-state routing
-- Optimized for Walker-delta and similar constellation patterns
 
 ### Adding Custom Routing Algorithms
 
@@ -520,8 +471,6 @@ pytest tests/topology/test_gsl_attachment_integration.py -v
 - **Integration Tests**: End-to-end simulation workflows
 
 ## Contributing
-
-We welcome contributions from the community! Here's how you can help:
 
 ### Reporting Issues
 
