@@ -34,7 +34,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create ${{ github.ref_name }} dist/*.whl dist/*.tar.gz --generate-notes
+          gh release create ${{ github.ref_name }} dist/*.whl dist/*.tar.gz --generate-notes || echo "Release ${{ github.ref_name }} already exists or failed to create"
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
