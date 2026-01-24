@@ -3,8 +3,8 @@ set -eu
 
 ROOT_DIR=$(dirname "$0")
 CONFIG_PATH="$ROOT_DIR/leopath/config/starlink.yaml"
-GS_CONFIG="$ROOT_DIR/leopath/config/ground_stations_weekend.yaml"
-OUTPUT_BASE=${1:-"$ROOT_DIR/eval_outputs"}
+GS_CONFIG="$ROOT_DIR/leopath/config/ground_stations_quick_eval.yaml"
+OUTPUT_BASE=${1:-"$ROOT_DIR/quick_eval_outputs"}
 
 ALGORITHMS=${ALGORITHMS:-"shortest_path_link_state topological_routing"}
 ISL_SCENARIOS="ring grid"
