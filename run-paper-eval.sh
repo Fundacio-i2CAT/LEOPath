@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+
+ROOT_DIR=$(dirname "$0")
+CONFIG_PATH="$ROOT_DIR/leopath/config/starlink.yaml"
+GS_CONFIG="$ROOT_DIR/leopath/config/ground_stations_dense.yaml"
+OUTPUT_BASE=${1:-"$ROOT_DIR/paper_eval_outputs"}
+
+ALGORITHMS=${ALGORITHMS:-"shortest_path_link_state topological_routing"}
+ISL_SCENARIOS="ring grid"
+END_TIME_HOURS=${END_TIME_HOURS:-12}
+TIME_STEP_MINUTES=${TIME_STEP_MINUTES:-10}
+
+for algorithm in $ALGORITHMS; do
+  for isl in $ISL_SCENARIOS; do
+    output_dir="$OUTPUT_BASE/${algorithm}/${isl}"
+    python -m leopath.experiments.eval_harness \
+      --config "$CONFIG_PATH" \
+      --gs-config "$GS_CONFIG" \
+      --output-dir "$output_dir" \
+      --isl-scenario "$isl" \
+      --algorithm "$algorithm" \
+      --end-time-hours "$END_TIME_HOURS" \
+      --time-step-minutes "$TIME_STEP_MINUTES"
+  done
+done
