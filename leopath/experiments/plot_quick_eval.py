@@ -68,9 +68,18 @@ def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
     fig, ax = plt.subplots(figsize=(8, 4.5))
     for algo, data in runs.items():
         rows = data["timestep"]
+        if not rows:
+            continue
+        first_row = rows[0]
+        if "fstate_size_mean" in first_row:
+            mean_key = "fstate_size_mean"
+            p95_key = "fstate_size_p95"
+        else:
+            mean_key = "fstate_sat_gs_mean"
+            p95_key = "fstate_sat_gs_p95"
         times = time_minutes(rows)
-        mean = [row["fstate_size_mean"] for row in rows]
-        p95 = [row["fstate_size_p95"] for row in rows]
+        mean = [row[mean_key] for row in rows]
+        p95 = [row[p95_key] for row in rows]
         ax.plot(times, mean, label=f"{algo} mean")
         ax.plot(times, p95, linestyle="--", label=f"{algo} p95")
     ax.set_title(f"Forwarding State Size ({isl})")
