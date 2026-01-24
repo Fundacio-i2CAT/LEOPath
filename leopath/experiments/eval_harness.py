@@ -3,6 +3,10 @@ import datetime
 import os
 
 import yaml
+try:
+    from tqdm import tqdm
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    tqdm = None
 from astropy import units as astro_units
 
 from leopath import logger
@@ -158,7 +162,15 @@ def run_evaluation(
     prev_fstate: dict | None = None
     prev_attachments: list[tuple[int | None, float]] | None = None
 
-    for step_index, time_since_epoch_ns in enumerate(time_steps):
+    progress_iter = time_steps
+    if tqdm is not None:
+        progress_iter = tqdm(
+            time_steps,
+            desc=f"{sim_config['dynamic_state_algorithm']} {isl_scenario}",
+            unit="step",
+        )
+
+    for step_index, time_since_epoch_ns in enumerate(progress_iter):
         time_absolute = parsed_tles_data["epoch"] + time_since_epoch_ns * astro_units.ns
         topology_with_isls, _ = _build_topologies(constellation_data, ground_stations)
         topology_with_isls.gsl_interfaces_info = list_gsl_interfaces_info
