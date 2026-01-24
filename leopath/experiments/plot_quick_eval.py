@@ -69,13 +69,13 @@ def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
     for algo, data in runs.items():
         rows = data["timestep"]
         times = time_minutes(rows)
-        mean = [row["fstate_sat_gs_mean"] for row in rows]
-        p95 = [row["fstate_sat_gs_p95"] for row in rows]
+        mean = [row["fstate_size_mean"] for row in rows]
+        p95 = [row["fstate_size_p95"] for row in rows]
         ax.plot(times, mean, label=f"{algo} mean")
         ax.plot(times, p95, linestyle="--", label=f"{algo} p95")
-    ax.set_title(f"Forwarding State per Satellite ({isl})")
+    ax.set_title(f"Forwarding State Size ({isl})")
     ax.set_xlabel("Time (minutes)")
-    ax.set_ylabel("Reachable GS entries")
+    ax.set_ylabel("State units")
     ax.grid(True, alpha=0.3)
     ax.legend(ncol=2, fontsize=8)
     fig.tight_layout()

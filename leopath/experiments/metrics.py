@@ -89,17 +89,25 @@ def get_gs_attachments(
 
 def compute_forwarding_state_stats(
     fstate: dict,
+    topology_graph: nx.Graph,
+    algorithm_name: str,
     satellite_ids: list[int],
     ground_station_ids: list[int],
 ) -> dict:
     counts = []
-    for sat_id in satellite_ids:
-        reachable = 0
-        for gs_id in ground_station_ids:
-            entry = fstate.get((sat_id, gs_id))
-            if not is_unreachable(entry):
-                reachable += 1
-        counts.append(reachable)
+    if algorithm_name == "shortest_path_link_state":
+        total_nodes = topology_graph.number_of_nodes()
+        counts = [total_nodes for _ in satellite_ids]
+    elif algorithm_name == "topological_routing":
+        counts = [float(topology_graph.degree(sat_id)) for sat_id in satellite_ids]
+    else:
+        for sat_id in satellite_ids:
+            reachable = 0
+            for gs_id in ground_station_ids:
+                entry = fstate.get((sat_id, gs_id))
+                if not is_unreachable(entry):
+                    reachable += 1
+            counts.append(reachable)
     stats = summarize_distribution(counts)
     stats["total_sats"] = len(satellite_ids)
     return stats

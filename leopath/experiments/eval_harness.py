@@ -15,8 +15,13 @@ from leopath.main import (
 )
 from leopath.network_state.generate_network_state import _build_topologies
 from leopath.network_state.gsl_attachment.gsl_attachment_strategies import *  # noqa: F403, F401
-from leopath.network_state.helpers import _compute_ground_station_satellites_in_range, _compute_isls
-from leopath.network_state.routing_algorithms.routing_algorithm_factory import get_routing_algorithm
+from leopath.network_state.helpers import (
+    _compute_ground_station_satellites_in_range,
+    _compute_isls,
+)
+from leopath.network_state.routing_algorithms.routing_algorithm_factory import (
+    get_routing_algorithm,
+)
 from leopath.topology.topology import ConstellationData
 
 from .metrics import (
@@ -52,10 +57,14 @@ def load_ground_station_override(path: str | None) -> list[dict] | None:
         return payload["ground_stations"]
     if isinstance(payload, list):
         return payload
-    raise ValueError("Ground station override must be a list or contain ground_stations")
+    raise ValueError(
+        "Ground station override must be a list or contain ground_stations"
+    )
 
 
-def select_isls(constellation: ConstellationData, scenario: str) -> list[tuple[int, int]]:
+def select_isls(
+    constellation: ConstellationData, scenario: str
+) -> list[tuple[int, int]]:
     if scenario == "ring":
         return setup_isls_in_the_same_orbit(
             num_orbits=constellation.n_orbits,
@@ -94,17 +103,17 @@ def run_evaluation(
     gs_override = load_ground_station_override(gs_override_path)
     if gs_override is not None:
         config["ground_stations"] = gs_override
-
     if algorithm_name:
         config["simulation"]["dynamic_state_algorithm"] = algorithm_name
-
     if end_time_hours is not None:
         config["simulation"]["end_time_hours"] = end_time_hours
     if time_step_minutes is not None:
         config["simulation"]["time_step_minutes"] = time_step_minutes
 
     os.makedirs(output_dir, exist_ok=True)
-    logger.setup_logger(is_debug=False, file_name=os.path.join(output_dir, "eval_harness.log"))
+    logger.setup_logger(
+        is_debug=False, file_name=os.path.join(output_dir, "eval_harness.log")
+    )
 
     parsed_tles_data, sim_satellites = setup_tles_and_satellites(config)
     ground_stations = setup_ground_stations(config)
@@ -158,7 +167,9 @@ def run_evaluation(
             topology_with_isls, time_absolute
         )
 
-        interface_neighbor_map = build_interface_neighbor_map(topology_with_isls.sat_neighbor_to_if)
+        interface_neighbor_map = build_interface_neighbor_map(
+            topology_with_isls.sat_neighbor_to_if
+        )
         fstate_output = algorithm.compute_state(
             time_since_epoch_ns=time_since_epoch_ns,
             constellation_data=constellation_data,
@@ -171,7 +182,11 @@ def run_evaluation(
 
         attachments = get_gs_attachments(gs_sat_visibility)
         fstate_stats = compute_forwarding_state_stats(
-            fstate, satellite_ids, ground_station_ids
+            fstate,
+            topology_with_isls.graph,
+            sim_config["dynamic_state_algorithm"],
+            satellite_ids,
+            ground_station_ids,
         )
         stretch_stats = compute_path_stretch(
             fstate,
@@ -187,7 +202,7 @@ def run_evaluation(
             {
                 "time_index": step_index,
                 "time_since_epoch_ns": time_since_epoch_ns,
-                **flatten_distribution("fstate_sat_gs", fstate_stats),
+                **flatten_distribution("fstate_size", fstate_stats),
                 **flatten_distribution("stretch_hop", stretch_stats["hop"]),
                 **flatten_distribution("stretch_dist", stretch_stats["distance"]),
             }
@@ -236,6 +251,11 @@ def run_evaluation(
         "time_step_minutes": sim_config["time_step_minutes"],
         "end_time_hours": sim_config["end_time_hours"],
         "generated_at": datetime.datetime.now().isoformat(),
+        "forwarding_state_definition": {
+            "shortest_path_link_state": "global node map (nodes in topology graph)",
+            "topological_routing": "immediate neighbors (node degree in topology graph)",
+            "default": "reachable GS destinations per satellite",
+        },
     }
 
     write_json(os.path.join(output_dir, "metadata.json"), metadata)
@@ -256,15 +276,21 @@ def run_evaluation(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run LEOPath evaluation harness")
     parser.add_argument("--config", required=True, help="Base config YAML")
-    parser.add_argument("--output-dir", required=True, help="Output directory for CSV/JSON")
+    parser.add_argument(
+        "--output-dir", required=True, help="Output directory for CSV/JSON"
+    )
     parser.add_argument(
         "--isl-scenario",
         choices=("ring", "grid"),
         default="grid",
         help="ISL scenario to evaluate",
     )
-    parser.add_argument("--algorithm", default=None, help="Routing algorithm name override")
-    parser.add_argument("--gs-config", default=None, help="Ground station list override YAML")
+    parser.add_argument(
+        "--algorithm", default=None, help="Routing algorithm name override"
+    )
+    parser.add_argument(
+        "--gs-config", default=None, help="Ground station list override YAML"
+    )
     parser.add_argument("--end-time-hours", type=float, default=None)
     parser.add_argument("--time-step-minutes", type=float, default=None)
     return parser.parse_args()
