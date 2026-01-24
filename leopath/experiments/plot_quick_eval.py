@@ -27,6 +27,11 @@ def parse_args() -> argparse.Namespace:
         default="distance",
         help="Stretch metric to plot",
     )
+    parser.add_argument(
+        "--log-fstate",
+        action="store_true",
+        help="Use log scale for forwarding state plot",
+    )
     return parser.parse_args()
 
 
@@ -64,7 +69,7 @@ def collect_runs(input_dir: Path) -> dict:
     return runs
 
 
-def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
+def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str, log_scale: bool) -> None:
     fig, ax = plt.subplots(figsize=(8, 4.5))
     for algo, data in runs.items():
         rows = data["timestep"]
@@ -85,6 +90,8 @@ def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
     ax.set_title(f"Forwarding State Size ({isl})")
     ax.set_xlabel("Time (minutes)")
     ax.set_ylabel("State units")
+    if log_scale:
+        ax.set_yscale("log")
     ax.grid(True, alpha=0.3)
     ax.legend(ncol=2, fontsize=8)
     fig.tight_layout()
@@ -149,7 +156,7 @@ def main() -> None:
         raise SystemExit(f"No runs found in {input_dir}")
 
     for isl, runs in runs_by_isl.items():
-        plot_fstate_timeseries(output_dir, runs, isl)
+        plot_fstate_timeseries(output_dir, runs, isl, args.log_fstate)
         plot_churn_timeseries(output_dir, runs, isl)
         plot_stretch_timeseries(output_dir, runs, isl, args.stretch_metric)
 
