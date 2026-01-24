@@ -109,8 +109,9 @@ def plot_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
 
 def plot_stretch_timeseries(output_dir: Path, runs: dict, isl: str, metric: str) -> None:
     fig, ax = plt.subplots(figsize=(8, 4.5))
-    mean_col = f"stretch_{metric}_mean"
-    p95_col = f"stretch_{metric}_p95"
+    metric_suffix = "dist" if metric == "distance" else metric
+    mean_col = f"stretch_{metric_suffix}_mean"
+    p95_col = f"stretch_{metric_suffix}_p95"
     for algo, data in runs.items():
         rows = data["timestep"]
         times = time_minutes(rows)
