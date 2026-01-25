@@ -123,6 +123,31 @@ def plot_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
     plt.close(fig)
 
 
+def plot_churn_core_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
+    fig, axes = plt.subplots(2, 1, figsize=(8, 6.2), sharex=True)
+    churn_specs = [
+        ("sat_gs_churn", "Sat→GS next-hop churn"),
+        ("gs_gs_churn", "GS→GS next-hop churn"),
+    ]
+    for ax, (metric, title) in zip(axes, churn_specs):
+        for algo, data in runs.items():
+            rows = data["delta"]
+            if not rows:
+                continue
+            times = time_minutes(rows)
+            series = [row[metric] for row in rows]
+            ax.plot(times, series, label=algo)
+        ax.set_title(title)
+        ax.set_ylabel("Fraction")
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=8)
+    axes[-1].set_xlabel("Time (minutes)")
+    fig.suptitle(f"Routing Churn (core, {isl})", y=0.99)
+    fig.tight_layout()
+    fig.savefig(output_dir / f"churn_core_timeseries_{isl}.png", dpi=150)
+    plt.close(fig)
+
+
 def plot_stretch_timeseries(output_dir: Path, runs: dict, isl: str, metric: str) -> None:
     fig, ax = plt.subplots(figsize=(8, 4.5))
     metric_suffix = "dist" if metric == "distance" else metric
@@ -158,6 +183,7 @@ def main() -> None:
     for isl, runs in runs_by_isl.items():
         plot_fstate_timeseries(output_dir, runs, isl, args.log_fstate)
         plot_churn_timeseries(output_dir, runs, isl)
+        plot_churn_core_timeseries(output_dir, runs, isl)
         plot_stretch_timeseries(output_dir, runs, isl, args.stretch_metric)
 
 
