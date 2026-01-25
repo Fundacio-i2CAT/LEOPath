@@ -148,6 +148,26 @@ def plot_churn_core_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
     plt.close(fig)
 
 
+def plot_sat_gs_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
+    fig, ax = plt.subplots(figsize=(8, 4.6))
+    metric = "sat_gs_churn"
+    for algo, data in runs.items():
+        rows = data["delta"]
+        if not rows:
+            continue
+        times = time_minutes(rows)
+        series = [row[metric] for row in rows]
+        ax.plot(times, series, label=algo)
+    ax.set_title(f"Sat→GS Next-hop Churn ({isl})")
+    ax.set_xlabel("Time (minutes)")
+    ax.set_ylabel("Fraction")
+    ax.grid(True, alpha=0.3)
+    ax.legend(ncol=2, fontsize=8)
+    fig.tight_layout()
+    fig.savefig(output_dir / f"churn_sat_gs_timeseries_{isl}.png", dpi=150)
+    plt.close(fig)
+
+
 def plot_stretch_timeseries(output_dir: Path, runs: dict, isl: str, metric: str) -> None:
     fig, ax = plt.subplots(figsize=(8, 4.5))
     metric_suffix = "dist" if metric == "distance" else metric
@@ -184,6 +204,7 @@ def main() -> None:
         plot_fstate_timeseries(output_dir, runs, isl, args.log_fstate)
         plot_churn_timeseries(output_dir, runs, isl)
         plot_churn_core_timeseries(output_dir, runs, isl)
+        plot_sat_gs_churn_timeseries(output_dir, runs, isl)
         plot_stretch_timeseries(output_dir, runs, isl, args.stretch_metric)
 
 
