@@ -99,7 +99,7 @@ def compute_forwarding_state_stats(
         total_nodes = topology_graph.number_of_nodes()
         counts = [total_nodes for _ in satellite_ids]
     elif algorithm_name == "topological_routing":
-        counts = [float(topology_graph.degree(sat_id)) for sat_id in satellite_ids]
+        counts = [float(len(list(topology_graph.neighbors(sat_id)))) for sat_id in satellite_ids]
     else:
         for sat_id in satellite_ids:
             reachable = 0
@@ -244,6 +244,11 @@ def compute_path_stretch(
             opt_hops, opt_dist = _shortest_path_lengths(sat_graph, src_sat, dst_sat)
             if opt_hops is None or opt_dist is None:
                 continue
+
+            # Make the baseline comparable to the algorithm-induced end-to-end path:
+            # include both GSL legs (GS->sat and sat->GS) in hop count and distance.
+            opt_hops_total = opt_hops + 2
+            opt_dist_total = float(opt_dist) + float(src_gsl_dist) + float(dst_gsl_dist)
             algo_hops, algo_dist = _follow_routing_path(
                 fstate,
                 topology_graph,
@@ -257,10 +262,11 @@ def compute_path_stretch(
             )
             if algo_hops is None or algo_dist is None:
                 continue
-            if opt_hops > 0:
-                hop_stretches.append(algo_hops / opt_hops)
-            if opt_dist > 0.0:
-                dist_stretches.append(algo_dist / opt_dist)
+
+            if opt_hops_total > 0:
+                hop_stretches.append(algo_hops / opt_hops_total)
+            if opt_dist_total > 0.0:
+                dist_stretches.append(algo_dist / opt_dist_total)
     return {
         "hop": summarize_distribution(hop_stretches),
         "distance": summarize_distribution(dist_stretches),
