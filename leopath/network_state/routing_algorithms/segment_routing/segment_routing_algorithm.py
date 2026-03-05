@@ -123,6 +123,7 @@ def _calculate_forwarding_state(
                 dst_sat_id,
                 topology_with_isls,
                 constellation_data,
+                all_sat_ids,
                 segment_mode,
                 plane_weight,
                 sat_weight,
@@ -155,12 +156,17 @@ def _segment_next_hop(
     dst_sat_id: int,
     topology_with_isls: LEOTopology,
     constellation_data: ConstellationData,
+    all_sat_ids: set[int],
     segment_mode: str,
     plane_weight: float,
     sat_weight: float,
     shell_weight: float,
 ) -> tuple[int, int, int]:
-    neighbors = list(topology_with_isls.graph.neighbors(curr_sat_id))
+    neighbors = [
+        neighbor_id
+        for neighbor_id in topology_with_isls.graph.neighbors(curr_sat_id)
+        if neighbor_id in all_sat_ids
+    ]
     if not neighbors:
         return (-1, -1, -1)
 
