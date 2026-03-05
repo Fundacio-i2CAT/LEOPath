@@ -109,6 +109,7 @@ def run_evaluation(
         config["ground_stations"] = gs_override
     if algorithm_name:
         config["simulation"]["dynamic_state_algorithm"] = algorithm_name
+    algorithm_params = config["simulation"].get("algorithm_params") or {}
     if end_time_hours is not None:
         config["simulation"]["end_time_hours"] = end_time_hours
     if time_step_minutes is not None:
@@ -133,6 +134,9 @@ def run_evaluation(
     )
 
     undirected_isls = select_isls(constellation_data, isl_scenario)
+    if config["simulation"]["dynamic_state_algorithm"] == "predictive_link_state":
+        algorithm_params = {**algorithm_params, "undirected_isls": undirected_isls}
+        config["simulation"]["algorithm_params"] = algorithm_params
 
     sim_config = config["simulation"]
     simulation_end_time_ns = int(sim_config["end_time_hours"] * 60 * 60 * 1e9)
@@ -182,6 +186,7 @@ def run_evaluation(
         interface_neighbor_map = build_interface_neighbor_map(
             topology_with_isls.sat_neighbor_to_if
         )
+        algorithm_params = sim_config.get("algorithm_params") or {}
         fstate_output = algorithm.compute_state(
             time_since_epoch_ns=time_since_epoch_ns,
             constellation_data=constellation_data,
@@ -189,6 +194,7 @@ def run_evaluation(
             topology_with_isls=topology_with_isls,
             ground_station_satellites_in_range=gs_sat_visibility,
             list_gsl_interfaces_info=topology_with_isls.gsl_interfaces_info,
+            algorithm_params=algorithm_params,
         )
         fstate = fstate_output.get("fstate", {})
 
@@ -199,6 +205,7 @@ def run_evaluation(
             sim_config["dynamic_state_algorithm"],
             satellite_ids,
             ground_station_ids,
+            algorithm_params,
         )
         stretch_stats = compute_path_stretch(
             fstate,

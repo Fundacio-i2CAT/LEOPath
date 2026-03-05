@@ -17,6 +17,7 @@ class RoutingAlgorithm(ABC):
         topology_with_isls: LEOTopology,
         ground_station_satellites_in_range: list,
         list_gsl_interfaces_info: list,
+        algorithm_params: dict | None = None,
     ) -> dict:
         """
         Calculates bandwidth and forwarding state for the current network state.

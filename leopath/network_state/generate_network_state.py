@@ -234,6 +234,7 @@ def _reuse_or_calculate_state(
             topology_with_isls=current_topology,
             ground_station_satellites_in_range=gs_sat_visibility_list,
             list_gsl_interfaces_info=list_gsl_interfaces_info,
+            algorithm_params=None,
         )
     except ValueError:
         raise

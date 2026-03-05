@@ -3,17 +3,17 @@ from astropy.time import Time
 
 from leopath.network_state.gsl_attachment.gsl_attachment_factory import GSLAttachmentFactory
 from leopath.network_state.routing_algorithms.routing_algorithm import RoutingAlgorithm
-
-# Import to trigger strategy registration
-# This import is necessary for the factory to have the strategy registered
 from leopath.topology.topology import ConstellationData, GroundStation, LEOTopology
 
-from .one_iface_free_bw_allocation_only_over_isls import algorithm_free_one_only_over_isls
+from .segment_routing_algorithm import algorithm_segment_routing
 
 
-class ShortestPathLinkStateRoutingAlgorithm(RoutingAlgorithm):
+class SegmentRoutingAlgorithm(RoutingAlgorithm):
     """
-    Routing algorithm using shortest path link-state routing (ISLs only, no GS relaying).
+    Segment routing over ISLs using limited segments.
+
+    Default behavior uses two segments: first hop to a target orbital plane,
+    then intra-plane routing to the destination's plane/satellite.
     """
 
     def compute_state(
@@ -26,19 +26,12 @@ class ShortestPathLinkStateRoutingAlgorithm(RoutingAlgorithm):
         list_gsl_interfaces_info: list,
         algorithm_params: dict | None = None,
     ) -> dict:
-        """
-        Calculates bandwidth and forwarding state for the current network state.
-        """
-        # Get the GSL attachment strategy (default to nearest satellite)
         gsl_strategy = GSLAttachmentFactory.get_strategy("nearest_satellite")
 
-        # Create a current_time object to match the pattern used in generate_network_state.py
-        # Use the same epoch and time calculation as the working system
-        # This should match: time_absolute = epoch + time_since_epoch_ns * astro_units.ns
         epoch = Time("2000-01-01 00:00:00", scale="tdb")
         current_time = epoch + time_since_epoch_ns * astro_units.ns
 
-        return algorithm_free_one_only_over_isls(
+        return algorithm_segment_routing(
             time_since_epoch_ns,
             constellation_data,
             ground_stations,
@@ -46,4 +39,5 @@ class ShortestPathLinkStateRoutingAlgorithm(RoutingAlgorithm):
             gsl_strategy,
             current_time,
             list_gsl_interfaces_info,
+            algorithm_params or {},
         )
