@@ -18,17 +18,39 @@ LEOPath exposes routing algorithms via a pluggable interface. Each algorithm com
 
 ## Design considerations
 
+### Shortest-path link-state
+
+- Uses full topology knowledge at each snapshot.
+- Provides a lower bound for stretch and path length.
+- Serves as the baseline for churn and memory comparisons.
+
+### Topological routing
+
+- Relies on structured addressing (plane and satellite indices) rather than full topology state.
+- Local decisions are based on topological distance to destination address.
+- Prioritizes low state and stability over strict path optimality.
+
 ### Predictive link-state
 
 - Uses the same Dijkstra baseline but evaluates paths on a topology snapshot at `t + horizon`.
 - Works best with deterministic movement and regular update cadence (fixed time step).
 - Useful as a proxy for operator-controlled precomputation without requiring proprietary details.
 
+Parameter notes:
+
+- `prediction_horizon_minutes`: larger values may reduce churn but increase stretch if topology changes quickly.
+
 ### Segment routing
 
 - Uses a limited segment list to trade path optimality for state and churn reductions.
 - Default mode prioritizes plane alignment, then intra-plane movement (`plane_then_inplane`).
 - Segment count is intentionally small to keep forwarding state compact and stable.
+
+Parameter notes:
+
+- `segment_count`: higher values can reduce stretch but increase state.
+- `segment_mode`: defines how segments are chosen (currently `plane_then_inplane`).
+- `plane_weight`, `sat_weight`, `shell_weight`: tune the priority of plane vs intra-plane movement.
 
 ## Algorithm parameters
 
