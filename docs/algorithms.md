@@ -9,6 +9,13 @@ LEOPath exposes routing algorithms via a pluggable interface. Each algorithm com
 - `predictive_link_state`: Link-state computed on a predicted future topology snapshot.
 - `segment_routing`: Limited-segment routing using plane alignment then intra-plane moves.
 
+## Assumptions and limitations
+
+- All algorithms currently assume GS attachments use the nearest satellite.
+- Predictive link-state uses deterministic orbital motion but does not model ISL failures unless injected.
+- Segment routing uses a small fixed segment list; it does not perform full traffic engineering.
+- Topological routing assumes stable plane/satellite indexing for address construction.
+
 ## Algorithm parameters
 
 Parameters are passed via `simulation.algorithm_params`.

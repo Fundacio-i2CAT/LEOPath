@@ -32,3 +32,11 @@ Optional metrics to add later:
 
 - `ring`: intra-plane only
 - `grid`: intra-plane + inter-plane (+grid)
+
+## Evaluation checklist
+
+- Fix ground-station set and simulation horizon for all runs.
+- Run `ring` and `grid` for every constellation.
+- Use identical time steps for churn comparisons.
+- Record `algorithm_params` alongside metrics.
+- Report stretch (hop + distance), churn, and forwarding state size.
