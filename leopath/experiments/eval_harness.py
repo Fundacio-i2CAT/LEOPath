@@ -260,15 +260,22 @@ def run_evaluation(
         prev_attachments = attachments
     metadata = {
         "algorithm": sim_config["dynamic_state_algorithm"],
+        "algorithm_params": sim_config.get("algorithm_params") or {},
         "isl_scenario": isl_scenario,
         "constellation": {
             "name": config["constellation"]["name"],
             "num_orbits": config["constellation"]["num_orbits"],
             "num_sats_per_orbit": config["constellation"]["num_sats_per_orbit"],
+            "altitude_m": config.get("satellite", {}).get("altitude_m"),
+            "inclination_degree": config["constellation"].get("inclination_degree"),
         },
-        "ground_station_count": len(ground_stations),
+        "ground_stations": {
+            "count": len(ground_stations),
+            "override_path": gs_override_path,
+        },
         "time_step_minutes": sim_config["time_step_minutes"],
         "end_time_hours": sim_config["end_time_hours"],
+        "offset_ns": sim_config.get("offset_ns", 0),
         "generated_at": datetime.datetime.now().isoformat(),
         "forwarding_state_definition": {
             "shortest_path_link_state": "global node map (nodes in topology graph)",
