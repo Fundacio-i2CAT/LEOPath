@@ -71,15 +71,59 @@ def algorithm_topological_routing(
         topology_with_isls,
         ground_stations,
         ground_station_satellites_in_range,
+        constellation_data,
         time_since_epoch_ns,
         prev_fstate,
         graph_has_changed,
+    )
+
+    # Add GS -> GS entries (used by churn/stretches in evaluation)
+    _add_gs_to_gs_fstate(
+        topology_with_isls,
+        ground_stations,
+        ground_station_satellites_in_range,
+        fstate,
+    )
+
+    # Also add GS -> GS entries (used by churn/stretches in evaluation)
+    _add_gs_to_gs_fstate(
+        topology_with_isls,
+        ground_stations,
+        ground_station_satellites_in_range,
+        fstate,
     )
 
     return {
         "fstate": fstate,
         "bandwidth": bandwidth_state,
     }
+
+
+def _add_gs_to_gs_fstate(
+    topology_with_isls: LEOTopology,
+    ground_stations: list[GroundStation],
+    ground_station_satellites_in_range: list,
+    fstate: dict,
+) -> None:
+    for src_idx, src_gs in enumerate(ground_stations):
+        src_gs_node_id = src_gs.id
+        if src_idx >= len(ground_station_satellites_in_range):
+            continue
+        visible = ground_station_satellites_in_range[src_idx]
+        if not visible:
+            continue
+        _, src_sat_id = min(visible, key=lambda item: item[0])
+        try:
+            src_satellite = topology_with_isls.get_satellite(src_sat_id)
+            my_gsl_if = 0
+            next_hop_gsl_if = src_satellite.number_isls
+            next_hop = (src_sat_id, my_gsl_if, next_hop_gsl_if)
+        except KeyError:
+            continue
+        for dst_gs in ground_stations:
+            if dst_gs.id == src_gs_node_id:
+                continue
+            fstate[(src_gs_node_id, dst_gs.id)] = next_hop
 
 
 def _calculate_bandwidth_state(

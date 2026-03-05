@@ -25,8 +25,8 @@ MAX_SHELLS = 16  # Max index = 15. Requires 4 bits.
 MAX_PLANES = 128  # Max index = 127. Requires 7 bits.
 
 # Maximum number of satellites within any single plane (s).
-# Current constellations range from ~20 to ~40. Allowing 0-63 provides headroom.
-MAX_SATS_PER_PLANE = 64  # Max index = 63. Requires 6 bits.
+# Current constellations range from ~20 to ~80. Allowing 0-127 provides headroom.
+MAX_SATS_PER_PLANE = 128  # Max index = 127. Requires 7 bits.
 
 # Maximum number of Ground Stations simultaneously associated with (homed to)
 # a single satellite's sub-network (x > 0). Index x=0 is reserved for the satellite itself.
@@ -217,6 +217,42 @@ class TopologicalNetworkAddress:
 
         return TopologicalNetworkAddress(
             shell_id=shell_id, plane_id=plane_id, sat_index=sat_index, subnet_index=subnet_index
+        )
+
+    @staticmethod
+    def set_address_from_constellation(
+        satellite_id: int,
+        n_orbits: int,
+        n_sats_per_orbit: int,
+        shell_id: int = 0,
+    ) -> "TopologicalNetworkAddress":
+        if satellite_id < 0:
+            raise ValueError(f"satellite_id must be non-negative, got {satellite_id}")
+        if n_orbits <= 0 or n_sats_per_orbit <= 0:
+            raise ValueError("n_orbits and n_sats_per_orbit must be positive")
+        plane_id = satellite_id // n_sats_per_orbit
+        sat_index = satellite_id % n_sats_per_orbit
+        if plane_id >= n_orbits:
+            raise ValueError(
+                f"satellite_id {satellite_id} exceeds constellation size ({n_orbits}x{n_sats_per_orbit})"
+            )
+        if plane_id >= MAX_PLANES:
+            raise ValueError(
+                f"plane_id {plane_id} out of range [0, {MAX_PLANES - 1}]"
+            )
+        if sat_index >= MAX_SATS_PER_PLANE:
+            raise ValueError(
+                f"sat_index {sat_index} out of range [0, {MAX_SATS_PER_PLANE - 1}]"
+            )
+        if shell_id >= MAX_SHELLS:
+            raise ValueError(
+                f"shell_id {shell_id} out of range [0, {MAX_SHELLS - 1}]"
+            )
+        return TopologicalNetworkAddress(
+            shell_id=shell_id,
+            plane_id=plane_id,
+            sat_index=sat_index,
+            subnet_index=0,
         )
 
     def topological_distance_to(self, other: "TopologicalNetworkAddress") -> float:

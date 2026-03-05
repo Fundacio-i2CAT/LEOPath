@@ -61,6 +61,7 @@ def algorithm_free_one_only_over_isls_topological(
         topology_with_isls,
         ground_stations,
         ground_station_satellites_in_range,
+        constellation_data,
         time_since_epoch_ns,
         prev_fstate,
         graph_has_changed,
@@ -112,6 +113,7 @@ def calculate_fstate_topological_routing_no_gs_relay(
     topology_with_isls: LEOTopology,
     ground_stations: list[GroundStation],
     ground_station_satellites_in_range: list,
+    constellation_data: ConstellationData,
     time_since_epoch_ns: int = 0,
     prev_fstate: dict | None = None,
     graph_has_changed: bool = True,
@@ -162,9 +164,9 @@ def calculate_fstate_topological_routing_no_gs_relay(
     # Step 1: Initialize at t=0 - set 6GRUPA addresses and neighbor forwarding tables
     if time_since_epoch_ns == 0:
         log.debug("t=0: Setting 6GRUPA addresses to all nodes and initializing forwarding tables")
-        _set_sixgrupa_addresses_to_all_nodes(topology_with_isls)
+        _set_sixgrupa_addresses_to_all_nodes(topology_with_isls, constellation_data)
         _fill_forwarding_tables_in_every_satellite(
-            satellite_node_ids, satellite_only_subgraph, topology_with_isls
+            satellite_node_ids, satellite_only_subgraph, topology_with_isls, constellation_data
         )
         # Also assign GS addresses for initial GSL attachments
         for gs_idx, gs in enumerate(ground_stations):
@@ -174,7 +176,13 @@ def calculate_fstate_topological_routing_no_gs_relay(
                 if satellites:
                     _, curr_sat_id = satellites[0]
             if curr_sat_id is not None:
-                _perform_renumbering_for_gs(gs, None, curr_sat_id, topology_with_isls)
+                _perform_renumbering_for_gs(
+                    gs,
+                    None,
+                    curr_sat_id,
+                    topology_with_isls,
+                    constellation_data,
+                )
         graph_has_changed = True  # Force recalculation on first run
 
     # Step 2: Check if we can reuse previous state
@@ -187,7 +195,13 @@ def calculate_fstate_topological_routing_no_gs_relay(
     for gs_idx, (prev_sat_id, curr_sat_id) in gsl_changes.items():
         gs = ground_stations[gs_idx]
         log.debug(f"GSL changed for GS {gs.id}: {prev_sat_id} -> {curr_sat_id}")
-        _perform_renumbering_for_gs(gs, prev_sat_id, curr_sat_id, topology_with_isls)
+        _perform_renumbering_for_gs(
+            gs,
+            prev_sat_id,
+            curr_sat_id,
+            topology_with_isls,
+            constellation_data,
+        )
 
     # Step 4: Calculate satellite-to-GS forwarding state
     fstate: dict[tuple, tuple] = {}
@@ -199,6 +213,7 @@ def calculate_fstate_topological_routing_no_gs_relay(
         topology_with_isls,
         ground_stations,
         ground_station_satellites_in_range,
+        constellation_data,
         satellite_node_ids,
         node_to_index,
         satellite_only_subgraph,
@@ -211,14 +226,20 @@ def calculate_fstate_topological_routing_no_gs_relay(
     return fstate
 
 
-def _set_sixgrupa_addresses_to_all_nodes(topology: LEOTopology):
+def _set_sixgrupa_addresses_to_all_nodes(
+    topology: LEOTopology, constellation_data: ConstellationData
+):
     """
     Set 6GRUPA addresses to all satellite nodes in the topology.
     """
     log.debug("Setting 6GRUPA addresses to all satellite nodes")
     for satellite in topology.get_satellites():
         try:
-            address = TopologicalNetworkAddress.set_address_from_orbital_parameters(satellite.id)
+            address = TopologicalNetworkAddress.set_address_from_constellation(
+                satellite.id,
+                constellation_data.n_orbits,
+                constellation_data.n_sats_per_orbit,
+            )
             satellite.sixgrupa_addr = address
             log.debug(f"Assigned 6G-RUPA address {address} to satellite {satellite.id}")
         except Exception as e:
@@ -269,7 +290,11 @@ def _detect_gsl_changes(
 
 
 def _assign_gs_address_from_satellite(
-    gs: GroundStation, satellite_id: int, gs_subnet_index: int, topology: LEOTopology
+    gs: GroundStation,
+    satellite_id: int,
+    gs_subnet_index: int,
+    topology: LEOTopology,
+    constellation_data: ConstellationData,
 ) -> Optional[TopologicalNetworkAddress]:
     """
     Assign a 6grupa address to a ground station based on its attached satellite.
@@ -288,8 +313,10 @@ def _assign_gs_address_from_satellite(
         satellite = topology.get_satellite(satellite_id)
         if not hasattr(satellite, "sixgrupa_addr") or not satellite.sixgrupa_addr:
             # If satellite doesn't have an address, create one
-            sat_address = TopologicalNetworkAddress.set_address_from_orbital_parameters(
-                satellite_id
+            sat_address = TopologicalNetworkAddress.set_address_from_constellation(
+                satellite_id,
+                constellation_data.n_orbits,
+                constellation_data.n_sats_per_orbit,
             )
             satellite.sixgrupa_addr = sat_address
         else:
@@ -316,7 +343,11 @@ def _assign_gs_address_from_satellite(
 
 
 def _perform_renumbering_for_gs(
-    gs: GroundStation, prev_sat_id: Optional[int], curr_sat_id: Optional[int], topology: LEOTopology
+    gs: GroundStation,
+    prev_sat_id: Optional[int],
+    curr_sat_id: Optional[int],
+    topology: LEOTopology,
+    constellation_data: ConstellationData,
 ):
     """
     Perform renumbering when a ground station's satellite links change.
@@ -330,8 +361,10 @@ def _perform_renumbering_for_gs(
         try:
             satellite = topology.get_satellite(curr_sat_id)
             if satellite.sixgrupa_addr is None:
-                satellite.sixgrupa_addr = (
-                    TopologicalNetworkAddress.set_address_from_orbital_parameters(curr_sat_id)
+                satellite.sixgrupa_addr = TopologicalNetworkAddress.set_address_from_constellation(
+                    curr_sat_id,
+                    constellation_data.n_orbits,
+                    constellation_data.n_sats_per_orbit,
                 )
             sat_addr = satellite.sixgrupa_addr
         except Exception:
@@ -362,7 +395,13 @@ def _perform_renumbering_for_gs(
             subnet_index += 1
 
         # Assign new address based on the current satellite
-        gs_address = _assign_gs_address_from_satellite(gs, curr_sat_id, subnet_index, topology)
+        gs_address = _assign_gs_address_from_satellite(
+            gs,
+            curr_sat_id,
+            subnet_index,
+            topology,
+            constellation_data,
+        )
         if gs_address:
             gs.sixgrupa_addr = gs_address
             gs.previous_attached_satellite_id = curr_sat_id  # Update the previous attachment
@@ -380,6 +419,7 @@ def _fill_forwarding_tables_in_every_satellite(
     satellite_node_ids: list[int],
     satellite_only_subgraph: nx.Graph,
     topology_with_isls: LEOTopology,
+    constellation_data: ConstellationData,
 ):
     """
     Fill forwarding tables in every satellite based on neighbor 6grupa addresses.
@@ -391,10 +431,10 @@ def _fill_forwarding_tables_in_every_satellite(
                 interface = topology_with_isls.sat_neighbor_to_if.get((satellite_id, neighbor_id))
                 if interface is not None:
                     try:
-                        neighbor_address = (
-                            TopologicalNetworkAddress.set_address_from_orbital_parameters(
-                                neighbor_id
-                            )
+                        neighbor_address = TopologicalNetworkAddress.set_address_from_constellation(
+                            neighbor_id,
+                            constellation_data.n_orbits,
+                            constellation_data.n_sats_per_orbit,
                         )
                         satellite.forwarding_table[neighbor_address.to_integer()] = interface
                         log.debug(
@@ -413,6 +453,7 @@ def _calculate_sat_to_gs_fstate(
     topology_with_isls,
     ground_stations,
     ground_station_satellites_in_range,
+    constellation_data,
     nodelist,
     node_to_index,
     sat_subgraph,
@@ -456,10 +497,10 @@ def _calculate_sat_to_gs_fstate(
             for dist_gs_to_sat_m, visible_sat_id in possible_dst_sats:
                 try:
                     # Get 6grupa address of the destination satellite
-                    dest_sat_address = (
-                        TopologicalNetworkAddress.set_address_from_orbital_parameters(
-                            visible_sat_id
-                        )
+                    dest_sat_address = TopologicalNetworkAddress.set_address_from_constellation(
+                        visible_sat_id,
+                        constellation_data.n_orbits,
+                        constellation_data.n_sats_per_orbit,
                     )
 
                     # Calculate topological distance from current satellite to destination satellite
@@ -486,8 +527,10 @@ def _calculate_sat_to_gs_fstate(
 
             # Get destination satellite address for routing decision
             try:
-                dest_sat_address = TopologicalNetworkAddress.set_address_from_orbital_parameters(
-                    best_dst_sat_id
+                dest_sat_address = TopologicalNetworkAddress.set_address_from_constellation(
+                    best_dst_sat_id,
+                    constellation_data.n_orbits,
+                    constellation_data.n_sats_per_orbit,
                 )
 
                 # Determine next hop using topological routing
@@ -496,6 +539,7 @@ def _calculate_sat_to_gs_fstate(
                         curr_sat_id,
                         curr_satellite,
                         dest_sat_address,
+                        constellation_data,
                         sat_subgraph,
                         sat_neighbor_to_if,
                         topology_with_isls,
@@ -523,6 +567,7 @@ def _get_next_hop_decision_topological(
     curr_sat_id: int,
     curr_satellite,
     destination_address: TopologicalNetworkAddress,
+    constellation_data: ConstellationData,
     sat_subgraph,
     sat_neighbor_to_if,
     topology_with_isls,
@@ -567,8 +612,10 @@ def _get_next_hop_decision_topological(
     # Check all neighbors
     for neighbor_id in sat_subgraph.neighbors(curr_sat_id):
         try:
-            neighbor_address = TopologicalNetworkAddress.set_address_from_orbital_parameters(
-                neighbor_id
+            neighbor_address = TopologicalNetworkAddress.set_address_from_constellation(
+                neighbor_id,
+                constellation_data.n_orbits,
+                constellation_data.n_sats_per_orbit,
             )
             neighbor_distance_to_dest = neighbor_address.topological_distance_to(
                 destination_address
