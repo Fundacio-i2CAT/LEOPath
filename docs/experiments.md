@@ -54,6 +54,14 @@ paper_eval_outputs/
     topological_routing/
       ring/
       grid/
+    predictive_link_state/
+      ring/
+        horizon_0m/
+        horizon_5m/
+    segment_routing/
+      grid/
+        segments_2/
+        segments_3/
 ```
 
 ## Notes

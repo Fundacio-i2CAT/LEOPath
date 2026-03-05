@@ -12,21 +12,55 @@ CONFIGS=${CONFIGS:-"starlink kuiper oneweb telesat dense_synthetic"}
 END_TIME_HOURS=${END_TIME_HOURS:-6}
 TIME_STEP_MINUTES=${TIME_STEP_MINUTES:-5}
 GS_CONFIG=${GS_CONFIG:-"$ROOT_DIR/leopath/config/ground_stations_dense.yaml"}
+PREDICTION_HORIZONS=${PREDICTION_HORIZONS:-"0 5 10"}
+SEGMENT_COUNTS=${SEGMENT_COUNTS:-"2 3"}
+SEGMENT_MODE=${SEGMENT_MODE:-"plane_then_inplane"}
 
 for config_name in $CONFIGS; do
   config_path="$ROOT_DIR/leopath/config/${config_name}.yaml"
   for algorithm in $ALGORITHMS; do
     for isl in $ISL_SCENARIOS; do
-      out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}"
-      mkdir -p "$out_dir"
-      python -m leopath.experiments.eval_harness \
-        --config "$config_path" \
-        --output-dir "$out_dir" \
-        --isl-scenario "$isl" \
-        --algorithm "$algorithm" \
-        --gs-config "$GS_CONFIG" \
-        --end-time-hours "$END_TIME_HOURS" \
-        --time-step-minutes "$TIME_STEP_MINUTES"
+      if [ "$algorithm" = "predictive_link_state" ]; then
+        for horizon in $PREDICTION_HORIZONS; do
+          out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}/horizon_${horizon}m"
+          mkdir -p "$out_dir"
+          python -m leopath.experiments.eval_harness \
+            --config "$config_path" \
+            --output-dir "$out_dir" \
+            --isl-scenario "$isl" \
+            --algorithm "$algorithm" \
+            --gs-config "$GS_CONFIG" \
+            --end-time-hours "$END_TIME_HOURS" \
+            --time-step-minutes "$TIME_STEP_MINUTES" \
+            --prediction-horizon-minutes "$horizon"
+        done
+      elif [ "$algorithm" = "segment_routing" ]; then
+        for count in $SEGMENT_COUNTS; do
+          out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}/segments_${count}"
+          mkdir -p "$out_dir"
+          python -m leopath.experiments.eval_harness \
+            --config "$config_path" \
+            --output-dir "$out_dir" \
+            --isl-scenario "$isl" \
+            --algorithm "$algorithm" \
+            --gs-config "$GS_CONFIG" \
+            --end-time-hours "$END_TIME_HOURS" \
+            --time-step-minutes "$TIME_STEP_MINUTES" \
+            --segment-count "$count" \
+            --segment-mode "$SEGMENT_MODE"
+        done
+      else
+        out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}"
+        mkdir -p "$out_dir"
+        python -m leopath.experiments.eval_harness \
+          --config "$config_path" \
+          --output-dir "$out_dir" \
+          --isl-scenario "$isl" \
+          --algorithm "$algorithm" \
+          --gs-config "$GS_CONFIG" \
+          --end-time-hours "$END_TIME_HOURS" \
+          --time-step-minutes "$TIME_STEP_MINUTES"
+      fi
     done
   done
 done

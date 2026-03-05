@@ -102,6 +102,12 @@ def run_evaluation(
     gs_override_path: str | None,
     end_time_hours: float | None,
     time_step_minutes: float | None,
+    prediction_horizon_minutes: float | None,
+    segment_count: int | None,
+    segment_mode: str | None,
+    plane_weight: float | None,
+    sat_weight: float | None,
+    shell_weight: float | None,
 ) -> None:
     config = load_config(config_path)
     gs_override = load_ground_station_override(gs_override_path)
@@ -110,6 +116,20 @@ def run_evaluation(
     if algorithm_name:
         config["simulation"]["dynamic_state_algorithm"] = algorithm_name
     algorithm_params = config["simulation"].get("algorithm_params") or {}
+    if prediction_horizon_minutes is not None:
+        algorithm_params["prediction_horizon_minutes"] = prediction_horizon_minutes
+    if segment_count is not None:
+        algorithm_params["segment_count"] = segment_count
+    if segment_mode is not None:
+        algorithm_params["segment_mode"] = segment_mode
+    if plane_weight is not None:
+        algorithm_params["plane_weight"] = plane_weight
+    if sat_weight is not None:
+        algorithm_params["sat_weight"] = sat_weight
+    if shell_weight is not None:
+        algorithm_params["shell_weight"] = shell_weight
+    if algorithm_params:
+        config["simulation"]["algorithm_params"] = algorithm_params
     if end_time_hours is not None:
         config["simulation"]["end_time_hours"] = end_time_hours
     if time_step_minutes is not None:
@@ -319,6 +339,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--end-time-hours", type=float, default=None)
     parser.add_argument("--time-step-minutes", type=float, default=None)
+    parser.add_argument("--prediction-horizon-minutes", type=float, default=None)
+    parser.add_argument("--segment-count", type=int, default=None)
+    parser.add_argument("--segment-mode", type=str, default=None)
+    parser.add_argument("--plane-weight", type=float, default=None)
+    parser.add_argument("--sat-weight", type=float, default=None)
+    parser.add_argument("--shell-weight", type=float, default=None)
     return parser.parse_args()
 
 
@@ -332,6 +358,12 @@ def main() -> None:
         gs_override_path=args.gs_config,
         end_time_hours=args.end_time_hours,
         time_step_minutes=args.time_step_minutes,
+        prediction_horizon_minutes=args.prediction_horizon_minutes,
+        segment_count=args.segment_count,
+        segment_mode=args.segment_mode,
+        plane_weight=args.plane_weight,
+        sat_weight=args.sat_weight,
+        shell_weight=args.shell_weight,
     )
 
 
