@@ -1,17 +1,31 @@
 # Routing Algorithms
 
-LEOPath supports multiple routing algorithms via a pluggable interface.
+LEOPath exposes routing algorithms via a pluggable interface. Each algorithm computes forwarding state for GS-to-GS traffic by routing through the satellite network.
 
 ## Implemented algorithms
 
-- `shortest_path_link_state`
-- `topological_routing`
-- `predictive_link_state`
-- `segment_routing`
+- `shortest_path_link_state`: Baseline Dijkstra over the dynamic ISL graph.
+- `topological_routing`: 6G-RUPA-inspired addressing with neighbor-based forwarding.
+- `predictive_link_state`: Link-state computed on a predicted future topology snapshot.
+- `segment_routing`: Limited-segment routing using plane alignment then intra-plane moves.
 
 ## Algorithm parameters
 
 Parameters are passed via `simulation.algorithm_params`.
+
+### Link-state baseline
+
+```yaml
+simulation:
+  dynamic_state_algorithm: shortest_path_link_state
+```
+
+### Topological routing
+
+```yaml
+simulation:
+  dynamic_state_algorithm: topological_routing
+```
 
 ### Predictive link-state
 

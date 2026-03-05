@@ -50,3 +50,12 @@ logging:
   is_debug: false
   file_name: "simulation.log"
 ```
+
+## Example configs
+
+- `leopath/config/ether_simple.yaml`
+- `leopath/config/starlink.yaml`
+- `leopath/config/kuiper.yaml`
+- `leopath/config/oneweb.yaml`
+- `leopath/config/telesat.yaml`
+- `leopath/config/dense_synthetic.yaml`
