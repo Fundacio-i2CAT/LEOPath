@@ -64,6 +64,29 @@ paper_eval_outputs/
         segments_3/
 ```
 
+## Aggregate results
+
+Create a single CSV with mean metrics per run:
+
+```bash
+python -m leopath.experiments.aggregate_eval \
+  --input paper_eval_outputs \
+  --output paper_eval_outputs/aggregate_summary.csv
+```
+
+## Time-series plots (paper style)
+
+Generate the same plot style as the Jan 28 runs:
+
+```bash
+python -m leopath.experiments.plot_eval_timeseries \
+  --input-dir paper_eval_outputs/ether_simple \
+  --output-dir paper_eval_plots/ether_simple \
+  --stretch-metric distance
+```
+
+Includes compute time per step when available.
+
 ## Notes
 
 - For predictive link-state, use the same time step as other algorithms for fair churn comparison.

@@ -7,12 +7,14 @@ LEOPath evaluation focuses on path optimality, stability, and state size under d
 - **Stretch**: hop and distance ratio vs shortest-path baseline.
 - **Churn**: next-hop changes between consecutive snapshots.
 - **Memory footprint**: forwarding state size per satellite.
+- **Compute time**: wall-clock time to compute routing state per time step.
 
 Why these metrics:
 
 - Stretch captures path optimality cost of reduced state.
 - Churn indicates update frequency and control-plane overhead.
 - Memory footprint reflects routing table scalability.
+- Compute time serves as a practical proxy for algorithmic complexity.
 
 Optional metrics to add later:
 

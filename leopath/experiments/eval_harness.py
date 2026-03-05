@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import time
 import logging
 import os
 
@@ -209,6 +210,7 @@ def run_evaluation(
             topology_with_isls.sat_neighbor_to_if
         )
         algorithm_params = sim_config.get("algorithm_params") or {}
+        compute_start = time.perf_counter()
         fstate_output = algorithm.compute_state(
             time_since_epoch_ns=time_since_epoch_ns,
             constellation_data=constellation_data,
@@ -218,6 +220,7 @@ def run_evaluation(
             list_gsl_interfaces_info=topology_with_isls.gsl_interfaces_info,
             algorithm_params=algorithm_params,
         )
+        compute_duration_ms = (time.perf_counter() - compute_start) * 1000.0
         fstate = fstate_output.get("fstate", {})
 
         attachments = get_gs_attachments(gs_sat_visibility)
@@ -246,6 +249,7 @@ def run_evaluation(
                 **flatten_distribution("fstate_size", fstate_stats),
                 **flatten_distribution("stretch_hop", stretch_stats["hop"]),
                 **flatten_distribution("stretch_dist", stretch_stats["distance"]),
+                "compute_time_ms": compute_duration_ms,
             }
         )
 
