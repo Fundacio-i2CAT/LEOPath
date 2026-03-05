@@ -252,6 +252,10 @@ python -m leopath.main --config <path-to-config.yaml>
 - `leopath/config/telesat.yaml` - Synthetic Telesat-like constellation (27 orbits, 13 satellites per orbit)
 - `leopath/config/dense_synthetic.yaml` - Dense synthetic LEO constellation (72 orbits, 72 satellites per orbit)
 
+**Algorithm params** (used by evaluation harness):
+- `predictive_link_state`: `prediction_horizon_minutes`
+- `segment_routing`: `segment_mode`, `segment_count`, `plane_weight`, `sat_weight`, `shell_weight`
+
 **Simulation outputs** are stored in timestamped directories:
 
 ```
