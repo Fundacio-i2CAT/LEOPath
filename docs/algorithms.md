@@ -16,6 +16,20 @@ LEOPath exposes routing algorithms via a pluggable interface. Each algorithm com
 - Segment routing uses a small fixed segment list; it does not perform full traffic engineering.
 - Topological routing assumes stable plane/satellite indexing for address construction.
 
+## Design considerations
+
+### Predictive link-state
+
+- Uses the same Dijkstra baseline but evaluates paths on a topology snapshot at `t + horizon`.
+- Works best with deterministic movement and regular update cadence (fixed time step).
+- Useful as a proxy for operator-controlled precomputation without requiring proprietary details.
+
+### Segment routing
+
+- Uses a limited segment list to trade path optimality for state and churn reductions.
+- Default mode prioritizes plane alignment, then intra-plane movement (`plane_then_inplane`).
+- Segment count is intentionally small to keep forwarding state compact and stable.
+
 ## Algorithm parameters
 
 Parameters are passed via `simulation.algorithm_params`.

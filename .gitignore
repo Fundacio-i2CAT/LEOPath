@@ -15,6 +15,7 @@ simulation_output/
 tle_output/
 visualisation_output/
 output/
+site/
 
 # Scattered output files (should be organized)
 simulation_*.log

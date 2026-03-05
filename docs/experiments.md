@@ -31,6 +31,11 @@ ISL_SCENARIOS="ring grid" \
 - **Predictive link-state**: `prediction_horizon_minutes` in {0, 5, 10}.
 - **Segment routing**: `segment_count` in {2, 3} and `segment_mode` = `plane_then_inplane`.
 
+## Design notes
+
+- Predictive link-state runs compute paths over a future topology snapshot, so keep the horizon within 1–2 time steps.
+- Segment routing results are most interpretable when plane counts are large and uniform.
+
 ## Constellation set
 
 - `starlink`
