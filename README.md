@@ -247,6 +247,10 @@ python -m leopath.main --config <path-to-config.yaml>
 **Available example configurations**:
 - `leopath/config/ether_simple.yaml` - Simplified constellation (18 orbits, 18 satellites per orbit) for quick testing
 - `leopath/config/starlink.yaml` - Full-scale Starlink-like constellation (22 orbits, 72 satellites per orbit)
+- `leopath/config/kuiper.yaml` - Synthetic Kuiper-like constellation (34 orbits, 34 satellites per orbit)
+- `leopath/config/oneweb.yaml` - Synthetic OneWeb-like constellation (18 orbits, 36 satellites per orbit)
+- `leopath/config/telesat.yaml` - Synthetic Telesat-like constellation (27 orbits, 13 satellites per orbit)
+- `leopath/config/dense_synthetic.yaml` - Dense synthetic LEO constellation (72 orbits, 72 satellites per orbit)
 
 **Simulation outputs** are stored in timestamped directories:
 
@@ -624,4 +628,3 @@ Attributions of Third Party Components of this work:
 
  * Sergio Giménez [@sergio-gimenez](https://github.com/sergio-gimenez) ([sergio.gimenez@i2cat.net](mailto:sergio.gimenez@i2cat.net))
  * Eduard Grasa [@edugrasa](https://github.com/edugrasa) ([eduard.grasa@i2cat.net](mailto:eduard.grasa@i2cat.net))
-
