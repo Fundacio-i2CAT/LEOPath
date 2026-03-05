@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import logging
 import os
 
 import yaml
@@ -139,6 +140,7 @@ def run_evaluation(
     logger.setup_logger(
         is_debug=False, file_name=os.path.join(output_dir, "eval_harness.log")
     )
+    logging.getLogger(logger.APP_LOGGER_NAME).setLevel(logging.ERROR)
 
     parsed_tles_data, sim_satellites = setup_tles_and_satellites(config)
     ground_stations = setup_ground_stations(config)
