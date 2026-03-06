@@ -2,8 +2,26 @@
 set -euo pipefail
 
 ROOT_DIR=$(cd "$(dirname "$0")" && pwd)
+CONTAINER_ROOT="/app/output"
 
-OUTPUT_BASE=${1:-"$ROOT_DIR/paper_eval_outputs"}
+to_runtime_path() {
+  local path="$1"
+  if [ "$EVAL_USE_DOCKER" = "1" ]; then
+    if [[ "$path" == "$ROOT_DIR"* ]]; then
+      echo "${path/$ROOT_DIR/$CONTAINER_ROOT}"
+      return
+    fi
+  fi
+  echo "$path"
+}
+
+if [ "$EVAL_USE_DOCKER" = "1" ]; then
+  DEFAULT_OUTPUT_BASE="$CONTAINER_ROOT/paper_eval_outputs"
+else
+  DEFAULT_OUTPUT_BASE="$ROOT_DIR/paper_eval_outputs"
+fi
+
+OUTPUT_BASE=${1:-"$DEFAULT_OUTPUT_BASE"}
 
 ALGORITHMS=${ALGORITHMS:-"topological_routing shortest_path_link_state predictive_link_state segment_routing"}
 ISL_SCENARIOS=${ISL_SCENARIOS:-"ring grid"}
@@ -12,6 +30,7 @@ CONFIGS=${CONFIGS:-"starlink kuiper oneweb telesat dense_synthetic"}
 END_TIME_HOURS=${END_TIME_HOURS:-6}
 TIME_STEP_MINUTES=${TIME_STEP_MINUTES:-5}
 GS_CONFIG=${GS_CONFIG:-"$ROOT_DIR/leopath/config/ground_stations_dense.yaml"}
+GS_CONFIG=$(to_runtime_path "$GS_CONFIG")
 PREDICTION_HORIZONS=${PREDICTION_HORIZONS:-"0 5 10"}
 SEGMENT_COUNTS=${SEGMENT_COUNTS:-"2 3"}
 SEGMENT_MODE=${SEGMENT_MODE:-"plane_then_inplane"}
@@ -27,6 +46,7 @@ run_eval_harness() {
 
 for config_name in $CONFIGS; do
   config_path="$ROOT_DIR/leopath/config/${config_name}.yaml"
+  config_path=$(to_runtime_path "$config_path")
   for algorithm in $ALGORITHMS; do
     for isl in $ISL_SCENARIOS; do
       if [ "$algorithm" = "predictive_link_state" ]; then
