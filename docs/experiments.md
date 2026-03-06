@@ -10,6 +10,12 @@ Run the full cross-product of constellations, algorithms, and ISL scenarios.
 ./run-eval-matrix.sh
 ```
 
+If local Python dependencies are not available, run via Docker:
+
+```bash
+EVAL_USE_DOCKER=1 ./run-eval-matrix.sh
+```
+
 Set variables to scope the runs:
 
 ```bash

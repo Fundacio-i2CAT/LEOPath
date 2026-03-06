@@ -15,6 +15,15 @@ GS_CONFIG=${GS_CONFIG:-"$ROOT_DIR/leopath/config/ground_stations_dense.yaml"}
 PREDICTION_HORIZONS=${PREDICTION_HORIZONS:-"0 5 10"}
 SEGMENT_COUNTS=${SEGMENT_COUNTS:-"2 3"}
 SEGMENT_MODE=${SEGMENT_MODE:-"plane_then_inplane"}
+EVAL_USE_DOCKER=${EVAL_USE_DOCKER:-0}
+
+run_eval_harness() {
+  if [ "$EVAL_USE_DOCKER" = "1" ]; then
+    docker compose run --rm leo-routing-simu python -m leopath.experiments.eval_harness "$@"
+  else
+    python -m leopath.experiments.eval_harness "$@"
+  fi
+}
 
 for config_name in $CONFIGS; do
   config_path="$ROOT_DIR/leopath/config/${config_name}.yaml"
@@ -24,7 +33,7 @@ for config_name in $CONFIGS; do
         for horizon in $PREDICTION_HORIZONS; do
           out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}/horizon_${horizon}m"
           mkdir -p "$out_dir"
-          python -m leopath.experiments.eval_harness \
+          run_eval_harness \
             --config "$config_path" \
             --output-dir "$out_dir" \
             --isl-scenario "$isl" \
@@ -38,7 +47,7 @@ for config_name in $CONFIGS; do
         for count in $SEGMENT_COUNTS; do
           out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}/segments_${count}"
           mkdir -p "$out_dir"
-          python -m leopath.experiments.eval_harness \
+          run_eval_harness \
             --config "$config_path" \
             --output-dir "$out_dir" \
             --isl-scenario "$isl" \
@@ -52,7 +61,7 @@ for config_name in $CONFIGS; do
       else
         out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}"
         mkdir -p "$out_dir"
-        python -m leopath.experiments.eval_harness \
+        run_eval_harness \
           --config "$config_path" \
           --output-dir "$out_dir" \
           --isl-scenario "$isl" \
