@@ -15,13 +15,7 @@ to_runtime_path() {
   echo "$path"
 }
 
-if [ "$EVAL_USE_DOCKER" = "1" ]; then
-  DEFAULT_OUTPUT_BASE="$CONTAINER_ROOT/paper_eval_outputs"
-else
-  DEFAULT_OUTPUT_BASE="$ROOT_DIR/paper_eval_outputs"
-fi
-
-OUTPUT_BASE=${1:-"$DEFAULT_OUTPUT_BASE"}
+OUTPUT_BASE=${1:-"$ROOT_DIR/paper_eval_outputs"}
 
 ALGORITHMS=${ALGORITHMS:-"topological_routing shortest_path_link_state predictive_link_state segment_routing"}
 ISL_SCENARIOS=${ISL_SCENARIOS:-"ring grid"}
@@ -53,9 +47,10 @@ for config_name in $CONFIGS; do
         for horizon in $PREDICTION_HORIZONS; do
           out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}/horizon_${horizon}m"
           mkdir -p "$out_dir"
+          runtime_out_dir=$(to_runtime_path "$out_dir")
           run_eval_harness \
             --config "$config_path" \
-            --output-dir "$out_dir" \
+            --output-dir "$runtime_out_dir" \
             --isl-scenario "$isl" \
             --algorithm "$algorithm" \
             --gs-config "$GS_CONFIG" \
@@ -67,9 +62,10 @@ for config_name in $CONFIGS; do
         for count in $SEGMENT_COUNTS; do
           out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}/segments_${count}"
           mkdir -p "$out_dir"
+          runtime_out_dir=$(to_runtime_path "$out_dir")
           run_eval_harness \
             --config "$config_path" \
-            --output-dir "$out_dir" \
+            --output-dir "$runtime_out_dir" \
             --isl-scenario "$isl" \
             --algorithm "$algorithm" \
             --gs-config "$GS_CONFIG" \
@@ -81,9 +77,10 @@ for config_name in $CONFIGS; do
       else
         out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}"
         mkdir -p "$out_dir"
+        runtime_out_dir=$(to_runtime_path "$out_dir")
         run_eval_harness \
           --config "$config_path" \
-          --output-dir "$out_dir" \
+          --output-dir "$runtime_out_dir" \
           --isl-scenario "$isl" \
           --algorithm "$algorithm" \
           --gs-config "$GS_CONFIG" \
