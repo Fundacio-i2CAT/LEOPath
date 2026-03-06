@@ -19,7 +19,7 @@ EVAL_USE_DOCKER=${EVAL_USE_DOCKER:-0}
 
 run_eval_harness() {
   if [ "$EVAL_USE_DOCKER" = "1" ]; then
-    docker compose run --rm leo-routing-simu python -m leopath.experiments.eval_harness "$@"
+    docker compose run --rm --entrypoint "python" leo-routing-simu -m leopath.experiments.eval_harness "$@"
   else
     python -m leopath.experiments.eval_harness "$@"
   fi
