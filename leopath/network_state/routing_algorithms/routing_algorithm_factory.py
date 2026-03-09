@@ -5,6 +5,9 @@ from .predictive_link_state.predictive_link_state import (
     PredictiveLinkStateRoutingAlgorithm,
 )
 from .segment_routing.segment_routing import SegmentRoutingAlgorithm
+from .traditional_segment_routing.traditional_segment_routing import (
+    TraditionalSegmentRoutingAlgorithm,
+)
 from .topological_routing.topological_routing import TopologicalRoutingAlgorithm
 
 
@@ -18,6 +21,8 @@ def get_routing_algorithm(name: str):
         return PredictiveLinkStateRoutingAlgorithm()
     elif name == "segment_routing":
         return SegmentRoutingAlgorithm()
+    elif name == "traditional_segment_routing":
+        return TraditionalSegmentRoutingAlgorithm()
     elif name == "topological_routing":
         return TopologicalRoutingAlgorithm()
     else:

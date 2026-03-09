@@ -74,6 +74,10 @@ def format_label(metadata: dict) -> str:
         segments = params.get("segment_count")
         if segments is not None:
             return f"{algorithm} (seg={int(segments)})"
+    if algorithm == "traditional_segment_routing":
+        segments = params.get("segment_count")
+        if segments is not None:
+            return f"{algorithm} (seg={int(segments)})"
     return algorithm
 
 

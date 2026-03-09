@@ -305,6 +305,9 @@ def run_evaluation(
         "generated_at": datetime.datetime.now().isoformat(),
         "forwarding_state_definition": {
             "shortest_path_link_state": "global node map (nodes in topology graph)",
+            "predictive_link_state": "global node map (nodes in topology graph)",
+            "traditional_segment_routing": "segment list length (configured segment_count)",
+            "segment_routing": "segment list length (configured segment_count)",
             "topological_routing": "immediate neighbors (node degree in topology graph)",
             "default": "reachable GS destinations per satellite",
         },
