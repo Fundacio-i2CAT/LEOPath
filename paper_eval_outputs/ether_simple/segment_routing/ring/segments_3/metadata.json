@@ -1,0 +1,28 @@
+{
+  "algorithm": "segment_routing",
+  "algorithm_params": {
+    "segment_count": 3,
+    "segment_mode": "plane_then_inplane"
+  },
+  "constellation": {
+    "altitude_m": 600000,
+    "inclination_degree": 60,
+    "name": "Starlink-550",
+    "num_orbits": 18,
+    "num_sats_per_orbit": 18
+  },
+  "end_time_hours": 6.0,
+  "forwarding_state_definition": {
+    "default": "reachable GS destinations per satellite",
+    "shortest_path_link_state": "global node map (nodes in topology graph)",
+    "topological_routing": "immediate neighbors (node degree in topology graph)"
+  },
+  "generated_at": "2026-03-05T16:13:29.768681",
+  "ground_stations": {
+    "count": 24,
+    "override_path": "/home/sergio/phd/ntn/LEOPath/leopath/config/ground_stations_dense.yaml"
+  },
+  "isl_scenario": "ring",
+  "offset_ns": 0,
+  "time_step_minutes": 5.0
+}

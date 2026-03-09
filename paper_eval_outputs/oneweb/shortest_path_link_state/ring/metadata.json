@@ -1,0 +1,32 @@
+{
+  "algorithm": "shortest_path_link_state",
+  "algorithm_params": {
+    "plane_weight": 100.0,
+    "prediction_horizon_minutes": 5,
+    "sat_weight": 1.0,
+    "segment_count": 2,
+    "segment_mode": "plane_then_inplane",
+    "shell_weight": 1000.0
+  },
+  "constellation": {
+    "altitude_m": 1200000,
+    "inclination_degree": 87.9,
+    "name": "OneWeb-synthetic",
+    "num_orbits": 18,
+    "num_sats_per_orbit": 36
+  },
+  "end_time_hours": 6.0,
+  "forwarding_state_definition": {
+    "default": "reachable GS destinations per satellite",
+    "shortest_path_link_state": "global node map (nodes in topology graph)",
+    "topological_routing": "immediate neighbors (node degree in topology graph)"
+  },
+  "generated_at": "2026-03-06T13:59:51.223295",
+  "ground_stations": {
+    "count": 24,
+    "override_path": "/app/output/leopath/config/ground_stations_dense.yaml"
+  },
+  "isl_scenario": "ring",
+  "offset_ns": 0,
+  "time_step_minutes": 5.0
+}
