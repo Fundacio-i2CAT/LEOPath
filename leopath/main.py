@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import logging
 import math
 import os
 
@@ -99,8 +100,10 @@ def setup_isls_in_the_same_orbit(num_orbits: int, sats_per_orbit: int):
             dst = base + ((i + 1) % sats_per_orbit)
             undirected_isls.append((src, dst))
     log.info(
-        f"Created {len(undirected_isls)} intra-orbit ISLs (rings) for {num_orbits} orbits; undirected_isls={undirected_isls}"
+        f"Created {len(undirected_isls)} intra-orbit ISLs (rings) for {num_orbits} orbits."
     )
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug(f"undirected_isls={undirected_isls}")
     return undirected_isls
 
 
@@ -137,7 +140,9 @@ def generate_plus_grid_isls(n_orbits, n_sats_per_orbit, isl_shift=0, idx_offset=
                     idx_offset + max(sat, sat_adjacent_orbit),
                 )
             )
-    log.info(f"Created {len(list_isls)}; undirected_isls='{list_isls}'")
+    log.info(f"Created {len(list_isls)} ISLs (+Grid).")
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug(f"undirected_isls={list_isls}")
     return list_isls
 
 
@@ -214,11 +219,29 @@ def execute_simulation_run(config, parsed_tles_data, sim_satellites, ground_stat
         dynamic_state_algorithm=sim_config["dynamic_state_algorithm"],
     )
     log.info(f"Generated {len(all_states)} dynamic states.")
+
+    fstate_sizes: list[int] = []
     for idx, state in enumerate(all_states):
-        if "fstate" in state:
-            log.info(f"Generated fstate at step {idx}: {state['fstate']}")
+        fstate = state.get("fstate")
+        if fstate is None:
+            log.warning(f"No fstate generated at step {idx}.")
+            continue
+
+        fstate_sizes.append(len(fstate))
+
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug(f"Generated fstate at step {idx}: {fstate}")
         else:
-            log.warning(f"No fstate generated at step {idx}: {state}")
+            # Avoid logging full fstate (can be huge, slows down large simulations)
+            if idx == 0 or (idx + 1) % 10 == 0 or idx == len(all_states) - 1:
+                log.info(f"Generated fstate at step {idx} ({len(fstate)} entries).")
+
+    if fstate_sizes:
+        avg = sum(fstate_sizes) / len(fstate_sizes)
+        log.info(
+            "Fstate entries per step: "
+            f"min={min(fstate_sizes)}, mean={avg:.1f}, max={max(fstate_sizes)}"
+        )
     log.info("Simulation finished. ✅")
     return all_states
 

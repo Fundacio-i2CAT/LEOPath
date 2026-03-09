@@ -8,8 +8,8 @@ OUTPUT_BASE=${1:-"$ROOT_DIR/paper_eval_outputs"}
 
 ALGORITHMS=${ALGORITHMS:-"shortest_path_link_state topological_routing"}
 ISL_SCENARIOS="ring grid"
-END_TIME_HOURS=${END_TIME_HOURS:-6}
-TIME_STEP_MINUTES=${TIME_STEP_MINUTES:-5}
+END_TIME_HOURS=${END_TIME_HOURS:-3}
+TIME_STEP_MINUTES=${TIME_STEP_MINUTES:-1}
 
 for algorithm in $ALGORITHMS; do
   for isl in $ISL_SCENARIOS; do
