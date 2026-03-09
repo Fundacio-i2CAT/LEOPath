@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR=$(cd "$(dirname "$0")" && pwd)
 CONTAINER_ROOT="/app/output"
 
+EVAL_USE_DOCKER=${EVAL_USE_DOCKER:-0}
+
 to_runtime_path() {
   local path="$1"
   if [ "$EVAL_USE_DOCKER" = "1" ]; then
@@ -28,7 +30,6 @@ GS_CONFIG=$(to_runtime_path "$GS_CONFIG")
 PREDICTION_HORIZONS=${PREDICTION_HORIZONS:-"0 5 10"}
 SEGMENT_COUNTS=${SEGMENT_COUNTS:-"2 3"}
 SEGMENT_MODE=${SEGMENT_MODE:-"plane_then_inplane"}
-EVAL_USE_DOCKER=${EVAL_USE_DOCKER:-0}
 
 run_eval_harness() {
   if [ "$EVAL_USE_DOCKER" = "1" ]; then
