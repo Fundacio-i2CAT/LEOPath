@@ -30,17 +30,17 @@ ISL_SCENARIOS="ring grid" \
 - **Duration**: 6–24 hours simulated time per run.
 - **Time step**: 5–10 minutes.
 - **ISL scenarios**: `ring` and `grid` for each constellation.
-- **Algorithms**: topological, link-state baseline, predictive link-state, segment routing.
+- **Algorithms**: topological, link-state baseline, predictive link-state.
 
 ## Suggested parameter sweep
 
 - **Predictive link-state**: `prediction_horizon_minutes` in {0, 5, 10}.
-- **Segment routing**: `segment_count` in {2, 3} and `segment_mode` = `plane_then_inplane`.
+- **Traditional segment routing (optional exploratory run)**: `segment_count` in {2, 3}; optionally sweep `prediction_horizon_minutes` and `segment_refresh_interval_steps` for refresh-based variants.
 
 ## Design notes
 
 - Predictive link-state runs compute paths over a future topology snapshot, so keep the horizon within 1–2 time steps.
-- Segment routing results are most interpretable when plane counts are large and uniform.
+- `traditional_segment_routing` is best treated as an exploratory branch experiment, not a default paper matrix entry.
 
 ## Constellation set
 
@@ -64,10 +64,6 @@ paper_eval_outputs/
       ring/
         horizon_0m/
         horizon_5m/
-    segment_routing/
-      grid/
-        segments_2/
-        segments_3/
 ```
 
 ## Aggregate results

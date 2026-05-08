@@ -10,6 +10,15 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
+ALGORITHM_COLORS = {
+    "Link-state": "#4c72b0",
+    "Topological": "#55a868",
+    "Predictive LS (h=5m)": "#c44e52",
+    "Predictive LS (h=10m)": "#c44e52",
+    "Predictive LS (h=0m)": "#c44e52",
+}
+
+
 def apply_poster_style() -> None:
     plt.rcParams.update(
         {
@@ -20,7 +29,9 @@ def apply_poster_style() -> None:
             "axes.labelsize": 13,
             "xtick.labelsize": 12,
             "ytick.labelsize": 12,
-            "legend.fontsize": 11,
+            "legend.fontsize": 10,
+            "legend.frameon": True,
+            "legend.framealpha": 1.0,
             "lines.linewidth": 3.0,
             "lines.markersize": 5.0,
         }
@@ -69,16 +80,26 @@ def format_label(metadata: dict) -> str:
     if algorithm == "predictive_link_state":
         horizon = params.get("prediction_horizon_minutes")
         if horizon is not None:
-            return f"{algorithm} (h={int(horizon)}m)"
-    if algorithm == "segment_routing":
-        segments = params.get("segment_count")
-        if segments is not None:
-            return f"{algorithm} (seg={int(segments)})"
+            return f"Predictive LS (h={int(horizon)}m)"
+    if algorithm == "shortest_path_link_state":
+        return "Link-state"
+    if algorithm == "topological_routing":
+        return "Topological"
+    return algorithm.replace("_", " ")
+
+
+def should_include_run(metadata: dict) -> bool:
+    algorithm = metadata.get("algorithm", "")
+    params = metadata.get("algorithm_params") or {}
+    if algorithm == "shortest_path_link_state":
+        return True
+    if algorithm == "topological_routing":
+        return True
+    if algorithm == "predictive_link_state":
+        return int(params.get("prediction_horizon_minutes", -1)) == 5
     if algorithm == "traditional_segment_routing":
-        segments = params.get("segment_count")
-        if segments is not None:
-            return f"{algorithm} (seg={int(segments)})"
-    return algorithm
+        return False
+    return False
 
 
 def collect_runs(input_dir: Path) -> dict:
@@ -90,6 +111,8 @@ def collect_runs(input_dir: Path) -> dict:
         if not timestep_path.exists() or not delta_path.exists():
             continue
         metadata = read_metadata(meta_path)
+        if not should_include_run(metadata):
+            continue
         isl = metadata.get("isl_scenario", "unknown")
         label = format_label(metadata)
         runs.setdefault(isl, {})[label] = {
@@ -97,6 +120,10 @@ def collect_runs(input_dir: Path) -> dict:
             "delta": read_csv(delta_path),
         }
     return runs
+
+
+def algorithm_color(label: str):
+    return ALGORITHM_COLORS.get(label)
 
 
 def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str, log_scale: bool) -> None:
@@ -115,7 +142,7 @@ def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str, log_scale: bo
         times = time_minutes(rows)
         mean = [row[mean_key] for row in rows]
         p95 = [row[p95_key] for row in rows]
-        (mean_line,) = ax.plot(times, mean, label=algo)
+        (mean_line,) = ax.plot(times, mean, label=algo, color=algorithm_color(algo))
         ax.plot(
             times,
             p95,
@@ -124,9 +151,9 @@ def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str, log_scale: bo
             linewidth=1.8,
             alpha=0.45,
         )
-    ax.set_title(f"Forwarding State Size ({isl})")
+    ax.set_title(f"Forwarding Table Entries ({isl})")
     ax.set_xlabel("Time (minutes)")
-    ax.set_ylabel("State units")
+    ax.set_ylabel("FIB entries (proxy)")
     if log_scale:
         ax.set_yscale("log")
     ax.grid(True, alpha=0.18, linewidth=0.8)
@@ -148,9 +175,9 @@ def plot_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
             rows = data["delta"]
             times = time_minutes(rows)
             series = [row[metric] for row in rows]
-            ax.plot(times, series, label=algo, linewidth=3.0)
+            ax.plot(times, series, label=algo, linewidth=3.0, color=algorithm_color(algo))
         ax.set_title(title)
-        ax.set_ylabel("Fraction")
+        ax.set_ylabel("Rate")
         ax.grid(True, alpha=0.18, linewidth=0.8)
         ax.legend(frameon=False)
     axes[-1].set_xlabel("Time (minutes)")
@@ -173,9 +200,9 @@ def plot_churn_core_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
                 continue
             times = time_minutes(rows)
             series = [row[metric] for row in rows]
-            ax.plot(times, series, label=algo, linewidth=3.0)
+            ax.plot(times, series, label=algo, linewidth=3.0, color=algorithm_color(algo))
         ax.set_title(title)
-        ax.set_ylabel("Fraction")
+        ax.set_ylabel("Rate")
         ax.grid(True, alpha=0.18, linewidth=0.8)
         ax.legend(frameon=False)
     axes[-1].set_xlabel("Time (minutes)")
@@ -186,7 +213,7 @@ def plot_churn_core_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
 
 
 def plot_sat_gs_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
-    fig, ax = plt.subplots(figsize=(9.2, 5.2))
+    fig, ax = plt.subplots(figsize=(9.8, 5.5))
     metric = "sat_gs_churn"
     for algo, data in runs.items():
         rows = data["delta"]
@@ -194,19 +221,21 @@ def plot_sat_gs_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None
             continue
         times = time_minutes(rows)
         series = [row[metric] for row in rows]
-        ax.plot(times, series, label=algo, linewidth=3.0)
+        ax.plot(times, series, label=algo, linewidth=3.0, color=algorithm_color(algo))
     ax.set_title(f"Sat→GS Next-hop Churn ({isl})")
     ax.set_xlabel("Time (minutes)")
-    ax.set_ylabel("Fraction")
+    ax.set_ylabel("Rate")
+    y_min, y_max = ax.get_ylim()
+    ax.set_ylim(y_min, y_max * 1.08)
     ax.grid(True, alpha=0.18, linewidth=0.8)
-    ax.legend(ncol=2, frameon=False)
+    ax.legend(ncol=2, frameon=True, loc="upper right")
     fig.tight_layout()
     fig.savefig(output_dir / f"churn_sat_gs_timeseries_{isl}.png")
     plt.close(fig)
 
 
 def plot_stretch_timeseries(output_dir: Path, runs: dict, isl: str, metric: str) -> None:
-    fig, ax = plt.subplots(figsize=(9.2, 5.2))
+    fig, ax = plt.subplots(figsize=(9.8, 5.5))
     metric_suffix = "dist" if metric == "distance" else metric
     mean_col = f"stretch_{metric_suffix}_mean"
     p95_col = f"stretch_{metric_suffix}_p95"
@@ -215,7 +244,7 @@ def plot_stretch_timeseries(output_dir: Path, runs: dict, isl: str, metric: str)
         times = time_minutes(rows)
         mean = [row[mean_col] for row in rows]
         p95 = [row[p95_col] for row in rows]
-        (mean_line,) = ax.plot(times, mean, label=algo)
+        (mean_line,) = ax.plot(times, mean, label=algo, color=algorithm_color(algo))
         ax.plot(
             times,
             p95,
@@ -227,8 +256,10 @@ def plot_stretch_timeseries(output_dir: Path, runs: dict, isl: str, metric: str)
     ax.set_title(f"Path Stretch ({isl}, {metric})")
     ax.set_xlabel("Time (minutes)")
     ax.set_ylabel("Stretch")
+    y_min, y_max = ax.get_ylim()
+    ax.set_ylim(y_min, y_max * 1.08)
     ax.grid(True, alpha=0.18, linewidth=0.8)
-    ax.legend(ncol=2, frameon=False)
+    ax.legend(ncol=2, frameon=True, loc="upper right")
     fig.tight_layout()
     fig.savefig(output_dir / f"stretch_{metric}_timeseries_{isl}.png")
     plt.close(fig)
@@ -243,7 +274,7 @@ def plot_compute_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
             continue
         times = time_minutes(rows)
         series = [row[metric] for row in rows]
-        ax.plot(times, series, label=algo, linewidth=3.0)
+        ax.plot(times, series, label=algo, linewidth=3.0, color=algorithm_color(algo))
     ax.set_title(f"Compute Time per Step ({isl})")
     ax.set_xlabel("Time (minutes)")
     ax.set_ylabel("Milliseconds")

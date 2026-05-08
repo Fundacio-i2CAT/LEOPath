@@ -19,7 +19,7 @@ to_runtime_path() {
 
 OUTPUT_BASE=${1:-"$ROOT_DIR/paper_eval_outputs"}
 
-ALGORITHMS=${ALGORITHMS:-"topological_routing shortest_path_link_state predictive_link_state traditional_segment_routing"}
+ALGORITHMS=${ALGORITHMS:-"topological_routing shortest_path_link_state predictive_link_state"}
 ISL_SCENARIOS=${ISL_SCENARIOS:-"ring grid"}
 CONFIGS=${CONFIGS:-"starlink kuiper oneweb telesat dense_synthetic"}
 
@@ -29,7 +29,6 @@ GS_CONFIG=${GS_CONFIG:-"$ROOT_DIR/leopath/config/ground_stations_dense.yaml"}
 GS_CONFIG=$(to_runtime_path "$GS_CONFIG")
 PREDICTION_HORIZONS=${PREDICTION_HORIZONS:-"0 5 10"}
 SEGMENT_COUNTS=${SEGMENT_COUNTS:-"2 3"}
-SEGMENT_MODE=${SEGMENT_MODE:-"plane_then_inplane"}
 
 run_eval_harness() {
   if [ "$EVAL_USE_DOCKER" = "1" ]; then
@@ -59,33 +58,20 @@ for config_name in $CONFIGS; do
             --time-step-minutes "$TIME_STEP_MINUTES" \
             --prediction-horizon-minutes "$horizon"
         done
-      elif [ "$algorithm" = "segment_routing" ] || [ "$algorithm" = "traditional_segment_routing" ]; then
+      elif [ "$algorithm" = "traditional_segment_routing" ]; then
         for count in $SEGMENT_COUNTS; do
           out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}/segments_${count}"
           mkdir -p "$out_dir"
           runtime_out_dir=$(to_runtime_path "$out_dir")
-          if [ "$algorithm" = "segment_routing" ]; then
-            run_eval_harness \
-              --config "$config_path" \
-              --output-dir "$runtime_out_dir" \
-              --isl-scenario "$isl" \
-              --algorithm "$algorithm" \
-              --gs-config "$GS_CONFIG" \
-              --end-time-hours "$END_TIME_HOURS" \
-              --time-step-minutes "$TIME_STEP_MINUTES" \
-              --segment-count "$count" \
-              --segment-mode "$SEGMENT_MODE"
-          else
-            run_eval_harness \
-              --config "$config_path" \
-              --output-dir "$runtime_out_dir" \
-              --isl-scenario "$isl" \
-              --algorithm "$algorithm" \
-              --gs-config "$GS_CONFIG" \
-              --end-time-hours "$END_TIME_HOURS" \
-              --time-step-minutes "$TIME_STEP_MINUTES" \
-              --segment-count "$count"
-          fi
+          run_eval_harness \
+            --config "$config_path" \
+            --output-dir "$runtime_out_dir" \
+            --isl-scenario "$isl" \
+            --algorithm "$algorithm" \
+            --gs-config "$GS_CONFIG" \
+            --end-time-hours "$END_TIME_HOURS" \
+            --time-step-minutes "$TIME_STEP_MINUTES" \
+            --segment-count "$count"
         done
       else
         out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}"

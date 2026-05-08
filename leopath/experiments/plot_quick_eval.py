@@ -9,6 +9,13 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
+ALGORITHM_COLORS = {
+    "shortest_path_link_state": "#4c72b0",
+    "topological_routing": "#55a868",
+    "predictive_link_state": "#c44e52",
+}
+
+
 def apply_poster_style() -> None:
     # Poster-friendly defaults: thicker lines, larger text, lighter grid.
     plt.rcParams.update(
@@ -87,6 +94,10 @@ def collect_runs(input_dir: Path) -> dict:
     return runs
 
 
+def algorithm_color(label: str):
+    return ALGORITHM_COLORS.get(label)
+
+
 def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str, log_scale: bool) -> None:
     fig, ax = plt.subplots(figsize=(9.2, 5.2))
     for algo, data in runs.items():
@@ -103,7 +114,7 @@ def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str, log_scale: bo
         times = time_minutes(rows)
         mean = [row[mean_key] for row in rows]
         p95 = [row[p95_key] for row in rows]
-        (mean_line,) = ax.plot(times, mean, label=algo)
+        (mean_line,) = ax.plot(times, mean, label=algo, color=algorithm_color(algo))
         ax.plot(
             times,
             p95,
@@ -112,9 +123,9 @@ def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str, log_scale: bo
             linewidth=1.8,
             alpha=0.45,
         )
-    ax.set_title(f"Forwarding State Size ({isl})")
+    ax.set_title(f"Forwarding Table Entries ({isl})")
     ax.set_xlabel("Time (minutes)")
-    ax.set_ylabel("State units")
+    ax.set_ylabel("FIB entries (proxy)")
     if log_scale:
         ax.set_yscale("log")
     ax.grid(True, alpha=0.18, linewidth=0.8)
@@ -136,9 +147,9 @@ def plot_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
             rows = data["delta"]
             times = time_minutes(rows)
             series = [row[metric] for row in rows]
-            ax.plot(times, series, label=algo, linewidth=3.0)
+            ax.plot(times, series, label=algo, linewidth=3.0, color=algorithm_color(algo))
         ax.set_title(title)
-        ax.set_ylabel("Fraction")
+        ax.set_ylabel("Rate")
         ax.grid(True, alpha=0.18, linewidth=0.8)
         ax.legend(frameon=False)
     axes[-1].set_xlabel("Time (minutes)")
@@ -161,9 +172,9 @@ def plot_churn_core_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
                 continue
             times = time_minutes(rows)
             series = [row[metric] for row in rows]
-            ax.plot(times, series, label=algo, linewidth=3.0)
+            ax.plot(times, series, label=algo, linewidth=3.0, color=algorithm_color(algo))
         ax.set_title(title)
-        ax.set_ylabel("Fraction")
+        ax.set_ylabel("Rate")
         ax.grid(True, alpha=0.18, linewidth=0.8)
         ax.legend(frameon=False)
     axes[-1].set_xlabel("Time (minutes)")
@@ -182,10 +193,10 @@ def plot_sat_gs_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None
             continue
         times = time_minutes(rows)
         series = [row[metric] for row in rows]
-        ax.plot(times, series, label=algo, linewidth=3.0)
+        ax.plot(times, series, label=algo, linewidth=3.0, color=algorithm_color(algo))
     ax.set_title(f"Sat→GS Next-hop Churn ({isl})")
     ax.set_xlabel("Time (minutes)")
-    ax.set_ylabel("Fraction")
+    ax.set_ylabel("Rate")
     ax.grid(True, alpha=0.18, linewidth=0.8)
     ax.legend(ncol=2, frameon=False)
     fig.tight_layout()
@@ -203,7 +214,7 @@ def plot_stretch_timeseries(output_dir: Path, runs: dict, isl: str, metric: str)
         times = time_minutes(rows)
         mean = [row[mean_col] for row in rows]
         p95 = [row[p95_col] for row in rows]
-        (mean_line,) = ax.plot(times, mean, label=algo)
+        (mean_line,) = ax.plot(times, mean, label=algo, color=algorithm_color(algo))
         # Keep p95 for tail behavior, but de-emphasize it to reduce clutter.
         ax.plot(
             times,
