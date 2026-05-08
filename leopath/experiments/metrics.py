@@ -98,17 +98,11 @@ def compute_forwarding_state_stats(
     algorithm_params = algorithm_params or {}
     counts = []
     if algorithm_name == "shortest_path_link_state":
-        total_nodes = topology_graph.number_of_nodes()
-        counts = [total_nodes for _ in satellite_ids]
+        counts = [float(len(satellite_ids)) for _ in satellite_ids]
     elif algorithm_name == "predictive_link_state":
-        total_nodes = topology_graph.number_of_nodes()
-        counts = [total_nodes for _ in satellite_ids]
-    elif algorithm_name == "segment_routing":
-        segment_count = int(algorithm_params.get("segment_count", 2))
-        counts = [segment_count for _ in satellite_ids]
+        counts = [float(len(satellite_ids)) for _ in satellite_ids]
     elif algorithm_name == "traditional_segment_routing":
-        segment_count = int(algorithm_params.get("segment_count", 2))
-        counts = [segment_count for _ in satellite_ids]
+        counts = [float(len(satellite_ids)) for _ in satellite_ids]
     elif algorithm_name == "topological_routing":
         counts = [float(len(list(topology_graph.neighbors(sat_id)))) for sat_id in satellite_ids]
     else:
