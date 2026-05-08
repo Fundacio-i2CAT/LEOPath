@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import ipaddress
+import math
+
 import networkx as nx
 from astropy.time import Time
 
 from leopath.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
 from leopath.topology.topology import ConstellationData, GroundStation, LEOTopology
+
+
+DEFAULT_SRV6_LOCATOR_PREFIX = "fd00:10:0:1::/64"
 
 
 def algorithm_traditional_segment_routing(
@@ -15,6 +21,9 @@ def algorithm_traditional_segment_routing(
     current_time: Time,
     list_gsl_interfaces_info: list,
     algorithm_params: dict,
+    segment_plans: dict[tuple[int, int], list[str]] | None = None,
+    planning_ground_station_satellites_in_range: list | None = None,
+    current_ground_station_satellites_in_range: list | None = None,
 ) -> dict:
     segment_count = int(algorithm_params.get("segment_count", 2))
     if segment_count < 1:
@@ -30,24 +39,35 @@ def algorithm_traditional_segment_routing(
         else:
             ground_station_satellites_in_range.append([])
 
-    segment_plans = _build_segment_plans(
-        topology_with_isls,
-        ground_stations,
-        ground_station_satellites_in_range,
-        segment_count,
+    planning_visibility = (
+        planning_ground_station_satellites_in_range or ground_station_satellites_in_range
     )
+    current_visibility = (
+        current_ground_station_satellites_in_range or ground_station_satellites_in_range
+    )
+
+    if segment_plans is None:
+        segment_plans = _build_segment_plans(
+            topology_with_isls,
+            ground_stations,
+            planning_visibility,
+            segment_count,
+            algorithm_params.get("srv6_locator_prefix", DEFAULT_SRV6_LOCATOR_PREFIX),
+        )
 
     fstate = _materialize_fstate_from_segments(
         topology_with_isls,
         ground_stations,
-        ground_station_satellites_in_range,
+        planning_visibility,
         segment_plans,
+        current_visibility,
+        algorithm_params.get("srv6_locator_prefix", DEFAULT_SRV6_LOCATOR_PREFIX),
     )
 
     _add_gs_to_gs_fstate(
         topology_with_isls,
         ground_stations,
-        ground_station_satellites_in_range,
+        current_visibility,
         fstate,
     )
 
@@ -66,13 +86,13 @@ def _build_segment_plans(
     ground_stations: list[GroundStation],
     ground_station_satellites_in_range: list,
     segment_count: int,
-) -> dict[tuple[int, int], list[int]]:
-    graph = topology_with_isls.graph
+    srv6_locator_prefix: str = DEFAULT_SRV6_LOCATOR_PREFIX,
+) -> dict[tuple[int, int], list[str]]:
     sat_ids = {sat.id for sat in topology_with_isls.get_satellites()}
-    sat_graph = graph.subgraph(sorted(sat_ids))
+    sorted_sat_ids = sorted(sat_ids)
 
-    plans: dict[tuple[int, int], list[int]] = {}
-    for curr_sat_id in sorted(sat_ids):
+    plans: dict[tuple[int, int], list[str]] = {}
+    for curr_sat_id in sorted_sat_ids:
         for gs_idx, dst_gs in enumerate(ground_stations):
             dst_gs_id = dst_gs.id
             visible = ground_station_satellites_in_range[gs_idx]
@@ -80,24 +100,45 @@ def _build_segment_plans(
                 plans[(curr_sat_id, dst_gs_id)] = []
                 continue
             _, dst_sat_id = min(visible, key=lambda item: item[0])
-            if curr_sat_id == dst_sat_id:
-                plans[(curr_sat_id, dst_gs_id)] = [dst_sat_id]
-                continue
-            try:
-                shortest_sat_path = nx.shortest_path(
-                    sat_graph,
-                    source=curr_sat_id,
-                    target=dst_sat_id,
-                    weight="weight",
-                )
-            except (nx.NetworkXNoPath, nx.NodeNotFound):
-                plans[(curr_sat_id, dst_gs_id)] = []
-                continue
-            plans[(curr_sat_id, dst_gs_id)] = _path_to_segments(
-                shortest_sat_path,
-                segment_count,
-            )
+            plans[(curr_sat_id, dst_gs_id)] = [
+                satellite_srv6_sid(dst_sat_id, srv6_locator_prefix)
+            ]
     return plans
+
+
+def satellite_srv6_sid(
+    satellite_id: int,
+    srv6_locator_prefix: str = DEFAULT_SRV6_LOCATOR_PREFIX,
+) -> str:
+    """Return a stable SRv6 endpoint SID for a satellite node."""
+    if satellite_id < 0:
+        raise ValueError(f"satellite_id must be non-negative, got {satellite_id}")
+    network = ipaddress.IPv6Network(srv6_locator_prefix, strict=False)
+    host_bits = 128 - network.prefixlen
+    node_value = satellite_id + 1
+    if node_value >= (1 << host_bits):
+        raise ValueError(
+            f"satellite_id {satellite_id} does not fit in locator {srv6_locator_prefix}"
+        )
+    return str(ipaddress.IPv6Address(int(network.network_address) + node_value))
+
+
+def satellite_id_from_srv6_sid(
+    sid: str,
+    srv6_locator_prefix: str = DEFAULT_SRV6_LOCATOR_PREFIX,
+) -> int | None:
+    """Decode a simulator satellite id from a SID in the configured SRv6 locator."""
+    try:
+        network = ipaddress.IPv6Network(srv6_locator_prefix, strict=False)
+        address = ipaddress.IPv6Address(sid)
+    except ValueError:
+        return None
+    if address not in network:
+        return None
+    offset = int(address) - int(network.network_address)
+    if offset <= 0:
+        return None
+    return offset - 1
 
 
 def _path_to_segments(shortest_path: list[int], segment_count: int) -> list[int]:
@@ -130,26 +171,45 @@ def _path_to_segments(shortest_path: list[int], segment_count: int) -> list[int]
 def _materialize_fstate_from_segments(
     topology_with_isls: LEOTopology,
     ground_stations: list[GroundStation],
-    ground_station_satellites_in_range: list,
-    segment_plans: dict[tuple[int, int], list[int]],
+    planning_ground_station_satellites_in_range: list,
+    segment_plans: dict[tuple[int, int], list[str]],
+    current_ground_station_satellites_in_range: list | None = None,
+    srv6_locator_prefix: str = DEFAULT_SRV6_LOCATOR_PREFIX,
 ) -> dict[tuple[int, int], tuple[int, int, int]]:
     graph = topology_with_isls.graph
     sat_ids = {sat.id for sat in topology_with_isls.get_satellites()}
     sat_graph = graph.subgraph(sorted(sat_ids))
+    next_hops = _build_next_hop_lookup(
+        sat_graph,
+        topology_with_isls,
+        _collect_segment_endpoint_ids(
+            ground_stations,
+            planning_ground_station_satellites_in_range,
+            segment_plans,
+            srv6_locator_prefix,
+        ),
+    )
 
     fstate: dict[tuple[int, int], tuple[int, int, int]] = {}
     for curr_sat_id in sorted(sat_ids):
         for gs_idx, dst_gs in enumerate(ground_stations):
             dst_gs_id = dst_gs.id
-            visible = ground_station_satellites_in_range[gs_idx]
+            visible = planning_ground_station_satellites_in_range[gs_idx]
             if not visible:
                 fstate[(curr_sat_id, dst_gs_id)] = (-1, -1, -1)
                 continue
             _, dst_sat_id = min(visible, key=lambda item: item[0])
             if curr_sat_id == dst_sat_id:
-                fstate[(curr_sat_id, dst_gs_id)] = _handle_direct_gs_path(
-                    dst_sat_id, dst_gs_id, topology_with_isls
-                )
+                if _is_ground_station_currently_visible(
+                    gs_idx,
+                    dst_sat_id,
+                    current_ground_station_satellites_in_range,
+                ):
+                    fstate[(curr_sat_id, dst_gs_id)] = _handle_direct_gs_path(
+                        dst_sat_id, dst_gs_id, topology_with_isls
+                    )
+                else:
+                    fstate[(curr_sat_id, dst_gs_id)] = (-1, -1, -1)
                 continue
 
             segments = segment_plans.get((curr_sat_id, dst_gs_id), [])
@@ -157,22 +217,124 @@ def _materialize_fstate_from_segments(
                 fstate[(curr_sat_id, dst_gs_id)] = (-1, -1, -1)
                 continue
 
-            next_sid = segments[0]
+            next_sid = satellite_id_from_srv6_sid(segments[0], srv6_locator_prefix)
+            if next_sid is None:
+                fstate[(curr_sat_id, dst_gs_id)] = (-1, -1, -1)
+                continue
             if next_sid == curr_sat_id:
                 if len(segments) == 1:
                     next_sid = dst_sat_id
                 else:
-                    next_sid = segments[1]
+                    next_sid = satellite_id_from_srv6_sid(
+                        segments[1],
+                        srv6_locator_prefix,
+                    )
+                    if next_sid is None:
+                        fstate[(curr_sat_id, dst_gs_id)] = (-1, -1, -1)
+                        continue
 
-            next_hop = _next_hop_towards_sid(
-                curr_sat_id,
-                next_sid,
-                sat_graph,
-                topology_with_isls,
-            )
+            next_hop = next_hops.get((curr_sat_id, next_sid), (-1, -1, -1))
             fstate[(curr_sat_id, dst_gs_id)] = next_hop
 
     return fstate
+
+
+def _build_next_hop_lookup(
+    sat_graph: nx.Graph,
+    topology_with_isls: LEOTopology,
+    target_sat_ids: set[int],
+) -> dict[tuple[int, int], tuple[int, int, int]]:
+    nodelist = sorted(sat_graph.nodes())
+    node_to_index = {node_id: index for index, node_id in enumerate(nodelist)}
+    if not nodelist or not target_sat_ids:
+        return {}
+
+    dist_matrix = nx.floyd_warshall_numpy(
+        sat_graph,
+        nodelist=nodelist,
+        weight="weight",
+    )
+    next_hops: dict[tuple[int, int], tuple[int, int, int]] = {}
+    for source in nodelist:
+        source_idx = node_to_index[source]
+        for destination in target_sat_ids:
+            destination_idx = node_to_index.get(destination)
+            if source == destination or destination_idx is None:
+                continue
+            if math.isinf(float(dist_matrix[source_idx, destination_idx])):
+                continue
+            next_sat = _select_next_hop_from_distance_matrix(
+                source,
+                destination_idx,
+                sat_graph,
+                node_to_index,
+                dist_matrix,
+            )
+            if next_sat is None:
+                continue
+            my_if = topology_with_isls.sat_neighbor_to_if.get((source, next_sat), -1)
+            next_if = topology_with_isls.sat_neighbor_to_if.get((next_sat, source), -1)
+            if my_if >= 0 and next_if >= 0:
+                next_hops[(source, destination)] = (next_sat, my_if, next_if)
+    return next_hops
+
+
+def _select_next_hop_from_distance_matrix(
+    source: int,
+    destination_idx: int,
+    sat_graph: nx.Graph,
+    node_to_index: dict[int, int],
+    dist_matrix,
+) -> int | None:
+    best_neighbor = None
+    best_distance = float("inf")
+    for neighbor in sat_graph.neighbors(source):
+        neighbor_idx = node_to_index.get(neighbor)
+        if neighbor_idx is None:
+            continue
+        dist_neighbor_to_destination = float(dist_matrix[neighbor_idx, destination_idx])
+        if math.isinf(dist_neighbor_to_destination):
+            continue
+        distance = sat_graph.edges[source, neighbor].get("weight", 1.0) + dist_neighbor_to_destination
+        if distance < best_distance:
+            best_distance = distance
+            best_neighbor = neighbor
+    return best_neighbor
+
+
+def _collect_segment_endpoint_ids(
+    ground_stations: list[GroundStation],
+    planning_ground_station_satellites_in_range: list,
+    segment_plans: dict[tuple[int, int], list[str]],
+    srv6_locator_prefix: str,
+) -> set[int]:
+    endpoint_ids: set[int] = set()
+    for gs_idx, _ in enumerate(ground_stations):
+        if gs_idx >= len(planning_ground_station_satellites_in_range):
+            continue
+        visible = planning_ground_station_satellites_in_range[gs_idx]
+        if visible:
+            _, dst_sat_id = min(visible, key=lambda item: item[0])
+            endpoint_ids.add(dst_sat_id)
+    for segments in segment_plans.values():
+        for sid in segments:
+            sat_id = satellite_id_from_srv6_sid(sid, srv6_locator_prefix)
+            if sat_id is not None:
+                endpoint_ids.add(sat_id)
+    return endpoint_ids
+
+
+def _is_ground_station_currently_visible(
+    gs_idx: int,
+    dst_sat_id: int,
+    current_ground_station_satellites_in_range: list | None,
+) -> bool:
+    if current_ground_station_satellites_in_range is None:
+        return True
+    if gs_idx >= len(current_ground_station_satellites_in_range):
+        return False
+    visible = current_ground_station_satellites_in_range[gs_idx]
+    return any(sat_id == dst_sat_id for _, sat_id in visible)
 
 
 def _next_hop_towards_sid(

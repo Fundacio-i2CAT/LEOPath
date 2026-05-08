@@ -1,0 +1,42 @@
+from leopath.experiments.eval_harness import prepare_algorithm_params
+
+
+def test_traditional_sr_defaults_to_non_predictive_control() -> None:
+    params = prepare_algorithm_params(
+        simulation_config={
+            "time_step_minutes": 5,
+            "algorithm_params": {"prediction_horizon_minutes": 5, "segment_count": 2},
+        },
+        algorithm_name="traditional_segment_routing",
+        prediction_horizon_minutes=None,
+        segment_count=2,
+        segment_refresh_interval_steps=2,
+        segment_mode=None,
+        plane_weight=None,
+        sat_weight=None,
+        shell_weight=None,
+        time_step_minutes=None,
+    )
+
+    assert params["prediction_horizon_minutes"] == 0.0
+    assert params["segment_refresh_interval_steps"] == 2
+    assert params["time_step_minutes"] == 5
+
+
+def test_predictive_override_is_preserved() -> None:
+    params = prepare_algorithm_params(
+        simulation_config={"time_step_minutes": 10, "algorithm_params": {}},
+        algorithm_name="traditional_segment_routing",
+        prediction_horizon_minutes=5,
+        segment_count=2,
+        segment_refresh_interval_steps=6,
+        segment_mode=None,
+        plane_weight=None,
+        sat_weight=None,
+        shell_weight=None,
+        time_step_minutes=5,
+    )
+
+    assert params["prediction_horizon_minutes"] == 5
+    assert params["segment_refresh_interval_steps"] == 6
+    assert params["time_step_minutes"] == 5

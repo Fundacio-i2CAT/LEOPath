@@ -96,6 +96,47 @@ def flatten_distribution(prefix: str, stats: dict) -> dict:
     }
 
 
+def prepare_algorithm_params(
+    simulation_config: dict,
+    algorithm_name: str,
+    prediction_horizon_minutes: float | None,
+    segment_count: int | None,
+    segment_refresh_interval_steps: int | None,
+    segment_mode: str | None,
+    plane_weight: float | None,
+    sat_weight: float | None,
+    shell_weight: float | None,
+    time_step_minutes: float | None,
+) -> dict:
+    algorithm_params = dict(simulation_config.get("algorithm_params") or {})
+
+    if algorithm_name == "traditional_segment_routing":
+        algorithm_params["prediction_horizon_minutes"] = (
+            0.0 if prediction_horizon_minutes is None else prediction_horizon_minutes
+        )
+    elif prediction_horizon_minutes is not None:
+        algorithm_params["prediction_horizon_minutes"] = prediction_horizon_minutes
+
+    if segment_count is not None:
+        algorithm_params["segment_count"] = segment_count
+    if segment_refresh_interval_steps is not None:
+        algorithm_params["segment_refresh_interval_steps"] = segment_refresh_interval_steps
+    if segment_mode is not None:
+        algorithm_params["segment_mode"] = segment_mode
+    if plane_weight is not None:
+        algorithm_params["plane_weight"] = plane_weight
+    if sat_weight is not None:
+        algorithm_params["sat_weight"] = sat_weight
+    if shell_weight is not None:
+        algorithm_params["shell_weight"] = shell_weight
+
+    effective_time_step_minutes = time_step_minutes
+    if effective_time_step_minutes is None:
+        effective_time_step_minutes = simulation_config["time_step_minutes"]
+    algorithm_params["time_step_minutes"] = effective_time_step_minutes
+    return algorithm_params
+
+
 def run_evaluation(
     config_path: str,
     output_dir: str,
@@ -106,6 +147,7 @@ def run_evaluation(
     time_step_minutes: float | None,
     prediction_horizon_minutes: float | None,
     segment_count: int | None,
+    segment_refresh_interval_steps: int | None,
     segment_mode: str | None,
     plane_weight: float | None,
     sat_weight: float | None,
@@ -115,27 +157,29 @@ def run_evaluation(
     gs_override = load_ground_station_override(gs_override_path)
     if gs_override is not None:
         config["ground_stations"] = gs_override
-    if algorithm_name:
-        config["simulation"]["dynamic_state_algorithm"] = algorithm_name
-    algorithm_params = config["simulation"].get("algorithm_params") or {}
-    if prediction_horizon_minutes is not None:
-        algorithm_params["prediction_horizon_minutes"] = prediction_horizon_minutes
-    if segment_count is not None:
-        algorithm_params["segment_count"] = segment_count
-    if segment_mode is not None:
-        algorithm_params["segment_mode"] = segment_mode
-    if plane_weight is not None:
-        algorithm_params["plane_weight"] = plane_weight
-    if sat_weight is not None:
-        algorithm_params["sat_weight"] = sat_weight
-    if shell_weight is not None:
-        algorithm_params["shell_weight"] = shell_weight
-    if algorithm_params:
-        config["simulation"]["algorithm_params"] = algorithm_params
     if end_time_hours is not None:
         config["simulation"]["end_time_hours"] = end_time_hours
     if time_step_minutes is not None:
         config["simulation"]["time_step_minutes"] = time_step_minutes
+
+    effective_algorithm_name = (
+        algorithm_name or config["simulation"]["dynamic_state_algorithm"]
+    )
+    config["simulation"]["dynamic_state_algorithm"] = effective_algorithm_name
+    algorithm_params = prepare_algorithm_params(
+        simulation_config=config["simulation"],
+        algorithm_name=effective_algorithm_name,
+        prediction_horizon_minutes=prediction_horizon_minutes,
+        segment_count=segment_count,
+        segment_refresh_interval_steps=segment_refresh_interval_steps,
+        segment_mode=segment_mode,
+        plane_weight=plane_weight,
+        sat_weight=sat_weight,
+        shell_weight=shell_weight,
+        time_step_minutes=time_step_minutes,
+    )
+    if algorithm_params:
+        config["simulation"]["algorithm_params"] = algorithm_params
 
     os.makedirs(output_dir, exist_ok=True)
     logger.setup_logger(
@@ -157,7 +201,10 @@ def run_evaluation(
     )
 
     undirected_isls = select_isls(constellation_data, isl_scenario)
-    if config["simulation"]["dynamic_state_algorithm"] == "predictive_link_state":
+    if config["simulation"]["dynamic_state_algorithm"] in {
+        "predictive_link_state",
+        "traditional_segment_routing",
+    }:
         algorithm_params = {**algorithm_params, "undirected_isls": undirected_isls}
         config["simulation"]["algorithm_params"] = algorithm_params
 
@@ -186,6 +233,7 @@ def run_evaluation(
 
     timestep_rows: list[dict] = []
     delta_rows: list[dict] = []
+    control_plane_sample: dict | None = None
     prev_fstate: dict | None = None
     prev_attachments: list[tuple[int | None, float]] | None = None
 
@@ -222,6 +270,8 @@ def run_evaluation(
         )
         compute_duration_ms = (time.perf_counter() - compute_start) * 1000.0
         fstate = fstate_output.get("fstate", {})
+        if control_plane_sample is None and fstate_output.get("control_plane"):
+            control_plane_sample = fstate_output["control_plane"]
 
         attachments = get_gs_attachments(gs_sat_visibility)
         fstate_stats = compute_forwarding_state_stats(
@@ -304,14 +354,15 @@ def run_evaluation(
         "offset_ns": sim_config.get("offset_ns", 0),
         "generated_at": datetime.datetime.now().isoformat(),
         "forwarding_state_definition": {
-            "shortest_path_link_state": "global node map (nodes in topology graph)",
-            "predictive_link_state": "global node map (nodes in topology graph)",
-            "traditional_segment_routing": "segment list length (configured segment_count)",
-            "segment_routing": "segment list length (configured segment_count)",
-            "topological_routing": "immediate neighbors (node degree in topology graph)",
+            "shortest_path_link_state": "destination forwarding entries toward routable satellites (proxy: number of satellites)",
+            "predictive_link_state": "destination forwarding entries toward routable satellites (proxy: number of satellites)",
+            "traditional_segment_routing": "forwarding entries toward segment endpoints / routable satellites (proxy: number of satellites)",
+            "topological_routing": "local neighbor-address forwarding entries (proxy: node degree)",
             "default": "reachable GS destinations per satellite",
         },
     }
+    if control_plane_sample is not None:
+        metadata["control_plane_sample"] = control_plane_sample
 
     write_json(os.path.join(output_dir, "metadata.json"), metadata)
     write_csv(
@@ -350,6 +401,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--time-step-minutes", type=float, default=None)
     parser.add_argument("--prediction-horizon-minutes", type=float, default=None)
     parser.add_argument("--segment-count", type=int, default=None)
+    parser.add_argument("--segment-refresh-interval-steps", type=int, default=None)
     parser.add_argument("--segment-mode", type=str, default=None)
     parser.add_argument("--plane-weight", type=float, default=None)
     parser.add_argument("--sat-weight", type=float, default=None)
@@ -369,6 +421,7 @@ def main() -> None:
         time_step_minutes=args.time_step_minutes,
         prediction_horizon_minutes=args.prediction_horizon_minutes,
         segment_count=args.segment_count,
+        segment_refresh_interval_steps=args.segment_refresh_interval_steps,
         segment_mode=args.segment_mode,
         plane_weight=args.plane_weight,
         sat_weight=args.sat_weight,
