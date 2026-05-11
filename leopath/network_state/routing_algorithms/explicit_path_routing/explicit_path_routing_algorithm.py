@@ -74,10 +74,11 @@ def algorithm_explicit_path_routing(
                 {
                     "source_satellite_id": src_sat_id,
                     "destination_ground_station_id": dst_gs_id,
-                    "satellite_path": sat_path,
+                    "satellite_path": route_plan.get("satellite_path", []),
+                    "planned_dst_sat_id": route_plan.get("planned_dst_sat_id"),
                     "waypoint_satellites": waypoint_plans[(src_sat_id, dst_gs_id)],
                 }
-                for (src_sat_id, dst_gs_id), sat_path in list(route_plans.items())[:5]
+                for (src_sat_id, dst_gs_id), route_plan in list(route_plans.items())[:5]
             ],
         },
     }
@@ -91,31 +92,50 @@ def _build_route_plans(
     sat_ids = sorted({sat.id for sat in topology_with_isls.get_satellites()})
     sat_graph = topology_with_isls.graph.subgraph(sat_ids)
     route_plans: dict[tuple[int, int], dict] = {}
+    destination_satellites: dict[int, int | None] = {}
+
+    for gs_idx, dst_gs in enumerate(ground_stations):
+        visible = ground_station_satellites_in_range[gs_idx]
+        if not visible:
+            destination_satellites[dst_gs.id] = None
+            continue
+        _, dst_sat_id = min(visible, key=lambda item: item[0])
+        destination_satellites[dst_gs.id] = dst_sat_id
+
+    paths_by_destination: dict[int, dict[int, list[int]]] = {}
+    for dst_sat_id in {sat_id for sat_id in destination_satellites.values() if sat_id is not None}:
+        try:
+            shortest_paths_from_destination = nx.single_source_dijkstra_path(
+                sat_graph,
+                dst_sat_id,
+                weight="weight",
+            )
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
+            shortest_paths_from_destination = {}
+        paths_by_destination[dst_sat_id] = {
+            src_sat_id: list(reversed(path))
+            for src_sat_id, path in shortest_paths_from_destination.items()
+        }
 
     for src_sat_id in sat_ids:
-        for gs_idx, dst_gs in enumerate(ground_stations):
-            visible = ground_station_satellites_in_range[gs_idx]
-            if not visible:
+        for dst_gs in ground_stations:
+            dst_sat_id = destination_satellites.get(dst_gs.id)
+            if dst_sat_id is None:
                 route_plans[(src_sat_id, dst_gs.id)] = {}
                 continue
-            _, dst_sat_id = min(visible, key=lambda item: item[0])
             if src_sat_id == dst_sat_id:
                 route_plans[(src_sat_id, dst_gs.id)] = {
                     "satellite_path": [src_sat_id],
                     "planned_dst_sat_id": dst_sat_id,
                 }
                 continue
-            try:
+            sat_path = paths_by_destination.get(dst_sat_id, {}).get(src_sat_id)
+            if sat_path:
                 route_plans[(src_sat_id, dst_gs.id)] = {
-                    "satellite_path": nx.shortest_path(
-                        sat_graph,
-                        source=src_sat_id,
-                        target=dst_sat_id,
-                        weight="weight",
-                    ),
+                    "satellite_path": sat_path,
                     "planned_dst_sat_id": dst_sat_id,
                 }
-            except (nx.NetworkXNoPath, nx.NodeNotFound):
+            else:
                 route_plans[(src_sat_id, dst_gs.id)] = {}
     return route_plans
 

@@ -2,6 +2,7 @@ import networkx as nx
 from astropy.time import Time
 from unittest.mock import patch
 
+import leopath.network_state.routing_algorithms.explicit_path_routing.explicit_path_routing_algorithm as explicit_path_module
 from leopath.network_state.routing_algorithms.explicit_path_routing.explicit_path_routing import (
     ExplicitPathRoutingAlgorithm,
 )
@@ -91,7 +92,31 @@ def test_explicit_path_algorithm_returns_route_plans_and_first_hop_proxy() -> No
     assert output["route_plans"][(0, 100)]["satellite_path"] == [0, 1, 2, 3]
     assert output["route_plans"][(0, 100)]["planned_dst_sat_id"] == 3
     assert output["fstate"][(0, 100)] == (1, 0, 0)
+    assert output["control_plane"]["sample_route_plans"][0]["satellite_path"] == [0, 1, 2, 3]
     assert output["control_plane"]["sample_route_plans"][0]["waypoint_satellites"] == [2, 3]
+
+
+def test_build_route_plans_reuses_one_tree_per_destination_satellite() -> None:
+    topology = _make_topology()
+    ground_stations = [
+        type("GroundStation", (), {"id": 100})(),
+        type("GroundStation", (), {"id": 101})(),
+    ]
+
+    with patch.object(
+        explicit_path_module.nx,
+        "single_source_dijkstra_path",
+        wraps=explicit_path_module.nx.single_source_dijkstra_path,
+    ) as mock_single_source_dijkstra_path:
+        plans = _build_route_plans(
+            topology,
+            ground_stations,
+            [[(1.0, 3)], [(2.0, 3)]],
+        )
+
+    assert mock_single_source_dijkstra_path.call_count == 1
+    assert plans[(0, 100)]["satellite_path"] == [0, 1, 2, 3]
+    assert plans[(0, 101)]["satellite_path"] == [0, 1, 2, 3]
 
 
 @patch(
