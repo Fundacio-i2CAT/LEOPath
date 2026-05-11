@@ -94,8 +94,10 @@ def compute_forwarding_state_stats(
     satellite_ids: list[int],
     ground_station_ids: list[int],
     algorithm_params: dict | None = None,
+    route_plans: dict | None = None,
 ) -> dict:
     algorithm_params = algorithm_params or {}
+    route_plans = route_plans or {}
     counts = []
     if algorithm_name == "shortest_path_link_state":
         counts = [float(len(satellite_ids)) for _ in satellite_ids]
@@ -103,6 +105,8 @@ def compute_forwarding_state_stats(
         counts = [float(len(satellite_ids)) for _ in satellite_ids]
     elif algorithm_name == "traditional_segment_routing":
         counts = [float(len(satellite_ids)) for _ in satellite_ids]
+    elif algorithm_name == "explicit_path_routing":
+        counts = [float(len(ground_station_ids)) for _ in satellite_ids]
     elif algorithm_name == "topological_routing":
         counts = [float(len(list(topology_graph.neighbors(sat_id)))) for sat_id in satellite_ids]
     else:
@@ -138,14 +142,30 @@ def compute_sat_to_gs_churn(
     satellite_ids: list[int],
     ground_station_ids: list[int],
     interface_neighbor_map: dict[int, dict[int, int]],
+    prev_route_plans: dict | None = None,
+    curr_route_plans: dict | None = None,
 ) -> dict:
+    prev_route_plans = prev_route_plans or {}
+    curr_route_plans = curr_route_plans or {}
     changes = 0
     breaks = 0
     total = 0
     for sat_id in satellite_ids:
         for gs_id in ground_station_ids:
-            prev_entry = normalize_next_hop(prev_fstate.get((sat_id, gs_id)), sat_id, interface_neighbor_map)
-            curr_entry = normalize_next_hop(curr_fstate.get((sat_id, gs_id)), sat_id, interface_neighbor_map)
+            prev_entry = _extract_next_hop(
+                sat_id,
+                gs_id,
+                prev_fstate,
+                interface_neighbor_map,
+                prev_route_plans,
+            )
+            curr_entry = _extract_next_hop(
+                sat_id,
+                gs_id,
+                curr_fstate,
+                interface_neighbor_map,
+                curr_route_plans,
+            )
             total += 1
             if prev_entry is None and curr_entry is None:
                 continue
@@ -169,7 +189,11 @@ def compute_gs_to_gs_churn(
     prev_attachments: list[tuple[int | None, float]],
     curr_attachments: list[tuple[int | None, float]],
     interface_neighbor_map: dict[int, dict[int, int]],
+    prev_route_plans: dict | None = None,
+    curr_route_plans: dict | None = None,
 ) -> dict:
+    prev_route_plans = prev_route_plans or {}
+    curr_route_plans = curr_route_plans or {}
     changes = 0
     breaks = 0
     total = 0
@@ -184,6 +208,7 @@ def compute_gs_to_gs_churn(
                 prev_fstate,
                 prev_attachments,
                 interface_neighbor_map,
+                prev_route_plans,
             )
             curr_entry = _derive_gs_to_gs_next_hop(
                 src_index,
@@ -191,6 +216,7 @@ def compute_gs_to_gs_churn(
                 curr_fstate,
                 curr_attachments,
                 interface_neighbor_map,
+                curr_route_plans,
             )
             if prev_entry is None and curr_entry is None:
                 continue
@@ -213,14 +239,21 @@ def _derive_gs_to_gs_next_hop(
     fstate: dict,
     attachments: list[tuple[int | None, float]],
     interface_neighbor_map: dict[int, dict[int, int]],
+    route_plans: dict | None = None,
 ) -> int | None:
+    route_plans = route_plans or {}
     if (src_gs_index >= len(attachments)) or not attachments:
         return None
     src_attachment, _ = attachments[src_gs_index]
     if src_attachment is None:
         return None
-    direct_entry = fstate.get((src_attachment, dst_gs_id))
-    return normalize_next_hop(direct_entry, src_attachment, interface_neighbor_map)
+    return _extract_next_hop(
+        src_attachment,
+        dst_gs_id,
+        fstate,
+        interface_neighbor_map,
+        route_plans,
+    )
 
 
 def compute_path_stretch(
@@ -231,7 +264,10 @@ def compute_path_stretch(
     attachments: list[tuple[int | None, float]],
     interface_neighbor_map: dict[int, dict[int, int]],
     max_hops: int,
+    route_plans: dict | None = None,
+    ground_station_satellites_in_range: list | None = None,
 ) -> dict:
+    route_plans = route_plans or {}
     sat_set = set(satellite_ids)
     sat_graph = topology_graph.subgraph(satellite_ids)
     hop_stretches = []
@@ -264,6 +300,10 @@ def compute_path_stretch(
                 dst_gsl_dist,
                 interface_neighbor_map,
                 max_hops,
+                route_plans,
+                None
+                if ground_station_satellites_in_range is None
+                else ground_station_satellites_in_range[dst_index],
             )
             if algo_hops is None or algo_dist is None:
                 continue
@@ -305,7 +345,21 @@ def _follow_routing_path(
     dst_gsl_dist: float,
     interface_neighbor_map: dict[int, dict[int, int]],
     max_hops: int,
+    route_plans: dict | None = None,
+    current_destination_visibility: list[tuple[float, int]] | None = None,
 ) -> tuple[int | None, float | None]:
+    route_plans = route_plans or {}
+    route_plan = route_plans.get((src_sat, dst_gs_id))
+    if route_plan:
+        return _follow_explicit_route_plan(
+            topology_graph,
+            route_plan,
+            src_sat,
+            src_gsl_dist,
+            max_hops,
+            current_destination_visibility,
+        )
+
     current = src_sat
     visited = set()
     total_hops = 1
@@ -337,3 +391,68 @@ def _follow_routing_path(
     total_hops += 1
     total_dist += float(dst_gsl_dist)
     return total_hops, total_dist
+
+
+def _extract_next_hop(
+    sat_id: int,
+    gs_id: int,
+    fstate: dict,
+    interface_neighbor_map: dict[int, dict[int, int]],
+    route_plans: dict,
+) -> int | None:
+    route_plan = route_plans.get((sat_id, gs_id), {})
+    sat_path = route_plan.get("satellite_path", [])
+    if sat_path:
+        if len(sat_path) == 1:
+            return gs_id
+        return sat_path[1]
+    entry = fstate.get((sat_id, gs_id))
+    return normalize_next_hop(entry, sat_id, interface_neighbor_map)
+
+
+def _follow_explicit_route_plan(
+    topology_graph: nx.Graph,
+    route_plan: dict,
+    src_sat: int,
+    src_gsl_dist: float,
+    max_hops: int,
+    current_destination_visibility: list[tuple[float, int]] | None,
+) -> tuple[int | None, float | None]:
+    sat_path = route_plan.get("satellite_path", [])
+    planned_dst_sat_id = route_plan.get("planned_dst_sat_id")
+    if not sat_path or sat_path[0] != src_sat or sat_path[-1] != planned_dst_sat_id:
+        return None, None
+    if len(sat_path) > max_hops:
+        return None, None
+
+    total_hops = 1
+    total_dist = float(src_gsl_dist)
+    for current, next_hop in zip(sat_path, sat_path[1:]):
+        if not topology_graph.has_edge(current, next_hop):
+            return None, None
+        weight = topology_graph.edges[current, next_hop].get("weight")
+        if weight is None or math.isinf(weight):
+            return None, None
+        total_hops += 1
+        total_dist += float(weight)
+    dst_gsl_dist = _lookup_visible_satellite_distance(
+        current_destination_visibility,
+        planned_dst_sat_id,
+    )
+    if dst_gsl_dist is None:
+        return None, None
+    total_hops += 1
+    total_dist += float(dst_gsl_dist)
+    return total_hops, total_dist
+
+
+def _lookup_visible_satellite_distance(
+    destination_visibility: list[tuple[float, int]] | None,
+    satellite_id: int | None,
+) -> float | None:
+    if destination_visibility is None or satellite_id is None:
+        return None
+    for distance, visible_satellite_id in destination_visibility:
+        if visible_satellite_id == satellite_id:
+            return float(distance)
+    return None

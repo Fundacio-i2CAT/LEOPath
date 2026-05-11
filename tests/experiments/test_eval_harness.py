@@ -40,3 +40,22 @@ def test_predictive_override_is_preserved() -> None:
     assert params["prediction_horizon_minutes"] == 5
     assert params["segment_refresh_interval_steps"] == 6
     assert params["time_step_minutes"] == 5
+
+
+def test_explicit_path_ignores_prediction_horizon_for_first_pass() -> None:
+    params = prepare_algorithm_params(
+        simulation_config={"time_step_minutes": 10, "algorithm_params": {}},
+        algorithm_name="explicit_path_routing",
+        prediction_horizon_minutes=7,
+        segment_count=3,
+        segment_refresh_interval_steps=None,
+        segment_mode=None,
+        plane_weight=None,
+        sat_weight=None,
+        shell_weight=None,
+        time_step_minutes=5,
+    )
+
+    assert "prediction_horizon_minutes" not in params
+    assert params["segment_count"] == 3
+    assert params["time_step_minutes"] == 5

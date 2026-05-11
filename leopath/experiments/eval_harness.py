@@ -114,6 +114,8 @@ def prepare_algorithm_params(
         algorithm_params["prediction_horizon_minutes"] = (
             0.0 if prediction_horizon_minutes is None else prediction_horizon_minutes
         )
+    elif algorithm_name == "explicit_path_routing":
+        algorithm_params.pop("prediction_horizon_minutes", None)
     elif prediction_horizon_minutes is not None:
         algorithm_params["prediction_horizon_minutes"] = prediction_horizon_minutes
 
@@ -236,6 +238,7 @@ def run_evaluation(
     control_plane_sample: dict | None = None
     prev_fstate: dict | None = None
     prev_attachments: list[tuple[int | None, float]] | None = None
+    prev_route_plans: dict | None = None
 
     progress_iter = time_steps
     if tqdm is not None:
@@ -270,6 +273,7 @@ def run_evaluation(
         )
         compute_duration_ms = (time.perf_counter() - compute_start) * 1000.0
         fstate = fstate_output.get("fstate", {})
+        route_plans = fstate_output.get("route_plans", {})
         if control_plane_sample is None and fstate_output.get("control_plane"):
             control_plane_sample = fstate_output["control_plane"]
 
@@ -281,6 +285,7 @@ def run_evaluation(
             satellite_ids,
             ground_station_ids,
             algorithm_params,
+            route_plans,
         )
         stretch_stats = compute_path_stretch(
             fstate,
@@ -290,6 +295,8 @@ def run_evaluation(
             attachments,
             interface_neighbor_map,
             max_hops,
+            route_plans,
+            gs_sat_visibility,
         )
 
         timestep_rows.append(
@@ -311,6 +318,8 @@ def run_evaluation(
                 satellite_ids,
                 ground_station_ids,
                 interface_neighbor_map,
+                prev_route_plans,
+                route_plans,
             )
             gs_gs_churn = compute_gs_to_gs_churn(
                 prev_fstate,
@@ -319,6 +328,8 @@ def run_evaluation(
                 prev_attachments,
                 attachments,
                 interface_neighbor_map,
+                prev_route_plans,
+                route_plans,
             )
             delta_rows.append(
                 {
@@ -334,6 +345,7 @@ def run_evaluation(
 
         prev_fstate = fstate
         prev_attachments = attachments
+        prev_route_plans = route_plans
     metadata = {
         "algorithm": sim_config["dynamic_state_algorithm"],
         "algorithm_params": sim_config.get("algorithm_params") or {},
@@ -356,6 +368,7 @@ def run_evaluation(
         "forwarding_state_definition": {
             "shortest_path_link_state": "destination forwarding entries toward routable satellites (proxy: number of satellites)",
             "predictive_link_state": "destination forwarding entries toward routable satellites (proxy: number of satellites)",
+            "explicit_path_routing": "centrally planned explicit destination entries (proxy: number of ground-station destinations)",
             "traditional_segment_routing": "forwarding entries toward segment endpoints / routable satellites (proxy: number of satellites)",
             "topological_routing": "local neighbor-address forwarding entries (proxy: node degree)",
             "default": "reachable GS destinations per satellite",
