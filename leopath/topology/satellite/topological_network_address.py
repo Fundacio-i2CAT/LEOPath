@@ -26,7 +26,7 @@ MAX_PLANES = 128  # Max index = 127. Requires 7 bits.
 
 # Maximum number of satellites within any single plane (s).
 # Current constellations range from ~20 to ~80. Allowing 0-127 provides headroom.
-MAX_SATS_PER_PLANE = 128  # Max index = 127. Requires 7 bits.
+MAX_SATS_PER_PLANE = 64  # Max index = 63. Requires 6 bits.
 
 # Maximum number of Ground Stations simultaneously associated with (homed to)
 # a single satellite's sub-network (x > 0). Index x=0 is reserved for the satellite itself.

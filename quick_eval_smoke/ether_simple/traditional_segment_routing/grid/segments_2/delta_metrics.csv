@@ -1,0 +1,2 @@
+time_index,time_since_epoch_ns,gs_handover_rate,sat_gs_churn,sat_gs_break_rate,gs_gs_churn,gs_gs_break_rate
+1,300000000000,1.0,0.2716049382716049,0.0,1.0,0.0
