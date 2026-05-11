@@ -21,11 +21,34 @@ def mean(values: list[float]) -> float:
     return sum(values) / len(values)
 
 
+def weighted_mean(values: list[tuple[float, float]]) -> float:
+    if not values:
+        return 0.0
+    total_weight = sum(weight for _, weight in values)
+    if total_weight <= 0.0:
+        return 0.0
+    return sum(value * weight for value, weight in values) / total_weight
+
+
 def fget(row: dict, key: str) -> float:
     value = row.get(key)
     if value in (None, ""):
         return 0.0
     return float(value)
+
+
+def mean_with_positive_count(rows: list[dict], value_key: str, count_key: str) -> float:
+    values = [fget(row, value_key) for row in rows if fget(row, count_key) > 0.0]
+    return mean(values)
+
+
+def weighted_mean_with_positive_count(rows: list[dict], value_key: str, count_key: str) -> float:
+    values = [
+        (fget(row, value_key), fget(row, count_key))
+        for row in rows
+        if fget(row, count_key) > 0.0
+    ]
+    return weighted_mean(values)
 
 
 def summarize_run(run_dir: Path) -> dict:
@@ -59,9 +82,19 @@ def summarize_run(run_dir: Path) -> dict:
         "sat_gs_break_mean": mean([fget(r, "sat_gs_break_rate") for r in drows]),
         "gs_gs_churn_mean": mean([fget(r, "gs_gs_churn") for r in drows]),
         "gs_gs_break_mean": mean([fget(r, "gs_gs_break_rate") for r in drows]),
-        "stretch_dist_mean": mean([fget(r, "stretch_dist_mean") for r in trows]),
-        "stretch_hop_mean": mean([fget(r, "stretch_hop_mean") for r in trows]),
+        "stretch_dist_mean": weighted_mean_with_positive_count(
+            trows, "stretch_dist_mean", "stretch_dist_count"
+        ),
+        "stretch_hop_mean": weighted_mean_with_positive_count(
+            trows, "stretch_hop_mean", "stretch_hop_count"
+        ),
         "stretch_dist_samples_mean": mean([fget(r, "stretch_dist_count") for r in trows]),
+        "stretch_dist_valid_timestep_mean": mean_with_positive_count(
+            trows, "stretch_dist_mean", "stretch_dist_count"
+        ),
+        "stretch_hop_valid_timestep_mean": mean_with_positive_count(
+            trows, "stretch_hop_mean", "stretch_hop_count"
+        ),
     }
     return summary
 
@@ -99,6 +132,8 @@ def main() -> None:
         "stretch_dist_mean",
         "stretch_hop_mean",
         "stretch_dist_samples_mean",
+        "stretch_dist_valid_timestep_mean",
+        "stretch_hop_valid_timestep_mean",
     ]
 
     print("| " + " | ".join(columns) + " |")

@@ -5,6 +5,21 @@ import json
 import os
 
 
+STRETCH_COUNT_KEYS = {
+    "stretch_dist_min": "stretch_dist_count",
+    "stretch_dist_max": "stretch_dist_count",
+    "stretch_dist_mean": "stretch_dist_count",
+    "stretch_dist_median": "stretch_dist_count",
+    "stretch_dist_p95": "stretch_dist_count",
+    "stretch_hop_min": "stretch_hop_count",
+    "stretch_hop_max": "stretch_hop_count",
+    "stretch_hop_mean": "stretch_hop_count",
+    "stretch_hop_median": "stretch_hop_count",
+    "stretch_hop_p95": "stretch_hop_count",
+}
+WEIGHTED_MEAN_KEYS = {"stretch_dist_mean", "stretch_hop_mean"}
+
+
 def _read_csv_mean(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
@@ -14,6 +29,8 @@ def _read_csv_mean(path: str) -> dict:
 
     sums = {}
     counts = {}
+    weighted_sums = {}
+    weighted_counts = {}
     for row in rows:
         for key, value in row.items():
             if value is None or value == "":
@@ -25,7 +42,31 @@ def _read_csv_mean(path: str) -> dict:
             sums[key] = sums.get(key, 0.0) + val
             counts[key] = counts.get(key, 0) + 1
 
-    return {key: sums[key] / counts[key] for key in sums}
+            weight_key = STRETCH_COUNT_KEYS.get(key)
+            if weight_key is None:
+                continue
+            weight_raw = row.get(weight_key)
+            if weight_raw in (None, ""):
+                continue
+            try:
+                weight = float(weight_raw)
+            except ValueError:
+                continue
+            if weight <= 0.0:
+                continue
+            if key in WEIGHTED_MEAN_KEYS:
+                weighted_sums[key] = weighted_sums.get(key, 0.0) + (val * weight)
+                weighted_counts[key] = weighted_counts.get(key, 0.0) + weight
+                continue
+
+            weighted_sums[key] = weighted_sums.get(key, 0.0) + val
+            weighted_counts[key] = weighted_counts.get(key, 0.0) + 1.0
+
+    means = {key: sums[key] / counts[key] for key in sums}
+    for key, total_weight in weighted_counts.items():
+        if total_weight > 0.0:
+            means[key] = weighted_sums[key] / total_weight
+    return means
 
 
 def _read_metadata(path: str) -> dict:

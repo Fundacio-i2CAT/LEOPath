@@ -38,12 +38,12 @@ def apply_style() -> None:
         {
             "figure.dpi": 150,
             "savefig.dpi": 300,
-            "font.size": 12,
-            "axes.titlesize": 13,
-            "axes.labelsize": 12,
-            "xtick.labelsize": 11,
-            "ytick.labelsize": 11,
-            "legend.fontsize": 10,
+            "font.size": 14,
+            "axes.titlesize": 15,
+            "axes.labelsize": 14,
+            "xtick.labelsize": 12,
+            "ytick.labelsize": 12,
+            "legend.fontsize": 12,
             "lines.linewidth": 2.4,
         }
     )
@@ -79,12 +79,15 @@ def read_summary(path: Path) -> list[dict]:
                 continue
 
             row["family"] = algorithm_family(row["algorithm"])
-            for key in (
+            numeric_keys = (
                 "timestep_mean_fstate_size_mean",
                 "delta_mean_sat_gs_churn",
                 "timestep_mean_stretch_dist_mean",
                 "timestep_mean_compute_time_ms",
-            ):
+            )
+            if any(row.get(key, "") in {"", None} for key in numeric_keys):
+                continue
+            for key in numeric_keys:
                 row[key] = float(row[key])
             rows.append(row)
     return rows

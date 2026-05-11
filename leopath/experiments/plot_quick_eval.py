@@ -7,6 +7,7 @@ import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
+import math
 
 
 ALGORITHM_COLORS = {
@@ -96,6 +97,19 @@ def collect_runs(input_dir: Path) -> dict:
 
 def algorithm_color(label: str):
     return ALGORITHM_COLORS.get(label)
+
+
+def stretch_series(rows: list[dict], metric_suffix: str, stat: str) -> list[float]:
+    value_col = f"stretch_{metric_suffix}_{stat}"
+    count_col = f"stretch_{metric_suffix}_count"
+    series = []
+    for row in rows:
+        value = row[value_col]
+        if row.get(count_col, 0.0) <= 0.0:
+            series.append(math.nan)
+        else:
+            series.append(value)
+    return series
 
 
 def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str, log_scale: bool) -> None:
@@ -212,8 +226,8 @@ def plot_stretch_timeseries(output_dir: Path, runs: dict, isl: str, metric: str)
     for algo, data in runs.items():
         rows = data["timestep"]
         times = time_minutes(rows)
-        mean = [row[mean_col] for row in rows]
-        p95 = [row[p95_col] for row in rows]
+        mean = stretch_series(rows, metric_suffix, "mean")
+        p95 = stretch_series(rows, metric_suffix, "p95")
         (mean_line,) = ax.plot(times, mean, label=algo, color=algorithm_color(algo))
         # Keep p95 for tail behavior, but de-emphasize it to reduce clutter.
         ax.plot(
