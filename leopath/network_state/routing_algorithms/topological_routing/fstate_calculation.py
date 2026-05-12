@@ -208,20 +208,40 @@ def calculate_fstate_topological_routing_no_gs_relay(
 
     # Step 4: Calculate satellite-to-GS forwarding state
     fstate: dict[tuple, tuple] = {}
-    dist_satellite_to_ground_station: dict[tuple, float] = {}
-
-    node_to_index = {node_id: index for index, node_id in enumerate(satellite_node_ids)}
+    satellite_addresses = {
+        satellite_id: _get_satellite_address(
+            topology_with_isls,
+            satellite_id,
+            constellation_data,
+        )
+        for satellite_id in satellite_node_ids
+    }
+    neighbor_candidates = {
+        satellite_id: [
+            (neighbor_id, interface, satellite_addresses[neighbor_id])
+            for neighbor_id in satellite_only_subgraph.neighbors(satellite_id)
+            if (interface := topology_with_isls.sat_neighbor_to_if.get((satellite_id, neighbor_id)))
+            is not None
+            and neighbor_id in satellite_addresses
+        ]
+        for satellite_id in satellite_node_ids
+    }
+    gs_destination_candidates = []
+    for possible_dst_sats in ground_station_satellites_in_range:
+        candidates = []
+        for dist_gs_to_sat_m, visible_sat_id in possible_dst_sats:
+            destination_address = satellite_addresses.get(visible_sat_id)
+            if destination_address is not None:
+                candidates.append((dist_gs_to_sat_m, visible_sat_id, destination_address))
+        gs_destination_candidates.append(candidates)
 
     _calculate_sat_to_gs_fstate(
         topology_with_isls,
         ground_stations,
-        ground_station_satellites_in_range,
-        constellation_data,
         satellite_node_ids,
-        node_to_index,
-        satellite_only_subgraph,
-        topology_with_isls.sat_neighbor_to_if,
-        dist_satellite_to_ground_station,
+        satellite_addresses,
+        neighbor_candidates,
+        gs_destination_candidates,
         fstate,
     )
 
@@ -468,13 +488,10 @@ def _fill_forwarding_tables_in_every_satellite(
 def _calculate_sat_to_gs_fstate(
     topology_with_isls,
     ground_stations,
-    ground_station_satellites_in_range,
-    constellation_data,
     nodelist,
-    node_to_index,
-    sat_subgraph,
-    sat_neighbor_to_if,
-    dist_satellite_to_ground_station,
+    satellite_addresses,
+    neighbor_candidates,
+    gs_destination_candidates,
     fstate,
 ):
     """
@@ -493,80 +510,55 @@ def _calculate_sat_to_gs_fstate(
             log.error(f"Could not find satellite object {curr_sat_id}")
             continue
 
+        curr_satellite_address = satellite_addresses.get(curr_sat_id)
+        if curr_satellite_address is None:
+            log.warning(f"Satellite {curr_sat_id} has no 6grupa address assigned")
+            continue
+
         for gs_idx, dst_gs in enumerate(ground_stations):
             dst_gs_node_id = dst_gs.id
-            if gs_idx >= len(ground_station_satellites_in_range):
+            if gs_idx >= len(gs_destination_candidates):
                 continue
 
-            possible_dst_sats = ground_station_satellites_in_range[gs_idx]
+            possible_dst_sats = gs_destination_candidates[gs_idx]
             if not possible_dst_sats:
                 continue
 
             log.debug(
-                f"FSTATE: Sat {curr_sat_id} -> GS {dst_gs.id}. Visible sats: {[sat_id for _, sat_id in possible_dst_sats]}"
+                f"FSTATE: Sat {curr_sat_id} -> GS {dst_gs.id}. Visible sats: {[sat_id for _, sat_id, _ in possible_dst_sats]}"
             )
 
             # Find the best destination satellite using topological distance
-            best_dst_sat_id = None
+            best_destination_address = None
             best_total_distance = float("inf")
 
-            for dist_gs_to_sat_m, visible_sat_id in possible_dst_sats:
+            for dist_gs_to_sat_m, visible_sat_id, dest_sat_address in possible_dst_sats:
                 try:
-                    # Get 6grupa address of the destination satellite
-                    dest_sat_address = _get_satellite_address(
-                        topology_with_isls,
-                        visible_sat_id,
-                        constellation_data,
-                    )
+                    topo_distance = curr_satellite_address.topological_distance_to(dest_sat_address)
+                    total_distance = topo_distance + (dist_gs_to_sat_m / 1000000.0)
 
-                    # Calculate topological distance from current satellite to destination satellite
-                    if hasattr(curr_satellite, "sixgrupa_addr") and curr_satellite.sixgrupa_addr:
-                        topo_distance = curr_satellite.sixgrupa_addr.topological_distance_to(
-                            dest_sat_address
-                        )
-                        total_distance = topo_distance + (
-                            dist_gs_to_sat_m / 1000000.0
-                        )  # Convert to similar scale
-
-                        if total_distance < best_total_distance:
-                            best_total_distance = total_distance
-                            best_dst_sat_id = visible_sat_id
-                    else:
-                        log.warning(f"Satellite {curr_sat_id} has no 6grupa address assigned")
-
+                    if total_distance < best_total_distance:
+                        best_total_distance = total_distance
+                        best_destination_address = dest_sat_address
                 except Exception as e:
                     log.warning(f"Failed to process destination satellite {visible_sat_id}: {e}")
                     continue
 
-            if best_dst_sat_id is None:
+            if best_destination_address is None:
                 continue
 
-            # Get destination satellite address for routing decision
             try:
-                dest_sat_address = _get_satellite_address(
-                    topology_with_isls,
-                    best_dst_sat_id,
-                    constellation_data,
-                )
-
-                # Determine next hop using topological routing
                 next_hop_decision, distance_to_ground_station_m = (
                     _get_next_hop_decision_topological(
                         curr_sat_id,
-                        curr_satellite,
-                        dest_sat_address,
-                        constellation_data,
-                        sat_subgraph,
-                        sat_neighbor_to_if,
-                        topology_with_isls,
+                        curr_satellite_address,
+                        best_destination_address,
+                        neighbor_candidates.get(curr_sat_id, []),
                         dst_gs_node_id,
                     )
                 )
 
                 if next_hop_decision is not None:
-                    dist_satellite_to_ground_station[(curr_sat_id, dst_gs_node_id)] = (
-                        distance_to_ground_station_m
-                    )
                     fstate[(curr_sat_id, dst_gs_node_id)] = next_hop_decision
                     log.debug(
                         f"Fstate entry: Sat {curr_sat_id} -> GS {dst_gs_node_id} via {next_hop_decision}"
@@ -581,12 +573,9 @@ def _calculate_sat_to_gs_fstate(
 
 def _get_next_hop_decision_topological(
     curr_sat_id: int,
-    curr_satellite,
+    curr_satellite_address: TopologicalNetworkAddress,
     destination_address: TopologicalNetworkAddress,
-    constellation_data: ConstellationData,
-    sat_subgraph,
-    sat_neighbor_to_if,
-    topology_with_isls,
+    neighbor_candidates: list[tuple[int, int, TopologicalNetworkAddress]],
     dst_gs_node_id: int,
 ) -> tuple:
     """
@@ -607,12 +596,7 @@ def _get_next_hop_decision_topological(
     Returns:
         tuple: (next_hop_interface_or_decision, distance) or (None, inf) if no path
     """
-    if not hasattr(curr_satellite, "sixgrupa_addr") or not curr_satellite.sixgrupa_addr:
-        log.warning(f"Satellite {curr_sat_id} has no 6grupa address assigned")
-        return None, float("inf")
-
-    my_address = curr_satellite.sixgrupa_addr
-    my_distance_to_dest = my_address.topological_distance_to(destination_address)
+    my_distance_to_dest = curr_satellite_address.topological_distance_to(destination_address)
 
     # Check if we are already at the destination satellite
     if my_distance_to_dest == 0.0:
@@ -626,24 +610,17 @@ def _get_next_hop_decision_topological(
     best_interface = None
 
     # Check all neighbors
-    for neighbor_id in sat_subgraph.neighbors(curr_sat_id):
+    for neighbor_id, interface, neighbor_address in neighbor_candidates:
         try:
-            neighbor_address = _get_satellite_address(
-                topology_with_isls,
-                neighbor_id,
-                constellation_data,
-            )
             neighbor_distance_to_dest = neighbor_address.topological_distance_to(
                 destination_address
             )
 
             # If this neighbor is closer to destination, consider it
             if neighbor_distance_to_dest < best_distance:
-                interface = sat_neighbor_to_if.get((curr_sat_id, neighbor_id))
-                if interface is not None:
-                    best_distance = neighbor_distance_to_dest
-                    best_neighbor_id = neighbor_id
-                    best_interface = interface
+                best_distance = neighbor_distance_to_dest
+                best_neighbor_id = neighbor_id
+                best_interface = interface
 
         except Exception:
             # Skip this neighbor if we can't get its address
