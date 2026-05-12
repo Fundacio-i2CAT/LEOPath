@@ -136,6 +136,26 @@ def compute_gs_handover_rate(
     return changes / total if total else 0.0
 
 
+def compute_gs_renumbering_stats(
+    prev_attachments: list[tuple[int | None, float]],
+    curr_attachments: list[tuple[int | None, float]],
+) -> dict:
+    if not prev_attachments or not curr_attachments:
+        return {
+            "count": 0.0,
+            "rate": 0.0,
+        }
+    changes = 0
+    total = min(len(prev_attachments), len(curr_attachments))
+    for (prev_sat, _), (curr_sat, _) in zip(prev_attachments, curr_attachments):
+        if prev_sat != curr_sat:
+            changes += 1
+    return {
+        "count": float(changes),
+        "rate": (changes / total) if total else 0.0,
+    }
+
+
 def compute_sat_to_gs_churn(
     prev_fstate: dict,
     curr_fstate: dict,

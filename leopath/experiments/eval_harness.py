@@ -34,6 +34,7 @@ from .metrics import (
     build_interface_neighbor_map,
     compute_forwarding_state_stats,
     compute_gs_handover_rate,
+    compute_gs_renumbering_stats,
     compute_gs_to_gs_churn,
     compute_path_stretch,
     compute_sat_to_gs_churn,
@@ -242,9 +243,13 @@ def run_evaluation(
 
     progress_iter = time_steps
     if tqdm is not None:
+        constellation_name = config["constellation"]["name"]
         progress_iter = tqdm(
             time_steps,
-            desc=f"{sim_config['dynamic_state_algorithm']} {isl_scenario}",
+            desc=(
+                f"{constellation_name} "
+                f"{sim_config['dynamic_state_algorithm']} {isl_scenario}"
+            ),
             unit="step",
         )
 
@@ -312,6 +317,7 @@ def run_evaluation(
 
         if prev_fstate is not None and prev_attachments is not None:
             gs_handover_rate = compute_gs_handover_rate(prev_attachments, attachments)
+            gs_renumbering = compute_gs_renumbering_stats(prev_attachments, attachments)
             sat_gs_churn = compute_sat_to_gs_churn(
                 prev_fstate,
                 fstate,
@@ -336,6 +342,8 @@ def run_evaluation(
                     "time_index": step_index,
                     "time_since_epoch_ns": time_since_epoch_ns,
                     "gs_handover_rate": gs_handover_rate,
+                    "gs_renumber_count": gs_renumbering["count"],
+                    "gs_renumber_rate": gs_renumbering["rate"],
                     "sat_gs_churn": sat_gs_churn["churn"],
                     "sat_gs_break_rate": sat_gs_churn["break_rate"],
                     "gs_gs_churn": gs_gs_churn["churn"],

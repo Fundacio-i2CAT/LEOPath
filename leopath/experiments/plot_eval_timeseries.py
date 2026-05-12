@@ -178,8 +178,9 @@ def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str, log_scale: bo
 
 
 def plot_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
-    fig, axes = plt.subplots(3, 1, figsize=(9.2, 9.8), sharex=True)
+    fig, axes = plt.subplots(4, 1, figsize=(9.2, 12.2), sharex=True)
     churn_specs = [
+        ("gs_renumber_rate", "GS renumbering rate"),
         ("gs_handover_rate", "GS handover rate"),
         ("sat_gs_churn", "Sat→GS next-hop churn"),
         ("gs_gs_churn", "GS→GS next-hop churn"),

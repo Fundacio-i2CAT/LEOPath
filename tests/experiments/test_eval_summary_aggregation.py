@@ -24,7 +24,7 @@ def test_summarize_run_weights_stretch_by_samples(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (run_dir / "delta_metrics.csv").write_text(
-        "gs_handover_rate,sat_gs_churn,sat_gs_break_rate,gs_gs_churn,gs_gs_break_rate\n",
+        "gs_handover_rate,gs_renumber_count,gs_renumber_rate,sat_gs_churn,sat_gs_break_rate,gs_gs_churn,gs_gs_break_rate\n",
         encoding="utf-8",
     )
 

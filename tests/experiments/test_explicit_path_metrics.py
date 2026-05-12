@@ -2,7 +2,11 @@ import math
 
 import networkx as nx
 
-from leopath.experiments.metrics import compute_path_stretch, compute_sat_to_gs_churn
+from leopath.experiments.metrics import (
+    compute_gs_renumbering_stats,
+    compute_path_stretch,
+    compute_sat_to_gs_churn,
+)
 
 
 def test_explicit_path_route_plan_gives_unit_stretch() -> None:
@@ -44,3 +48,13 @@ def test_explicit_path_churn_uses_first_hop_from_route_plan() -> None:
 
     assert math.isclose(churn["churn"], 1.0)
     assert math.isclose(churn["break_rate"], 0.0)
+
+
+def test_gs_renumbering_stats_match_attachment_changes() -> None:
+    stats = compute_gs_renumbering_stats(
+        prev_attachments=[(1, 10.0), (2, 20.0), (None, float("inf"))],
+        curr_attachments=[(1, 11.0), (3, 18.0), (4, 15.0)],
+    )
+
+    assert math.isclose(stats["count"], 2.0)
+    assert math.isclose(stats["rate"], 2.0 / 3.0)
