@@ -3,6 +3,7 @@ import math
 import networkx as nx
 
 from leopath.experiments.metrics import (
+    compute_forwarding_state_stats,
     compute_gs_renumbering_stats,
     compute_path_stretch,
     compute_sat_to_gs_churn,
@@ -58,3 +59,26 @@ def test_gs_renumbering_stats_match_attachment_changes() -> None:
 
     assert math.isclose(stats["count"], 2.0)
     assert math.isclose(stats["rate"], 2.0 / 3.0)
+
+
+def test_explicit_path_state_counts_stored_path_elements() -> None:
+    graph = nx.Graph()
+    graph.add_nodes_from([0, 1])
+
+    stats = compute_forwarding_state_stats(
+        fstate={},
+        topology_graph=graph,
+        algorithm_name="explicit_path_routing",
+        satellite_ids=[0, 1],
+        ground_station_ids=[100, 101],
+        route_plans={
+            (0, 100): {"satellite_path": [0, 2, 4]},
+            (0, 101): {"satellite_path": [0]},
+            (1, 100): {"satellite_path": [1, 3]},
+            (1, 101): {},
+        },
+    )
+
+    assert math.isclose(stats["min"], 2.0)
+    assert math.isclose(stats["max"], 4.0)
+    assert math.isclose(stats["mean"], 3.0)

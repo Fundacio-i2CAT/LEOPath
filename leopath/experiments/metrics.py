@@ -106,7 +106,12 @@ def compute_forwarding_state_stats(
     elif algorithm_name == "traditional_segment_routing":
         counts = [float(len(satellite_ids)) for _ in satellite_ids]
     elif algorithm_name == "explicit_path_routing":
-        counts = [float(len(ground_station_ids)) for _ in satellite_ids]
+        for sat_id in satellite_ids:
+            stored_path_state = 0.0
+            for gs_id in ground_station_ids:
+                route_plan = route_plans.get((sat_id, gs_id), {})
+                stored_path_state += float(len(route_plan.get("satellite_path", [])))
+            counts.append(stored_path_state)
     elif algorithm_name == "topological_routing":
         counts = [float(len(list(topology_graph.neighbors(sat_id)))) for sat_id in satellite_ids]
     else:

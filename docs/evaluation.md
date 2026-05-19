@@ -34,7 +34,7 @@ Optional metrics to add later:
 - Topological routing
 - Link-state baseline
 - Predictive link-state
-- Segment routing
+- Explicit-path routing
 
 ## ISL scenarios
 

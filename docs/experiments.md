@@ -35,12 +35,12 @@ ISL_SCENARIOS="ring grid" \
 ## Suggested parameter sweep
 
 - **Predictive link-state**: `prediction_horizon_minutes` in {0, 5, 10}.
-- **Traditional segment routing (optional exploratory run)**: `segment_count` in {2, 3}; optionally sweep `prediction_horizon_minutes` and `segment_refresh_interval_steps` for refresh-based variants.
+- **Explicit-path routing**: `segment_count` in {2, 3}; optionally sweep refresh cadence for alternative controller update policies.
 
 ## Design notes
 
 - Predictive link-state runs compute paths over a future topology snapshot, so keep the horizon within 1–2 time steps.
-- `traditional_segment_routing` is best treated as an exploratory branch experiment, not a default paper matrix entry.
+- `explicit_path_routing` should be presented as the paper's explicit-path family example implementation.
 
 ## Constellation set
 

@@ -8,14 +8,12 @@ LEOPath exposes routing algorithms via a pluggable interface. Each algorithm com
 - `topological_routing`: 6G-RUPA-inspired addressing with neighbor-based forwarding.
 - `predictive_link_state`: Link-state computed on a predicted future topology snapshot.
 - `explicit_path_routing`: Protocol-agnostic centrally planned explicit-path proxy with pinned satellite paths.
-- `traditional_segment_routing`: Experimental explicit-path routing with end-to-end segment lists derived from shortest paths.
 
 ## Assumptions and limitations
 
 - All algorithms currently assume GS attachments use the nearest satellite.
 - Predictive link-state uses deterministic orbital motion but does not model ISL failures unless injected.
 - `explicit_path_routing` plans on the current snapshot only in the current implementation; predictive planning is intentionally deferred.
-- `traditional_segment_routing` is kept for exploratory comparisons; current paper-facing evaluation centers on link-state, predictive link-state, and topological routing.
 - Topological routing assumes stable plane/satellite indexing for address construction.
 
 ## Design considerations
@@ -43,23 +41,11 @@ Parameter notes:
 
 - `prediction_horizon_minutes`: larger values may reduce churn but increase stretch if topology changes quickly.
 
-### Traditional segment routing (experimental)
-
-- Uses an explicit segment list derived from shortest paths.
-- Serves as an exploratory explicit-path baseline rather than a paper-ready protocol model.
-- Segment count is intentionally small to keep packet-carried guidance compact.
-
-Parameter notes:
-
-- `segment_count`: higher values can reduce stretch but increase state.
-- `prediction_horizon_minutes`: optionally plans segments on a future snapshot.
-- `segment_refresh_interval_steps`: optionally refreshes segment plans less often than every simulation step.
-
 ### Explicit-path routing
 
 - Uses centrally computed pinned satellite paths per source-satellite / destination-GS pair.
 - Exposes full route plans for evaluation while keeping a first-hop forwarding proxy for compatibility.
-- Serves as a family-level explicit-path proxy, not a protocol-faithful SRv6/MPLS model.
+- Serves as a paper-facing family-level explicit-path example implementation, not a protocol-faithful SRv6/MPLS model.
 
 Parameter notes:
 
@@ -92,15 +78,6 @@ simulation:
     prediction_horizon_minutes: 5
 ```
 
-### Segment routing
-
-```yaml
-simulation:
-  dynamic_state_algorithm: traditional_segment_routing
-  algorithm_params:
-    segment_count: 2
-```
-
 ### Explicit-path routing
 
 ```yaml
@@ -124,4 +101,13 @@ simulation:
   dynamic_state_algorithm: predictive_link_state
   algorithm_params:
     prediction_horizon_minutes: 5
+```
+
+or
+
+```yaml
+simulation:
+  dynamic_state_algorithm: explicit_path_routing
+  algorithm_params:
+    segment_count: 2
 ```

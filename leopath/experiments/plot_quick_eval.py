@@ -14,6 +14,7 @@ ALGORITHM_COLORS = {
     "shortest_path_link_state": "#4c72b0",
     "topological_routing": "#55a868",
     "predictive_link_state": "#c44e52",
+    "explicit_path_routing": "#8172b3",
 }
 
 
@@ -150,8 +151,9 @@ def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str, log_scale: bo
 
 
 def plot_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
-    fig, axes = plt.subplots(3, 1, figsize=(9.2, 9.8), sharex=True)
+    fig, axes = plt.subplots(4, 1, figsize=(9.2, 12.2), sharex=True)
     churn_specs = [
+        ("gs_renumber_rate", "GS renumbering rate"),
         ("gs_handover_rate", "GS handover rate"),
         ("sat_gs_churn", "Sat→GS next-hop churn"),
         ("gs_gs_churn", "GS→GS next-hop churn"),
@@ -248,6 +250,26 @@ def plot_stretch_timeseries(output_dir: Path, runs: dict, isl: str, metric: str)
     plt.close(fig)
 
 
+def plot_compute_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
+    fig, ax = plt.subplots(figsize=(9.2, 5.2))
+    for algo, data in runs.items():
+        rows = data["timestep"]
+        if not rows:
+            continue
+        times = time_minutes(rows)
+        series = [row["compute_time_ms"] for row in rows]
+        ax.plot(times, series, label=algo, color=algorithm_color(algo))
+    ax.set_title(f"Compute Time ({isl})")
+    ax.set_xlabel("Time (minutes)")
+    ax.set_ylabel("Compute time (ms)")
+    ax.set_yscale("log")
+    ax.grid(True, alpha=0.18, linewidth=0.8)
+    ax.legend(ncol=2, frameon=False)
+    fig.tight_layout()
+    fig.savefig(output_dir / f"compute_timeseries_{isl}.png")
+    plt.close(fig)
+
+
 def main() -> None:
     args = parse_args()
     apply_poster_style()
@@ -265,6 +287,7 @@ def main() -> None:
         plot_churn_core_timeseries(output_dir, runs, isl)
         plot_sat_gs_churn_timeseries(output_dir, runs, isl)
         plot_stretch_timeseries(output_dir, runs, isl, args.stretch_metric)
+        plot_compute_timeseries(output_dir, runs, isl)
 
 
 if __name__ == "__main__":

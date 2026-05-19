@@ -121,6 +121,14 @@ def aggregate(base_dir: str, output_csv: str) -> None:
         for key, value in delta_mean.items():
             row[f"delta_mean_{key}"] = value
 
+        ground_station_count = float(metadata.get("ground_stations", {}).get("count", 0) or 0)
+        if "delta_mean_gs_renumber_rate" not in row and "delta_mean_gs_handover_rate" in row:
+            row["delta_mean_gs_renumber_rate"] = row["delta_mean_gs_handover_rate"]
+        if "delta_mean_gs_renumber_count" not in row and "delta_mean_gs_handover_rate" in row:
+            row["delta_mean_gs_renumber_count"] = (
+                row["delta_mean_gs_handover_rate"] * ground_station_count
+            )
+
         rows.append(row)
 
     if not rows:

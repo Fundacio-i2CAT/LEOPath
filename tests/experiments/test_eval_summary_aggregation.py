@@ -60,3 +60,30 @@ def test_aggregate_eval_ignores_zero_sample_stretch_rows(tmp_path: Path) -> None
     assert means["stretch_hop_min"] == 1.05
     assert means["stretch_hop_max"] == 1.25
     assert means["compute_time_ms"] == 20.0
+
+
+def test_summarize_run_backfills_renumbering_from_handover(tmp_path: Path) -> None:
+    run_dir = tmp_path / "topological_routing" / "grid"
+    run_dir.mkdir(parents=True)
+
+    (run_dir / "metadata.json").write_text(
+        '{"algorithm": "topological_routing", "isl_scenario": "grid", "ground_stations": {"count": 4}}',
+        encoding="utf-8",
+    )
+    (run_dir / "timestep_metrics.csv").write_text(
+        "fstate_size_mean\n4\n4\n",
+        encoding="utf-8",
+    )
+    (run_dir / "delta_metrics.csv").write_text(
+        "gs_handover_rate,sat_gs_churn,sat_gs_break_rate,gs_gs_churn,gs_gs_break_rate\n"
+        "0.25,0,0,0,0\n"
+        "0.50,0,0,0,0\n",
+        encoding="utf-8",
+    )
+
+    summary = summarize_run(run_dir)
+
+    assert summary["G"] == 4
+    assert summary["handover_mean"] == 0.375
+    assert summary["gs_renumber_rate_mean"] == 0.375
+    assert summary["gs_renumber_count_mean"] == 1.5

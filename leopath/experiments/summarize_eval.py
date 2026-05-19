@@ -68,18 +68,41 @@ def summarize_run(run_dir: Path) -> dict:
     else:
         fstate_mean = mean([fget(r, "fstate_sat_gs_mean") for r in trows])
 
+    ground_station_count = int(
+        meta.get("ground_station_count", 0)
+        or meta.get("ground_stations", {}).get("count", 0)
+        or 0
+    )
+    handover_mean = mean([fget(r, "gs_handover_rate") for r in drows])
+    gs_renumber_rate_mean = mean(
+        [
+            fget(r, "gs_renumber_rate")
+            if r.get("gs_renumber_rate") not in (None, "")
+            else fget(r, "gs_handover_rate")
+            for r in drows
+        ]
+    )
+    gs_renumber_count_mean = mean(
+        [
+            fget(r, "gs_renumber_count")
+            if r.get("gs_renumber_count") not in (None, "")
+            else fget(r, "gs_handover_rate") * ground_station_count
+            for r in drows
+        ]
+    )
+
     summary = {
         "algorithm": meta.get("algorithm", run_dir.parts[-2]),
         "isl": meta.get("isl_scenario", run_dir.parts[-1]),
-        "G": int(meta.get("ground_station_count", 0) or 0),
+        "G": ground_station_count,
         "dt_min": float(meta.get("time_step_minutes", 0.0) or 0.0),
         "hours": float(meta.get("end_time_hours", 0.0) or 0.0),
         "snapshots": len(trows),
         "deltas": len(drows),
         "fstate_units_mean": fstate_mean,
-        "handover_mean": mean([fget(r, "gs_handover_rate") for r in drows]),
-        "gs_renumber_count_mean": mean([fget(r, "gs_renumber_count") for r in drows]),
-        "gs_renumber_rate_mean": mean([fget(r, "gs_renumber_rate") for r in drows]),
+        "handover_mean": handover_mean,
+        "gs_renumber_count_mean": gs_renumber_count_mean,
+        "gs_renumber_rate_mean": gs_renumber_rate_mean,
         "sat_gs_churn_mean": mean([fget(r, "sat_gs_churn") for r in drows]),
         "sat_gs_break_mean": mean([fget(r, "sat_gs_break_rate") for r in drows]),
         "gs_gs_churn_mean": mean([fget(r, "gs_gs_churn") for r in drows]),

@@ -9,11 +9,13 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import math
+import statistics
 
 
 ALGORITHM_COLORS = {
     "Link-state": "#4c72b0",
     "Topological": "#55a868",
+    "Explicit-path": "#8172b3",
     "Predictive LS (h=5m)": "#c44e52",
     "Predictive LS (h=10m)": "#c44e52",
     "Predictive LS (h=0m)": "#c44e52",
@@ -62,7 +64,10 @@ def read_csv(path: Path) -> list[dict]:
         reader = csv.DictReader(handle)
         rows = []
         for row in reader:
-            rows.append({key: float(value) for key, value in row.items()})
+            parsed = {key: float(value) for key, value in row.items()}
+            if "gs_renumber_rate" not in parsed and "gs_handover_rate" in parsed:
+                parsed["gs_renumber_rate"] = parsed["gs_handover_rate"]
+            rows.append(parsed)
         return rows
 
 
@@ -86,6 +91,8 @@ def format_label(metadata: dict) -> str:
         return "Link-state"
     if algorithm == "topological_routing":
         return "Topological"
+    if algorithm == "explicit_path_routing":
+        return "Explicit-path"
     return algorithm.replace("_", " ")
 
 
@@ -96,8 +103,8 @@ def should_include_run(metadata: dict) -> bool:
         return True
     if algorithm == "topological_routing":
         return True
-    if algorithm == "predictive_link_state":
-        return int(params.get("prediction_horizon_minutes", -1)) == 5
+    if algorithm == "explicit_path_routing":
+        return True
     if algorithm == "traditional_segment_routing":
         return False
     return False
@@ -138,6 +145,39 @@ def stretch_series(rows: list[dict], metric_suffix: str, stat: str) -> list[floa
         else:
             series.append(value)
     return series
+
+
+def rolling_median(series: list[float], window: int) -> list[float]:
+    if window <= 1:
+        return series[:]
+    radius = window // 2
+    smoothed = []
+    for index in range(len(series)):
+        start = max(0, index - radius)
+        end = min(len(series), index + radius + 1)
+        values = [value for value in series[start:end] if not math.isnan(value)]
+        smoothed.append(statistics.median(values) if values else math.nan)
+    return smoothed
+
+
+def plot_smoothed_series(
+    ax,
+    times: list[float],
+    series: list[float],
+    label: str,
+    color: str,
+    window: int,
+    show_raw: bool = True,
+) -> None:
+    if show_raw:
+        ax.plot(times, series, color=color, linewidth=1.0, alpha=0.12)
+    ax.plot(
+        times,
+        rolling_median(series, window),
+        label=label,
+        color=color,
+        linewidth=2.6,
+    )
 
 
 def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str, log_scale: bool) -> None:
@@ -236,14 +276,14 @@ def plot_sat_gs_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None
             continue
         times = time_minutes(rows)
         series = [row[metric] for row in rows]
-        ax.plot(times, series, label=algo, linewidth=3.0, color=algorithm_color(algo))
+        plot_smoothed_series(ax, times, series, algo, algorithm_color(algo), window=9)
     ax.set_title(f"Sat→GS Next-hop Churn ({isl})")
     ax.set_xlabel("Time (minutes)")
     ax.set_ylabel("Rate")
     y_min, y_max = ax.get_ylim()
     ax.set_ylim(y_min, y_max * 1.08)
-    ax.grid(True, alpha=0.18, linewidth=0.8)
-    ax.legend(ncol=2, frameon=True, loc="upper right")
+    ax.grid(True, axis="y", alpha=0.18, linewidth=0.8)
+    ax.legend(ncol=3, frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.02))
     fig.tight_layout()
     fig.savefig(output_dir / f"churn_sat_gs_timeseries_{isl}.png")
     plt.close(fig)
@@ -252,29 +292,18 @@ def plot_sat_gs_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None
 def plot_stretch_timeseries(output_dir: Path, runs: dict, isl: str, metric: str) -> None:
     fig, ax = plt.subplots(figsize=(9.8, 5.5))
     metric_suffix = "dist" if metric == "distance" else metric
-    mean_col = f"stretch_{metric_suffix}_mean"
-    p95_col = f"stretch_{metric_suffix}_p95"
     for algo, data in runs.items():
         rows = data["timestep"]
         times = time_minutes(rows)
         mean = stretch_series(rows, metric_suffix, "mean")
-        p95 = stretch_series(rows, metric_suffix, "p95")
-        (mean_line,) = ax.plot(times, mean, label=algo, color=algorithm_color(algo))
-        ax.plot(
-            times,
-            p95,
-            linestyle="--",
-            color=mean_line.get_color(),
-            linewidth=1.8,
-            alpha=0.45,
-        )
+        plot_smoothed_series(ax, times, mean, algo, algorithm_color(algo), window=11)
     ax.set_title(f"Path Stretch ({isl}, {metric})")
     ax.set_xlabel("Time (minutes)")
     ax.set_ylabel("Stretch")
     y_min, y_max = ax.get_ylim()
     ax.set_ylim(y_min, y_max * 1.08)
-    ax.grid(True, alpha=0.18, linewidth=0.8)
-    ax.legend(ncol=2, frameon=True, loc="upper right")
+    ax.grid(True, axis="y", alpha=0.18, linewidth=0.8)
+    ax.legend(ncol=3, frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.02))
     fig.tight_layout()
     fig.savefig(output_dir / f"stretch_{metric}_timeseries_{isl}.png")
     plt.close(fig)
@@ -289,12 +318,21 @@ def plot_compute_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
             continue
         times = time_minutes(rows)
         series = [row[metric] for row in rows]
-        ax.plot(times, series, label=algo, linewidth=3.0, color=algorithm_color(algo))
+        plot_smoothed_series(
+            ax,
+            times,
+            series,
+            algo,
+            algorithm_color(algo),
+            window=11,
+            show_raw=False,
+        )
     ax.set_title(f"Compute Time per Step ({isl})")
     ax.set_xlabel("Time (minutes)")
-    ax.set_ylabel("Milliseconds")
-    ax.grid(True, alpha=0.18, linewidth=0.8)
-    ax.legend(ncol=2, frameon=False)
+    ax.set_ylabel("Milliseconds (log scale)")
+    ax.set_yscale("log")
+    ax.grid(True, axis="y", alpha=0.18, linewidth=0.8)
+    ax.legend(ncol=3, frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.02))
     fig.tight_layout()
     fig.savefig(output_dir / f"compute_timeseries_{isl}.png")
     plt.close(fig)

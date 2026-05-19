@@ -13,8 +13,7 @@ import matplotlib.pyplot as plt
 ALGORITHM_COLORS = {
     "Link-state": "#4c72b0",
     "Topological": "#55a868",
-    "Predictive LS": "#c44e52",
-    "Segment routing": "#8172b3",
+    "Explicit-path": "#8172b3",
 }
 
 CONSTELLATION_LABELS = {
@@ -54,10 +53,8 @@ def algorithm_family(algorithm: str) -> str:
         return "Link-state"
     if algorithm == "topological_routing":
         return "Topological"
-    if algorithm == "predictive_link_state":
-        return "Predictive LS"
-    if algorithm == "traditional_segment_routing":
-        return "Segment routing"
+    if algorithm == "explicit_path_routing":
+        return "Explicit-path"
     return algorithm
 
 
@@ -71,11 +68,11 @@ def read_summary(path: Path) -> list[dict]:
         reader = csv.DictReader(handle)
         for row in reader:
             algorithm = row["algorithm"]
-            horizon = row.get("param_prediction_horizon_minutes", "")
-
-            if algorithm == "predictive_link_state" and horizon not in {"5", "5.0"}:
-                continue
-            if algorithm == "traditional_segment_routing":
+            if algorithm not in {
+                "shortest_path_link_state",
+                "topological_routing",
+                "explicit_path_routing",
+            }:
                 continue
 
             row["family"] = algorithm_family(row["algorithm"])
@@ -104,7 +101,7 @@ def plot_algorithm_comparison(rows: list[dict], output_dir: Path) -> None:
     families = [
         "Link-state",
         "Topological",
-        "Predictive LS",
+        "Explicit-path",
     ]
     isls = ["grid", "ring"]
     metrics = [
@@ -157,7 +154,7 @@ def plot_fstate_by_constellation(rows: list[dict], output_dir: Path) -> None:
     families = [
         "Link-state",
         "Topological",
-        "Predictive LS",
+        "Explicit-path",
     ]
     filtered = [row for row in rows if row["family"] in set(families) and row["isl_scenario"] in {"grid", "ring"}]
 
@@ -175,7 +172,7 @@ def plot_fstate_by_constellation(rows: list[dict], output_dir: Path) -> None:
 
         x = list(range(len(constellations)))
         width = 0.18
-        offsets = [-1.5, -0.5, 0.5, 1.5]
+        offsets = [-1.0, 0.0, 1.0]
         for family, offset in zip(families, offsets):
             family_vals = [values[c].get(family, 0.0) for c in constellations]
             ax.bar(
@@ -192,7 +189,7 @@ def plot_fstate_by_constellation(rows: list[dict], output_dir: Path) -> None:
         ax.grid(True, axis="y", alpha=0.2)
         ax.legend(frameon=False, ncol=2)
 
-    axes[0].set_ylabel("FIB entries (proxy, log scale)")
+    axes[0].set_ylabel("Forwarding-state units (log scale)")
     fig.tight_layout()
     fig.savefig(output_dir / "fstate_constellation_bars.png")
     fig.savefig(output_dir / "fstate_all_algorithms_constellations.png")
