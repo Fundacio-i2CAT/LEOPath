@@ -126,13 +126,13 @@ def prepare_algorithm_params(
         algorithm_params["segment_refresh_interval_steps"] = segment_refresh_interval_steps
     elif algorithm_name == "explicit_path_routing":
         algorithm_params.setdefault("segment_refresh_interval_steps", 1)
-    if segment_mode is not None:
+    if segment_mode is not None and algorithm_name != "explicit_path_routing":
         algorithm_params["segment_mode"] = segment_mode
-    if plane_weight is not None:
+    if plane_weight is not None and algorithm_name != "explicit_path_routing":
         algorithm_params["plane_weight"] = plane_weight
-    if sat_weight is not None:
+    if sat_weight is not None and algorithm_name != "explicit_path_routing":
         algorithm_params["sat_weight"] = sat_weight
-    if shell_weight is not None:
+    if shell_weight is not None and algorithm_name != "explicit_path_routing":
         algorithm_params["shell_weight"] = shell_weight
 
     effective_time_step_minutes = time_step_minutes
