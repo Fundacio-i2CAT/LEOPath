@@ -57,6 +57,7 @@ def test_build_route_plans_pins_shortest_satellite_path() -> None:
 
     assert plans[(0, 100)]["satellite_path"] == [0, 1, 2, 3]
     assert plans[(0, 100)]["adjacency_sid_list"] == [1, 2, 3]
+    assert plans[(0, 100)]["backup_adjacency_sid_list"] == [None, None, None]
     assert plans[(0, 100)]["forwarding_mode"] == "strict_adjacency_header"
     assert plans[(0, 100)]["planned_dst_sat_id"] == 3
     assert plans[(3, 100)]["satellite_path"] == [3]
@@ -94,10 +95,12 @@ def test_explicit_path_algorithm_returns_route_plans_and_first_hop_proxy() -> No
 
     assert output["route_plans"][(0, 100)]["satellite_path"] == [0, 1, 2, 3]
     assert output["route_plans"][(0, 100)]["adjacency_sid_list"] == [1, 2, 3]
+    assert output["route_plans"][(0, 100)]["backup_adjacency_sid_list"] == [None, None, None]
     assert output["route_plans"][(0, 100)]["planned_dst_sat_id"] == 3
     assert output["fstate"][(0, 100)] == (1, 0, 0)
     assert output["control_plane"]["sample_route_plans"][0]["satellite_path"] == [0, 1, 2, 3]
     assert output["control_plane"]["sample_route_plans"][0]["adjacency_sid_list"] == [1, 2, 3]
+    assert output["control_plane"]["sample_route_plans"][0]["backup_adjacency_sid_list"] == [None, None, None]
     assert output["control_plane"]["sample_route_plans"][0]["waypoint_satellites"] == [2, 3]
 
 

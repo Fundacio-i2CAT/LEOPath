@@ -31,6 +31,7 @@ from leopath.network_state.routing_algorithms.routing_algorithm_factory import (
 from leopath.topology.topology import ConstellationData
 
 from .metrics import (
+    compute_explicit_failover_stats,
     build_interface_neighbor_map,
     compute_explicit_header_stats,
     compute_forwarding_state_stats,
@@ -296,6 +297,12 @@ def run_evaluation(
             route_plans,
         )
         explicit_header_stats = compute_explicit_header_stats(route_plans)
+        explicit_failover_stats = compute_explicit_failover_stats(
+            topology_with_isls.graph,
+            route_plans,
+            ground_station_ids,
+            gs_sat_visibility,
+        )
         stretch_stats = compute_path_stretch(
             fstate,
             topology_with_isls.graph,
@@ -316,6 +323,10 @@ def run_evaluation(
                 **flatten_distribution("strict_header_bytes", explicit_header_stats),
                 **flatten_distribution("stretch_hop", stretch_stats["hop"]),
                 **flatten_distribution("stretch_dist", stretch_stats["distance"]),
+                **{
+                    f"explicit_failover_{key}": value
+                    for key, value in explicit_failover_stats.items()
+                },
                 "compute_time_ms": compute_duration_ms,
             }
         )

@@ -173,6 +173,78 @@ def compute_explicit_header_stats(
     return summarize_distribution(header_sizes)
 
 
+def compute_explicit_failover_stats(
+    topology_graph: nx.Graph,
+    route_plans: dict | None,
+    ground_station_ids: list[int],
+    ground_station_satellites_in_range: list | None,
+) -> dict:
+    route_plans = route_plans or {}
+    visibility_by_gs = {}
+    if ground_station_satellites_in_range is not None:
+        for ground_station_id, visibility in zip(
+            ground_station_ids, ground_station_satellites_in_range
+        ):
+            visibility_by_gs[ground_station_id] = visibility
+
+    delivered = 0
+    protected_repair = 0
+    broken_adj = 0
+    egress_not_visible = 0
+    total = 0
+
+    for (_, dst_gs_id), route_plan in route_plans.items():
+        if not route_plan:
+            continue
+        sat_path = route_plan.get("satellite_path", [])
+        adjacency_sid_list = route_plan.get("adjacency_sid_list", [])
+        backup_adjacency_sid_list = route_plan.get("backup_adjacency_sid_list", [])
+        planned_dst_sat_id = route_plan.get("planned_dst_sat_id")
+        if not sat_path or sat_path[1:] != adjacency_sid_list:
+            continue
+        total += 1
+        plan_failed = False
+        for hop_index, (current_sat_id, primary_next_sat_id) in enumerate(
+            zip(sat_path, sat_path[1:])
+        ):
+            if topology_graph.has_edge(current_sat_id, primary_next_sat_id):
+                continue
+            backup_next_sat_id = (
+                backup_adjacency_sid_list[hop_index]
+                if hop_index < len(backup_adjacency_sid_list)
+                else None
+            )
+            if (
+                backup_next_sat_id is not None
+                and topology_graph.has_edge(current_sat_id, backup_next_sat_id)
+                and topology_graph.has_edge(backup_next_sat_id, primary_next_sat_id)
+            ):
+                protected_repair += 1
+                continue
+            broken_adj += 1
+            plan_failed = True
+            break
+        if plan_failed:
+            continue
+        visibility = visibility_by_gs.get(dst_gs_id, [])
+        if _lookup_visible_satellite_distance(visibility, planned_dst_sat_id) is None:
+            egress_not_visible += 1
+            continue
+        delivered += 1
+
+    return {
+        "count": float(total),
+        "delivered_count": float(delivered),
+        "delivered_rate": (delivered / total) if total else 0.0,
+        "protected_repair_count": float(protected_repair),
+        "protected_repair_rate": (protected_repair / total) if total else 0.0,
+        "broken_adj_count": float(broken_adj),
+        "broken_adj_rate": (broken_adj / total) if total else 0.0,
+        "egress_not_visible_count": float(egress_not_visible),
+        "egress_not_visible_rate": (egress_not_visible / total) if total else 0.0,
+    }
+
+
 def compute_sat_to_gs_churn(
     prev_fstate: dict,
     curr_fstate: dict,
@@ -469,20 +541,46 @@ def _follow_explicit_route_plan(
 ) -> tuple[int | None, float | None]:
     sat_path = route_plan.get("satellite_path", [])
     adjacency_sid_list = route_plan.get("adjacency_sid_list", [])
+    backup_adjacency_sid_list = route_plan.get("backup_adjacency_sid_list", [])
     planned_dst_sat_id = route_plan.get("planned_dst_sat_id")
     if not sat_path or sat_path[0] != src_sat or sat_path[-1] != planned_dst_sat_id:
         return None, None
     if adjacency_sid_list != sat_path[1:]:
+        return None, None
+    if backup_adjacency_sid_list and len(backup_adjacency_sid_list) != len(adjacency_sid_list):
         return None, None
     if len(sat_path) > max_hops:
         return None, None
 
     total_hops = 1
     total_dist = float(src_gsl_dist)
-    for current, next_hop in zip(sat_path, sat_path[1:]):
-        if not topology_graph.has_edge(current, next_hop):
-            return None, None
-        weight = topology_graph.edges[current, next_hop].get("weight")
+    for hop_index, (current, next_hop) in enumerate(zip(sat_path, sat_path[1:])):
+        effective_next_hop = next_hop
+        if not topology_graph.has_edge(current, effective_next_hop):
+            backup_next_hop = (
+                backup_adjacency_sid_list[hop_index]
+                if hop_index < len(backup_adjacency_sid_list)
+                else None
+            )
+            if backup_next_hop is None:
+                return None, None
+            if not topology_graph.has_edge(current, backup_next_hop):
+                return None, None
+            if not topology_graph.has_edge(backup_next_hop, next_hop):
+                return None, None
+            first_leg_weight = topology_graph.edges[current, backup_next_hop].get("weight")
+            second_leg_weight = topology_graph.edges[backup_next_hop, next_hop].get("weight")
+            if (
+                first_leg_weight is None
+                or second_leg_weight is None
+                or math.isinf(first_leg_weight)
+                or math.isinf(second_leg_weight)
+            ):
+                return None, None
+            total_hops += 2
+            total_dist += float(first_leg_weight) + float(second_leg_weight)
+            continue
+        weight = topology_graph.edges[current, effective_next_hop].get("weight")
         if weight is None or math.isinf(weight):
             return None, None
         total_hops += 1

@@ -76,6 +76,7 @@ def algorithm_explicit_path_routing(
                     "destination_ground_station_id": dst_gs_id,
                     "satellite_path": route_plan.get("satellite_path", []),
                     "adjacency_sid_list": route_plan.get("adjacency_sid_list", []),
+                    "backup_adjacency_sid_list": route_plan.get("backup_adjacency_sid_list", []),
                     "strict_header_bytes": route_plan.get("strict_header_bytes", 0),
                     "planned_dst_sat_id": route_plan.get("planned_dst_sat_id"),
                     "waypoint_satellites": waypoint_plans[(src_sat_id, dst_gs_id)],
@@ -127,6 +128,7 @@ def _build_route_plans(
                 continue
             if src_sat_id == dst_sat_id:
                 route_plans[(src_sat_id, dst_gs.id)] = _build_strict_route_plan(
+                    sat_graph,
                     src_sat_id,
                     [src_sat_id],
                     dst_sat_id,
@@ -135,6 +137,7 @@ def _build_route_plans(
             sat_path = paths_by_destination.get(dst_sat_id, {}).get(src_sat_id)
             if sat_path:
                 route_plans[(src_sat_id, dst_gs.id)] = _build_strict_route_plan(
+                    sat_graph,
                     src_sat_id,
                     sat_path,
                     dst_sat_id,
@@ -145,21 +148,50 @@ def _build_route_plans(
 
 
 def _build_strict_route_plan(
+    sat_graph: nx.Graph,
     src_sat_id: int,
     sat_path: list[int],
     planned_dst_sat_id: int,
 ) -> dict:
     adjacency_sid_list = sat_path[1:] if sat_path and sat_path[0] == src_sat_id else []
+    backup_adjacency_sid_list = _build_backup_adjacency_sid_list(sat_graph, sat_path)
     # Minimal strict-header proxy: fixed metadata plus 32-bit adjacency SIDs.
     strict_header_bytes = 20 + (4 * len(adjacency_sid_list)) if sat_path else 0
     return {
         "satellite_path": sat_path,
         "planned_dst_sat_id": planned_dst_sat_id,
         "forwarding_mode": "strict_adjacency_header",
+        "local_protection_mode": "single_hop_rejoin",
         "ingress_sat_id": src_sat_id,
         "adjacency_sid_list": adjacency_sid_list,
+        "backup_adjacency_sid_list": backup_adjacency_sid_list,
         "strict_header_bytes": strict_header_bytes,
     }
+
+
+def _build_backup_adjacency_sid_list(
+    sat_graph: nx.Graph,
+    sat_path: list[int],
+) -> list[int | None]:
+    backup_sid_list: list[int | None] = []
+    for current_sat_id, primary_next_sat_id in zip(sat_path, sat_path[1:]):
+        backup_candidates = []
+        for backup_next_sat_id in sat_graph.neighbors(current_sat_id):
+            if backup_next_sat_id == primary_next_sat_id:
+                continue
+            if not sat_graph.has_edge(backup_next_sat_id, primary_next_sat_id):
+                continue
+            first_leg = sat_graph.edges[current_sat_id, backup_next_sat_id].get("weight", float("inf"))
+            second_leg = sat_graph.edges[backup_next_sat_id, primary_next_sat_id].get(
+                "weight", float("inf")
+            )
+            backup_candidates.append(
+                (float(first_leg) + float(second_leg), int(backup_next_sat_id))
+            )
+        backup_sid_list.append(
+            min(backup_candidates)[1] if backup_candidates else None
+        )
+    return backup_sid_list
 
 
 def _build_waypoint_plans(
