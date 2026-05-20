@@ -12,6 +12,9 @@ import math
 import statistics
 
 
+REPRESENTATIVE_CONSTELLATION = "Starlink-550"
+
+
 ALGORITHM_COLORS = {
     "Link-state": "#4c72b0",
     "Topological": "#55a868",
@@ -123,9 +126,18 @@ def collect_runs(input_dir: Path) -> dict:
             continue
         isl = metadata.get("isl_scenario", "unknown")
         label = format_label(metadata)
+        constellation_name = metadata.get("constellation", {}).get("name", "")
+        existing = runs.setdefault(isl, {}).get(label)
+        if existing is not None:
+            existing_constellation = existing.get("constellation_name", "")
+            if existing_constellation == REPRESENTATIVE_CONSTELLATION:
+                continue
+            if constellation_name != REPRESENTATIVE_CONSTELLATION:
+                continue
         runs.setdefault(isl, {})[label] = {
             "timestep": read_csv(timestep_path),
             "delta": read_csv(delta_path),
+            "constellation_name": constellation_name,
         }
     return runs
 
