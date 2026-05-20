@@ -9,7 +9,13 @@ from .explicit_path_routing_algorithm import algorithm_explicit_path_routing
 
 
 class ExplicitPathRoutingAlgorithm(RoutingAlgorithm):
-    """Protocol-agnostic centrally planned explicit-path proxy."""
+    """Strict explicit-path proxy with SRv6-like adjacency headers.
+
+    Transit satellites are modeled as local forwarding points that consume the
+    next adjacency instruction from the packet header and map it to an outgoing
+    interface. Protection is intentionally scoped to SRv6-like local repair
+    semantics rather than per-hop shortest-path recomputation.
+    """
 
     def compute_state(
         self,

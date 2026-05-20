@@ -40,7 +40,7 @@ ISL_SCENARIOS="ring grid" \
 ## Design notes
 
 - Predictive link-state runs compute paths over a future topology snapshot, so keep the horizon within 1–2 time steps.
-- `explicit_path_routing` should be presented as the paper's explicit-path family example implementation.
+- `explicit_path_routing` should be presented as the paper's explicit-path family example implementation, with SRv6-like local protection semantics rather than transit shortest-path fallback.
 
 ## Constellation set
 

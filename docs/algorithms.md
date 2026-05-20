@@ -45,6 +45,9 @@ Parameter notes:
 
 - Uses centrally computed or ingress-computed strict satellite paths per source-satellite / destination-GS pair.
 - Models a strict SRv6-like adjacency-header proxy: the packet carries the remaining hop list, while transit satellites only need a local neighbor/interface map.
+- Failover semantics follow an SRv6-style local protection model, not a transit shortest-path fallback model.
+- If the active adjacency is unavailable, the intended behavior is to use only a precomputed local backup adjacency for that hop; otherwise the packet is dropped and later packets require ingress/controller replanning.
+- If the planned egress satellite can no longer reach the destination ground station, the packet is dropped rather than locally re-routed through a full topology lookup.
 - Exposes full route plans for evaluation, including adjacency SID lists and strict-header byte counts.
 - Serves as a paper-facing family-level explicit-path example implementation, not a full SRv6 control-plane model.
 
