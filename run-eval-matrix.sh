@@ -29,6 +29,7 @@ GS_CONFIG=${GS_CONFIG:-"$ROOT_DIR/leopath/config/ground_stations_dense.yaml"}
 GS_CONFIG=$(to_runtime_path "$GS_CONFIG")
 PREDICTION_HORIZONS=${PREDICTION_HORIZONS:-"0 5 10"}
 SEGMENT_COUNTS=${SEGMENT_COUNTS:-"2 3"}
+EXPLICIT_PATH_REFRESH_INTERVAL_STEPS=${EXPLICIT_PATH_REFRESH_INTERVAL_STEPS:-1}
 
 run_eval_harness() {
   if [ "$EVAL_USE_DOCKER" = "1" ]; then
@@ -73,6 +74,19 @@ for config_name in $CONFIGS; do
             --time-step-minutes "$TIME_STEP_MINUTES" \
             --segment-count "$count"
         done
+      elif [ "$algorithm" = "explicit_path_routing" ]; then
+        out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}"
+        mkdir -p "$out_dir"
+        runtime_out_dir=$(to_runtime_path "$out_dir")
+        run_eval_harness \
+          --config "$config_path" \
+          --output-dir "$runtime_out_dir" \
+          --isl-scenario "$isl" \
+          --algorithm "$algorithm" \
+          --gs-config "$GS_CONFIG" \
+          --end-time-hours "$END_TIME_HOURS" \
+          --time-step-minutes "$TIME_STEP_MINUTES" \
+          --segment-refresh-interval-steps "$EXPLICIT_PATH_REFRESH_INTERVAL_STEPS"
       else
         out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}"
         mkdir -p "$out_dir"

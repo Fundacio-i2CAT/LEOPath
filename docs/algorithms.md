@@ -50,6 +50,7 @@ Parameter notes:
 Parameter notes:
 
 - `segment_count`: controls sampled waypoint metadata only; forwarding follows the full pinned path.
+- `segment_refresh_interval_steps`: controls how many evaluation timesteps a pinned route plan is reused before replanning. If omitted, the current implementation defaults to `1` and replans every timestep.
 
 ## Algorithm parameters
 
