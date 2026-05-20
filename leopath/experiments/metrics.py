@@ -158,6 +158,21 @@ def compute_gs_renumbering_stats(
     }
 
 
+def compute_explicit_header_stats(
+    route_plans: dict | None,
+) -> dict:
+    route_plans = route_plans or {}
+    header_sizes = []
+    for route_plan in route_plans.values():
+        if not route_plan:
+            continue
+        strict_header_bytes = route_plan.get("strict_header_bytes")
+        if strict_header_bytes is None:
+            continue
+        header_sizes.append(float(strict_header_bytes))
+    return summarize_distribution(header_sizes)
+
+
 def compute_sat_to_gs_churn(
     prev_fstate: dict,
     curr_fstate: dict,

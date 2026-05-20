@@ -32,6 +32,7 @@ from leopath.topology.topology import ConstellationData
 
 from .metrics import (
     build_interface_neighbor_map,
+    compute_explicit_header_stats,
     compute_forwarding_state_stats,
     compute_gs_handover_rate,
     compute_gs_renumbering_stats,
@@ -294,6 +295,7 @@ def run_evaluation(
             algorithm_params,
             route_plans,
         )
+        explicit_header_stats = compute_explicit_header_stats(route_plans)
         stretch_stats = compute_path_stretch(
             fstate,
             topology_with_isls.graph,
@@ -311,6 +313,7 @@ def run_evaluation(
                 "time_index": step_index,
                 "time_since_epoch_ns": time_since_epoch_ns,
                 **flatten_distribution("fstate_size", fstate_stats),
+                **flatten_distribution("strict_header_bytes", explicit_header_stats),
                 **flatten_distribution("stretch_hop", stretch_stats["hop"]),
                 **flatten_distribution("stretch_dist", stretch_stats["distance"]),
                 "compute_time_ms": compute_duration_ms,

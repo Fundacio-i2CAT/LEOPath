@@ -15,10 +15,10 @@ def test_summarize_run_weights_stretch_by_samples(tmp_path: Path) -> None:
     (run_dir / "timestep_metrics.csv").write_text(
         "\n".join(
             [
-                "stretch_dist_mean,stretch_dist_count,stretch_hop_mean,stretch_hop_count,fstate_size_mean",
-                "1.0,1,1.0,1,100",
-                "0.0,0,0.0,0,100",
-                "1.0,3,1.0,3,100",
+                "stretch_dist_mean,stretch_dist_count,stretch_hop_mean,stretch_hop_count,fstate_size_mean,strict_header_bytes_mean",
+                "1.0,1,1.0,1,100,24",
+                "0.0,0,0.0,0,100,0",
+                "1.0,3,1.0,3,100,36",
             ]
         ),
         encoding="utf-8",
@@ -35,6 +35,7 @@ def test_summarize_run_weights_stretch_by_samples(tmp_path: Path) -> None:
     assert summary["stretch_dist_valid_timestep_mean"] == 1.0
     assert summary["stretch_hop_valid_timestep_mean"] == 1.0
     assert summary["stretch_dist_samples_mean"] == 4 / 3
+    assert summary["strict_header_bytes_mean"] == 20.0
 
 
 def test_aggregate_eval_ignores_zero_sample_stretch_rows(tmp_path: Path) -> None:

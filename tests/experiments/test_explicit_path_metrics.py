@@ -3,6 +3,7 @@ import math
 import networkx as nx
 
 from leopath.experiments.metrics import (
+    compute_explicit_header_stats,
     compute_forwarding_state_stats,
     compute_gs_renumbering_stats,
     compute_path_stretch,
@@ -82,3 +83,18 @@ def test_explicit_path_state_counts_local_neighbors_only() -> None:
     assert math.isclose(stats["min"], 1.0)
     assert math.isclose(stats["max"], 2.0)
     assert math.isclose(stats["mean"], 1.5)
+
+
+def test_explicit_path_header_stats_track_strict_header_bytes() -> None:
+    stats = compute_explicit_header_stats(
+        {
+            (0, 100): {"strict_header_bytes": 32},
+            (0, 101): {"strict_header_bytes": 24},
+            (1, 100): {},
+        }
+    )
+
+    assert math.isclose(stats["min"], 24.0)
+    assert math.isclose(stats["max"], 32.0)
+    assert math.isclose(stats["mean"], 28.0)
+    assert stats["count"] == 2
