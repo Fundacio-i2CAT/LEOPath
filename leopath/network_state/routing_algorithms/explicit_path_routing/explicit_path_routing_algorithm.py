@@ -75,6 +75,8 @@ def algorithm_explicit_path_routing(
                     "source_satellite_id": src_sat_id,
                     "destination_ground_station_id": dst_gs_id,
                     "satellite_path": route_plan.get("satellite_path", []),
+                    "adjacency_sid_list": route_plan.get("adjacency_sid_list", []),
+                    "strict_header_bytes": route_plan.get("strict_header_bytes", 0),
                     "planned_dst_sat_id": route_plan.get("planned_dst_sat_id"),
                     "waypoint_satellites": waypoint_plans[(src_sat_id, dst_gs_id)],
                 }
@@ -124,20 +126,40 @@ def _build_route_plans(
                 route_plans[(src_sat_id, dst_gs.id)] = {}
                 continue
             if src_sat_id == dst_sat_id:
-                route_plans[(src_sat_id, dst_gs.id)] = {
-                    "satellite_path": [src_sat_id],
-                    "planned_dst_sat_id": dst_sat_id,
-                }
+                route_plans[(src_sat_id, dst_gs.id)] = _build_strict_route_plan(
+                    src_sat_id,
+                    [src_sat_id],
+                    dst_sat_id,
+                )
                 continue
             sat_path = paths_by_destination.get(dst_sat_id, {}).get(src_sat_id)
             if sat_path:
-                route_plans[(src_sat_id, dst_gs.id)] = {
-                    "satellite_path": sat_path,
-                    "planned_dst_sat_id": dst_sat_id,
-                }
+                route_plans[(src_sat_id, dst_gs.id)] = _build_strict_route_plan(
+                    src_sat_id,
+                    sat_path,
+                    dst_sat_id,
+                )
             else:
                 route_plans[(src_sat_id, dst_gs.id)] = {}
     return route_plans
+
+
+def _build_strict_route_plan(
+    src_sat_id: int,
+    sat_path: list[int],
+    planned_dst_sat_id: int,
+) -> dict:
+    adjacency_sid_list = sat_path[1:] if sat_path and sat_path[0] == src_sat_id else []
+    # Minimal strict-header proxy: fixed metadata plus 32-bit adjacency SIDs.
+    strict_header_bytes = 20 + (4 * len(adjacency_sid_list)) if sat_path else 0
+    return {
+        "satellite_path": sat_path,
+        "planned_dst_sat_id": planned_dst_sat_id,
+        "forwarding_mode": "strict_adjacency_header",
+        "ingress_sat_id": src_sat_id,
+        "adjacency_sid_list": adjacency_sid_list,
+        "strict_header_bytes": strict_header_bytes,
+    }
 
 
 def _build_waypoint_plans(
@@ -160,9 +182,9 @@ def _materialize_first_hop_fstate(
     fstate: dict[tuple[int, int], tuple[int, int, int]] = {}
     for src_sat_id, dst_gs_id in route_plans:
         route_plan = route_plans[(src_sat_id, dst_gs_id)]
-        sat_path = route_plan.get("satellite_path", [])
+        adjacency_sid_list = route_plan.get("adjacency_sid_list", [])
         planned_dst_sat_id = route_plan.get("planned_dst_sat_id")
-        if not sat_path:
+        if planned_dst_sat_id is None:
             fstate[(src_sat_id, dst_gs_id)] = (-1, -1, -1)
             continue
 
@@ -185,10 +207,10 @@ def _materialize_first_hop_fstate(
             )
             continue
 
-        if len(sat_path) < 2:
+        if not adjacency_sid_list:
             fstate[(src_sat_id, dst_gs_id)] = (-1, -1, -1)
             continue
-        next_sat = sat_path[1]
+        next_sat = adjacency_sid_list[0]
         my_if = topology_with_isls.sat_neighbor_to_if.get((src_sat_id, next_sat), -1)
         next_if = topology_with_isls.sat_neighbor_to_if.get((next_sat, src_sat_id), -1)
         if my_if < 0 or next_if < 0:

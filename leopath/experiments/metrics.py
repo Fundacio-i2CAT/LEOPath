@@ -107,11 +107,8 @@ def compute_forwarding_state_stats(
         counts = [float(len(satellite_ids)) for _ in satellite_ids]
     elif algorithm_name == "explicit_path_routing":
         for sat_id in satellite_ids:
-            stored_path_state = 0.0
-            for gs_id in ground_station_ids:
-                route_plan = route_plans.get((sat_id, gs_id), {})
-                stored_path_state += float(len(route_plan.get("satellite_path", [])))
-            counts.append(stored_path_state)
+            # Transit satellites keep only local neighbor->interface state.
+            counts.append(float(len(list(topology_graph.neighbors(sat_id)))))
     elif algorithm_name == "topological_routing":
         counts = [float(len(list(topology_graph.neighbors(sat_id)))) for sat_id in satellite_ids]
     else:
@@ -426,9 +423,21 @@ def _extract_next_hop(
     route_plans: dict,
 ) -> int | None:
     route_plan = route_plans.get((sat_id, gs_id), {})
+    adjacency_sid_list = route_plan.get("adjacency_sid_list", [])
+    planned_dst_sat_id = route_plan.get("planned_dst_sat_id")
+    if planned_dst_sat_id == sat_id:
+        return gs_id
+    if adjacency_sid_list:
+        if adjacency_sid_list[0] == sat_id:
+            remaining_sid_list = adjacency_sid_list[1:]
+            return gs_id if not remaining_sid_list else remaining_sid_list[0]
+        if len(adjacency_sid_list) == 1 and planned_dst_sat_id == adjacency_sid_list[0]:
+            return adjacency_sid_list[0]
+        return adjacency_sid_list[0]
+
     sat_path = route_plan.get("satellite_path", [])
     if sat_path:
-        if len(sat_path) == 1:
+        if len(sat_path) == 1 and planned_dst_sat_id == sat_id:
             return gs_id
         return sat_path[1]
     entry = fstate.get((sat_id, gs_id))
@@ -444,8 +453,11 @@ def _follow_explicit_route_plan(
     current_destination_visibility: list[tuple[float, int]] | None,
 ) -> tuple[int | None, float | None]:
     sat_path = route_plan.get("satellite_path", [])
+    adjacency_sid_list = route_plan.get("adjacency_sid_list", [])
     planned_dst_sat_id = route_plan.get("planned_dst_sat_id")
     if not sat_path or sat_path[0] != src_sat or sat_path[-1] != planned_dst_sat_id:
+        return None, None
+    if adjacency_sid_list != sat_path[1:]:
         return None, None
     if len(sat_path) > max_hops:
         return None, None

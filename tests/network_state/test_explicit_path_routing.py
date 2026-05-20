@@ -56,8 +56,11 @@ def test_build_route_plans_pins_shortest_satellite_path() -> None:
     plans = _build_route_plans(topology, ground_stations, [[(1.0, 3)]])
 
     assert plans[(0, 100)]["satellite_path"] == [0, 1, 2, 3]
+    assert plans[(0, 100)]["adjacency_sid_list"] == [1, 2, 3]
+    assert plans[(0, 100)]["forwarding_mode"] == "strict_adjacency_header"
     assert plans[(0, 100)]["planned_dst_sat_id"] == 3
     assert plans[(3, 100)]["satellite_path"] == [3]
+    assert plans[(3, 100)]["adjacency_sid_list"] == []
 
 
 def test_waypoint_sampling_uses_segment_count() -> None:
@@ -90,9 +93,11 @@ def test_explicit_path_algorithm_returns_route_plans_and_first_hop_proxy() -> No
     )
 
     assert output["route_plans"][(0, 100)]["satellite_path"] == [0, 1, 2, 3]
+    assert output["route_plans"][(0, 100)]["adjacency_sid_list"] == [1, 2, 3]
     assert output["route_plans"][(0, 100)]["planned_dst_sat_id"] == 3
     assert output["fstate"][(0, 100)] == (1, 0, 0)
     assert output["control_plane"]["sample_route_plans"][0]["satellite_path"] == [0, 1, 2, 3]
+    assert output["control_plane"]["sample_route_plans"][0]["adjacency_sid_list"] == [1, 2, 3]
     assert output["control_plane"]["sample_route_plans"][0]["waypoint_satellites"] == [2, 3]
 
 
@@ -135,13 +140,13 @@ def test_explicit_path_refresh_reuses_cached_route_plans(
         {
             "fstate": {},
             "bandwidth": {},
-            "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "planned_dst_sat_id": 3}},
+            "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "adjacency_sid_list": [1, 2, 3], "planned_dst_sat_id": 3}},
             "control_plane": {},
         },
         {
             "fstate": {},
             "bandwidth": {},
-            "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "planned_dst_sat_id": 3}},
+            "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "adjacency_sid_list": [1, 2, 3], "planned_dst_sat_id": 3}},
             "control_plane": {},
         },
     ]
@@ -174,7 +179,7 @@ def test_explicit_path_refresh_reuses_cached_route_plans(
     second_call = mock_algorithm_explicit_path_routing.call_args_list[1].kwargs
     assert first_call["cached_route_plans"] is None
     assert second_call["cached_route_plans"] == {
-        (0, 100): {"satellite_path": [0, 1, 2, 3], "planned_dst_sat_id": 3}
+        (0, 100): {"satellite_path": [0, 1, 2, 3], "adjacency_sid_list": [1, 2, 3], "planned_dst_sat_id": 3}
     }
     assert second_call["current_ground_station_satellites_in_range"] == [[(2.0, 2)]]
 
@@ -195,13 +200,13 @@ def test_explicit_path_control_plane_reports_refresh_behavior(
         {
             "fstate": {},
             "bandwidth": {},
-            "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "planned_dst_sat_id": 3}},
+            "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "adjacency_sid_list": [1, 2, 3], "planned_dst_sat_id": 3}},
             "control_plane": {},
         },
         {
             "fstate": {},
             "bandwidth": {},
-            "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "planned_dst_sat_id": 3}},
+            "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "adjacency_sid_list": [1, 2, 3], "planned_dst_sat_id": 3}},
             "control_plane": {},
         },
     ]
@@ -253,7 +258,7 @@ def test_explicit_path_refresh_boundary_replans(
     mock_algorithm_explicit_path_routing.return_value = {
         "fstate": {},
         "bandwidth": {},
-        "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "planned_dst_sat_id": 3}},
+        "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "adjacency_sid_list": [1, 2, 3], "planned_dst_sat_id": 3}},
         "control_plane": {},
     }
 

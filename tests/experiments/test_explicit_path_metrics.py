@@ -27,7 +27,7 @@ def test_explicit_path_route_plan_gives_unit_stretch() -> None:
         attachments=[(0, 10.0), (2, 20.0)],
         interface_neighbor_map={},
         max_hops=10,
-        route_plans={(0, 101): {"satellite_path": [0, 1, 2], "planned_dst_sat_id": 2}},
+        route_plans={(0, 101): {"satellite_path": [0, 1, 2], "adjacency_sid_list": [1, 2], "planned_dst_sat_id": 2}},
         ground_station_satellites_in_range=[[(10.0, 0)], [(20.0, 2)]],
     )
 
@@ -43,8 +43,8 @@ def test_explicit_path_churn_uses_first_hop_from_route_plan() -> None:
         satellite_ids=[0],
         ground_station_ids=[101],
         interface_neighbor_map={},
-        prev_route_plans={(0, 101): {"satellite_path": [0, 1, 2], "planned_dst_sat_id": 2}},
-        curr_route_plans={(0, 101): {"satellite_path": [0, 3, 2], "planned_dst_sat_id": 2}},
+        prev_route_plans={(0, 101): {"satellite_path": [0, 1, 2], "adjacency_sid_list": [1, 2], "planned_dst_sat_id": 2}},
+        curr_route_plans={(0, 101): {"satellite_path": [0, 3, 2], "adjacency_sid_list": [3, 2], "planned_dst_sat_id": 2}},
     )
 
     assert math.isclose(churn["churn"], 1.0)
@@ -61,9 +61,9 @@ def test_gs_renumbering_stats_match_attachment_changes() -> None:
     assert math.isclose(stats["rate"], 2.0 / 3.0)
 
 
-def test_explicit_path_state_counts_stored_path_elements() -> None:
+def test_explicit_path_state_counts_local_neighbors_only() -> None:
     graph = nx.Graph()
-    graph.add_nodes_from([0, 1])
+    graph.add_edges_from([(0, 2), (0, 4), (1, 3)])
 
     stats = compute_forwarding_state_stats(
         fstate={},
@@ -79,6 +79,6 @@ def test_explicit_path_state_counts_stored_path_elements() -> None:
         },
     )
 
-    assert math.isclose(stats["min"], 2.0)
-    assert math.isclose(stats["max"], 4.0)
-    assert math.isclose(stats["mean"], 3.0)
+    assert math.isclose(stats["min"], 1.0)
+    assert math.isclose(stats["max"], 2.0)
+    assert math.isclose(stats["mean"], 1.5)

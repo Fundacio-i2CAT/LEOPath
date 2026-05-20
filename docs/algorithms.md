@@ -43,14 +43,15 @@ Parameter notes:
 
 ### Explicit-path routing
 
-- Uses centrally computed pinned satellite paths per source-satellite / destination-GS pair.
-- Exposes full route plans for evaluation while keeping a first-hop forwarding proxy for compatibility.
-- Serves as a paper-facing family-level explicit-path example implementation, not a protocol-faithful SRv6/MPLS model.
+- Uses centrally computed or ingress-computed strict satellite paths per source-satellite / destination-GS pair.
+- Models a strict SRv6-like adjacency-header proxy: the packet carries the remaining hop list, while transit satellites only need a local neighbor/interface map.
+- Exposes full route plans for evaluation, including adjacency SID lists and strict-header byte counts.
+- Serves as a paper-facing family-level explicit-path example implementation, not a full SRv6 control-plane model.
 
 Parameter notes:
 
-- `segment_count`: controls sampled waypoint metadata only; forwarding follows the full pinned path.
-- `segment_refresh_interval_steps`: controls how many evaluation timesteps a pinned route plan is reused before replanning. If omitted, the current implementation defaults to `1` and replans every timestep.
+- `segment_count`: controls sampled waypoint metadata only; strict explicit forwarding follows the adjacency SID list.
+- `segment_refresh_interval_steps`: controls how many evaluation timesteps a strict route plan is reused before replanning. If omitted, the current implementation defaults to `1` and replans every timestep.
 - `segment_mode`, `plane_weight`, `sat_weight`, and `shell_weight` are not used by the current explicit-path implementation and should not be treated as effective tuning knobs.
 
 ## Algorithm parameters

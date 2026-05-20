@@ -378,7 +378,7 @@ def run_evaluation(
         "forwarding_state_definition": {
             "shortest_path_link_state": "destination forwarding entries toward routable satellites (proxy: number of satellites)",
             "predictive_link_state": "destination forwarding entries toward routable satellites (proxy: number of satellites)",
-            "explicit_path_routing": "stored pinned-path elements per source satellite across explicit route plans (real implementation state)",
+            "explicit_path_routing": "transit-local neighbor/interface entries only; explicit strict-adjacency header bytes are tracked separately in route plans",
             "traditional_segment_routing": "forwarding entries toward segment endpoints / routable satellites (proxy: number of satellites)",
             "topological_routing": "local neighbor-address forwarding entries (proxy: node degree)",
             "default": "reachable GS destinations per satellite",
