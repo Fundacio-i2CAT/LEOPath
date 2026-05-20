@@ -64,6 +64,10 @@ class ExplicitPathRoutingAlgorithm(RoutingAlgorithm):
             self._cached_route_plans = output.get("route_plans", {})
             self._cached_planning_step_index = current_step_index
             output.setdefault("control_plane", {})["planning_step_index"] = current_step_index
+        else:
+            output.setdefault("control_plane", {})["planning_step_index"] = getattr(
+                self, "_cached_planning_step_index", None
+            )
         output.setdefault("control_plane", {})["effective_refresh_interval_steps"] = refresh_interval
         output.setdefault("control_plane", {})["used_cached_route_plans"] = not should_refresh
         return output
