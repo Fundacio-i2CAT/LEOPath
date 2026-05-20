@@ -185,6 +185,65 @@ def test_explicit_path_refresh_reuses_cached_route_plans(
 @patch(
     "leopath.network_state.routing_algorithms.explicit_path_routing.explicit_path_routing.GSLAttachmentFactory.get_strategy"
 )
+def test_explicit_path_control_plane_reports_refresh_behavior(
+    mock_get_strategy,
+    mock_algorithm_explicit_path_routing,
+) -> None:
+    algorithm = ExplicitPathRoutingAlgorithm()
+    mock_get_strategy.return_value = object()
+    mock_algorithm_explicit_path_routing.side_effect = [
+        {
+            "fstate": {},
+            "bandwidth": {},
+            "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "planned_dst_sat_id": 3}},
+            "control_plane": {},
+        },
+        {
+            "fstate": {},
+            "bandwidth": {},
+            "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "planned_dst_sat_id": 3}},
+            "control_plane": {},
+        },
+    ]
+
+    params = {"segment_count": 2, "segment_refresh_interval_steps": 3, "time_step_minutes": 5}
+    constellation_data = type("ConstellationData", (), {"number_of_satellites": 4})()
+    ground_stations = [type("GroundStation", (), {"id": 100})()]
+    topology = _make_topology()
+
+    first_output = algorithm.compute_state(
+        time_since_epoch_ns=0,
+        constellation_data=constellation_data,
+        ground_stations=ground_stations,
+        topology_with_isls=topology,
+        ground_station_satellites_in_range=[[(1.0, 3)]],
+        list_gsl_interfaces_info=[],
+        algorithm_params=params,
+    )
+    second_output = algorithm.compute_state(
+        time_since_epoch_ns=int(5 * 60 * 1e9),
+        constellation_data=constellation_data,
+        ground_stations=ground_stations,
+        topology_with_isls=topology,
+        ground_station_satellites_in_range=[[(2.0, 2)]],
+        list_gsl_interfaces_info=[],
+        algorithm_params=params,
+    )
+
+    assert first_output["control_plane"]["effective_refresh_interval_steps"] == 3
+    assert first_output["control_plane"]["used_cached_route_plans"] is False
+    assert first_output["control_plane"]["planning_step_index"] == 0
+    assert second_output["control_plane"]["effective_refresh_interval_steps"] == 3
+    assert second_output["control_plane"]["used_cached_route_plans"] is True
+    assert second_output["control_plane"]["planning_step_index"] == 0
+
+
+@patch(
+    "leopath.network_state.routing_algorithms.explicit_path_routing.explicit_path_routing.algorithm_explicit_path_routing"
+)
+@patch(
+    "leopath.network_state.routing_algorithms.explicit_path_routing.explicit_path_routing.GSLAttachmentFactory.get_strategy"
+)
 def test_explicit_path_refresh_boundary_replans(
     mock_get_strategy,
     mock_algorithm_explicit_path_routing,

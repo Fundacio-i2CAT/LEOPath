@@ -386,6 +386,13 @@ def run_evaluation(
     }
     if control_plane_sample is not None:
         metadata["control_plane_sample"] = control_plane_sample
+        effective_refresh_interval_steps = control_plane_sample.get(
+            "effective_refresh_interval_steps"
+        )
+        if effective_refresh_interval_steps is not None:
+            metadata["algorithm_params"]["segment_refresh_interval_steps"] = (
+                effective_refresh_interval_steps
+            )
 
     write_json(os.path.join(output_dir, "metadata.json"), metadata)
     write_csv(
