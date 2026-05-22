@@ -26,7 +26,7 @@ MAX_PLANES = 128  # Max index = 127. Requires 7 bits.
 
 # Maximum number of satellites within any single plane (s).
 # Current constellations range from ~20 to ~80. Allowing 0-127 provides headroom.
-MAX_SATS_PER_PLANE = 64  # Max index = 63. Requires 6 bits.
+MAX_SATS_PER_PLANE = 128  # Max index = 127. Requires 7 bits.
 
 # Maximum number of Ground Stations simultaneously associated with (homed to)
 # a single satellite's sub-network (x > 0). Index x=0 is reserved for the satellite itself.
@@ -280,25 +280,77 @@ class TopologicalNetworkAddress:
         ):
             return 0.0
 
-        # Different shells have highest distance
-        if self_sat.shell_id != other_sat.shell_id:
-            shell_diff = abs(self_sat.shell_id - other_sat.shell_id)
-            return 1000.0 + shell_diff * 100.0
-
-        # Same shell, different planes
-        if self_sat.plane_id != other_sat.plane_id:
-            # Calculate plane distance considering wraparound
-            plane_diff = abs(self_sat.plane_id - other_sat.plane_id)
-            plane_diff_wrap = MAX_PLANES - plane_diff
-            plane_distance = min(plane_diff, plane_diff_wrap)
-            return 100.0 + plane_distance * 10.0
-
-        # Same shell and plane, different satellite index
-        sat_diff = abs(self_sat.sat_index - other_sat.sat_index)
-        sat_diff_wrap = MAX_SATS_PER_PLANE - sat_diff
-        sat_distance = min(sat_diff, sat_diff_wrap)
-        return 1.0 + sat_distance
+        # Legacy fallback without constellation-size context. Keep for compatibility,
+        # but routing should prefer distance helpers that use actual constellation dimensions.
+        return legacy_topological_distance(self_sat, other_sat)
 
     def __str__(self) -> str:
         kind = "Sat" if self.is_satellite else f"GS[{self.subnet_index}]"
         return f"TopoAddr(sh:{self.shell_id}, o:{self.plane_id}, s:{self.sat_index}, x:{kind})"
+
+
+def torus_delta(index_a: int, index_b: int, modulus: int) -> int:
+    if modulus <= 0:
+        raise ValueError("modulus must be positive")
+    diff = abs(index_a - index_b)
+    return min(diff, modulus - diff)
+
+
+def torus_topological_distance(
+    addr_a: TopologicalNetworkAddress,
+    addr_b: TopologicalNetworkAddress,
+    plane_modulus: int,
+    sat_modulus: int,
+    plane_weight: float = 1.0,
+    sat_weight: float = 1.0,
+    shell_penalty: float = 1000.0,
+) -> float:
+    sat_a = addr_a.get_satellite_address()
+    sat_b = addr_b.get_satellite_address()
+    if sat_a == sat_b:
+        return 0.0
+    if sat_a.shell_id != sat_b.shell_id:
+        shell_diff = abs(sat_a.shell_id - sat_b.shell_id)
+        return shell_penalty + shell_diff * shell_penalty
+    plane_distance = torus_delta(sat_a.plane_id, sat_b.plane_id, plane_modulus)
+    sat_distance = torus_delta(sat_a.sat_index, sat_b.sat_index, sat_modulus)
+    return (plane_weight * float(plane_distance)) + (sat_weight * float(sat_distance))
+
+
+def weighted_torus_progress_distance(
+    addr_a: TopologicalNetworkAddress,
+    addr_b: TopologicalNetworkAddress,
+    plane_modulus: int,
+    sat_modulus: int,
+    plane_step_cost: float,
+    sat_step_cost: float,
+    shell_penalty: float = 1000.0,
+) -> float:
+    sat_a = addr_a.get_satellite_address()
+    sat_b = addr_b.get_satellite_address()
+    if sat_a == sat_b:
+        return 0.0
+    if sat_a.shell_id != sat_b.shell_id:
+        shell_diff = abs(sat_a.shell_id - sat_b.shell_id)
+        return shell_penalty + shell_diff * shell_penalty
+    plane_distance = torus_delta(sat_a.plane_id, sat_b.plane_id, plane_modulus)
+    sat_distance = torus_delta(sat_a.sat_index, sat_b.sat_index, sat_modulus)
+    return (float(plane_distance) * plane_step_cost) + (float(sat_distance) * sat_step_cost)
+
+
+def legacy_topological_distance(
+    addr_a: TopologicalNetworkAddress,
+    addr_b: TopologicalNetworkAddress,
+) -> float:
+    if addr_a.shell_id != addr_b.shell_id:
+        shell_diff = abs(addr_a.shell_id - addr_b.shell_id)
+        return 1000.0 + shell_diff * 100.0
+    if addr_a.plane_id != addr_b.plane_id:
+        plane_diff = abs(addr_a.plane_id - addr_b.plane_id)
+        plane_diff_wrap = MAX_PLANES - plane_diff
+        plane_distance = min(plane_diff, plane_diff_wrap)
+        return 100.0 + plane_distance * 10.0
+    sat_diff = abs(addr_a.sat_index - addr_b.sat_index)
+    sat_diff_wrap = MAX_SATS_PER_PLANE - sat_diff
+    sat_distance = min(sat_diff, sat_diff_wrap)
+    return 1.0 + sat_distance

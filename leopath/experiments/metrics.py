@@ -93,11 +93,13 @@ def compute_forwarding_state_stats(
     algorithm_name: str,
     satellite_ids: list[int],
     ground_station_ids: list[int],
+    attachments: list[tuple[int | None, float]] | None = None,
     algorithm_params: dict | None = None,
     route_plans: dict | None = None,
 ) -> dict:
     algorithm_params = algorithm_params or {}
     route_plans = route_plans or {}
+    attachments = attachments or []
     counts = []
     if algorithm_name == "shortest_path_link_state":
         counts = [float(len(satellite_ids)) for _ in satellite_ids]
@@ -106,9 +108,18 @@ def compute_forwarding_state_stats(
     elif algorithm_name == "traditional_segment_routing":
         counts = [float(len(satellite_ids)) for _ in satellite_ids]
     elif algorithm_name == "explicit_path_routing":
+        attached_satellites = {sat_id for sat_id, _ in attachments if sat_id is not None}
         for sat_id in satellite_ids:
-            # Transit satellites keep only local neighbor->interface state.
-            counts.append(float(len(list(topology_graph.neighbors(sat_id)))))
+            # All satellites keep local adjacency/interface entries. Only satellites
+            # that currently act as GS-attached ingresses need destination-to-
+            # segment bindings for arbitrary outbound traffic.
+            reachable = 0
+            if sat_id in attached_satellites:
+                for gs_id in ground_station_ids:
+                    entry = fstate.get((sat_id, gs_id))
+                    if not is_unreachable(entry):
+                        reachable += 1
+            counts.append(float(reachable + len(list(topology_graph.neighbors(sat_id)))))
     elif algorithm_name == "topological_routing":
         counts = [float(len(list(topology_graph.neighbors(sat_id)))) for sat_id in satellite_ids]
     else:
@@ -122,6 +133,196 @@ def compute_forwarding_state_stats(
     stats = summarize_distribution(counts)
     stats["total_sats"] = len(satellite_ids)
     return stats
+
+
+def compute_satellite_forwarding_state_updates(
+    prev_fstate: dict,
+    curr_fstate: dict,
+    algorithm_name: str,
+    satellite_ids: list[int],
+    ground_station_ids: list[int],
+    prev_attachments: list[tuple[int | None, float]] | None = None,
+    curr_attachments: list[tuple[int | None, float]] | None = None,
+    prev_interface_neighbor_map: dict[int, dict[int, int]] | None = None,
+    curr_interface_neighbor_map: dict[int, dict[int, int]] | None = None,
+    prev_route_plans: dict | None = None,
+    curr_route_plans: dict | None = None,
+) -> dict:
+    prev_state = project_satellite_forwarding_state(
+        fstate=prev_fstate,
+        algorithm_name=algorithm_name,
+        satellite_ids=satellite_ids,
+        ground_station_ids=ground_station_ids,
+        attachments=prev_attachments,
+        interface_neighbor_map=prev_interface_neighbor_map,
+        route_plans=prev_route_plans,
+    )
+    curr_state = project_satellite_forwarding_state(
+        fstate=curr_fstate,
+        algorithm_name=algorithm_name,
+        satellite_ids=satellite_ids,
+        ground_station_ids=ground_station_ids,
+        attachments=curr_attachments,
+        interface_neighbor_map=curr_interface_neighbor_map,
+        route_plans=curr_route_plans,
+    )
+
+    add_counts = []
+    delete_counts = []
+    modify_counts = []
+    total_counts = []
+    touched_satellites = 0
+
+    for sat_id in satellite_ids:
+        prev_entries = prev_state.get(sat_id, {})
+        curr_entries = curr_state.get(sat_id, {})
+        prev_keys = set(prev_entries)
+        curr_keys = set(curr_entries)
+        add_count = len(curr_keys - prev_keys)
+        delete_count = len(prev_keys - curr_keys)
+        modify_count = sum(
+            1 for key in (prev_keys & curr_keys) if prev_entries[key] != curr_entries[key]
+        )
+        total_count = add_count + delete_count + modify_count
+        if total_count > 0:
+            touched_satellites += 1
+        add_counts.append(float(add_count))
+        delete_counts.append(float(delete_count))
+        modify_counts.append(float(modify_count))
+        total_counts.append(float(total_count))
+
+    satellite_count = len(satellite_ids)
+    return {
+        "add": summarize_distribution(add_counts),
+        "delete": summarize_distribution(delete_counts),
+        "modify": summarize_distribution(modify_counts),
+        "total": summarize_distribution(total_counts),
+        "touched_satellite_count": float(touched_satellites),
+        "touched_satellite_rate": (
+            touched_satellites / satellite_count if satellite_count else 0.0
+        ),
+    }
+
+
+def project_satellite_forwarding_state(
+    fstate: dict,
+    algorithm_name: str,
+    satellite_ids: list[int],
+    ground_station_ids: list[int],
+    attachments: list[tuple[int | None, float]] | None = None,
+    interface_neighbor_map: dict[int, dict[int, int]] | None = None,
+    route_plans: dict | None = None,
+) -> dict[int, dict[tuple, object]]:
+    attachments = attachments or []
+    interface_neighbor_map = interface_neighbor_map or {}
+    route_plans = route_plans or {}
+    projected_state = {sat_id: {} for sat_id in satellite_ids}
+    attachment_by_gs = {
+        gs_id: sat_id
+        for gs_id, (sat_id, _) in zip(ground_station_ids, attachments)
+    }
+
+    _add_local_delivery_entries(projected_state, attachment_by_gs)
+
+    if algorithm_name in {
+        "shortest_path_link_state",
+        "predictive_link_state",
+        "traditional_segment_routing",
+    }:
+        _add_destination_forwarding_entries(
+            projected_state,
+            fstate,
+            satellite_ids,
+            ground_station_ids,
+            attachment_by_gs,
+            interface_neighbor_map,
+            route_plans,
+        )
+    elif algorithm_name == "explicit_path_routing":
+        _add_explicit_ingress_bindings(
+            projected_state,
+            fstate,
+            ground_station_ids,
+            attachment_by_gs,
+            interface_neighbor_map,
+            route_plans,
+        )
+
+    return projected_state
+
+
+def _add_local_delivery_entries(
+    projected_state: dict[int, dict[tuple, object]],
+    attachment_by_gs: dict[int, int | None],
+) -> None:
+    for gs_id, sat_id in attachment_by_gs.items():
+        if sat_id is None or sat_id not in projected_state:
+            continue
+        projected_state[sat_id][("gsl", gs_id)] = "local_delivery"
+
+
+def _add_destination_forwarding_entries(
+    projected_state: dict[int, dict[tuple, object]],
+    fstate: dict,
+    satellite_ids: list[int],
+    ground_station_ids: list[int],
+    attachment_by_gs: dict[int, int | None],
+    interface_neighbor_map: dict[int, dict[int, int]],
+    route_plans: dict,
+) -> None:
+    for src_sat_id in satellite_ids:
+        local_state = projected_state[src_sat_id]
+        for dst_gs_id in ground_station_ids:
+            dst_sat_id = attachment_by_gs.get(dst_gs_id)
+            if dst_sat_id is None or dst_sat_id == src_sat_id:
+                continue
+            next_hop = _extract_next_hop(
+                src_sat_id,
+                dst_gs_id,
+                fstate,
+                interface_neighbor_map,
+                route_plans,
+            )
+            if next_hop is None or next_hop == dst_gs_id:
+                continue
+            entry_key = ("dst_sat", dst_sat_id)
+            local_state.setdefault(entry_key, ("next_sat", next_hop))
+
+
+def _add_explicit_ingress_bindings(
+    projected_state: dict[int, dict[tuple, object]],
+    fstate: dict,
+    ground_station_ids: list[int],
+    attachment_by_gs: dict[int, int | None],
+    interface_neighbor_map: dict[int, dict[int, int]],
+    route_plans: dict,
+) -> None:
+    attached_satellites = {
+        sat_id for sat_id in attachment_by_gs.values() if sat_id in projected_state
+    }
+    for ingress_sat_id in attached_satellites:
+        local_state = projected_state[ingress_sat_id]
+        for dst_gs_id in ground_station_ids:
+            route_plan = route_plans.get((ingress_sat_id, dst_gs_id)) or {}
+            if route_plan:
+                local_state[("binding", dst_gs_id)] = _normalize_explicit_binding(route_plan)
+                continue
+            entry = fstate.get((ingress_sat_id, dst_gs_id))
+            if is_unreachable(entry):
+                continue
+            next_hop = normalize_next_hop(entry, ingress_sat_id, interface_neighbor_map)
+            if next_hop is None:
+                continue
+            local_state[("binding", dst_gs_id)] = ("first_hop", next_hop)
+
+
+def _normalize_explicit_binding(route_plan: dict) -> tuple:
+    return (
+        route_plan.get("planned_dst_sat_id"),
+        tuple(route_plan.get("adjacency_sid_list") or []),
+        tuple(route_plan.get("backup_adjacency_sid_list") or []),
+        route_plan.get("local_protection_mode"),
+    )
 
 
 def compute_gs_handover_rate(
@@ -386,11 +587,31 @@ def compute_path_stretch(
             if src_gs_id == dst_gs_id:
                 continue
             src_sat, src_gsl_dist = attachments[src_index]
-            dst_sat, dst_gsl_dist = attachments[dst_index]
-            if src_sat is None or dst_sat is None:
+            if src_sat is None:
                 continue
-            if src_sat not in sat_set or dst_sat not in sat_set:
+            if src_sat not in sat_set:
                 continue
+            destination_visibility = (
+                None
+                if ground_station_satellites_in_range is None
+                else ground_station_satellites_in_range[dst_index]
+            )
+            dst_sat = _resolve_routed_destination_satellite(
+                fstate,
+                topology_graph,
+                src_sat,
+                dst_gs_id,
+                interface_neighbor_map,
+                max_hops,
+                route_plans,
+                destination_visibility,
+            )
+            if dst_sat is None:
+                continue
+            dst_gsl_dist = _lookup_visible_satellite_distance(destination_visibility, dst_sat)
+            if dst_gsl_dist is None:
+                _, nearest_dst_gsl_dist = attachments[dst_index]
+                dst_gsl_dist = nearest_dst_gsl_dist
             opt_hops, opt_dist = _shortest_path_lengths(sat_graph, src_sat, dst_sat)
             if opt_hops is None or opt_dist is None:
                 continue
@@ -410,9 +631,7 @@ def compute_path_stretch(
                 interface_neighbor_map,
                 max_hops,
                 route_plans,
-                None
-                if ground_station_satellites_in_range is None
-                else ground_station_satellites_in_range[dst_index],
+                destination_visibility,
             )
             if algo_hops is None or algo_dist is None:
                 continue
@@ -425,6 +644,47 @@ def compute_path_stretch(
         "hop": summarize_distribution(hop_stretches),
         "distance": summarize_distribution(dist_stretches),
     }
+
+
+def _resolve_routed_destination_satellite(
+    fstate: dict,
+    topology_graph: nx.Graph,
+    src_sat: int,
+    dst_gs_id: int,
+    interface_neighbor_map: dict[int, dict[int, int]],
+    max_hops: int,
+    route_plans: dict | None = None,
+    current_destination_visibility: list[tuple[float, int]] | None = None,
+) -> int | None:
+    route_plans = route_plans or {}
+    route_plan = route_plans.get((src_sat, dst_gs_id))
+    if route_plan:
+        planned_dst_sat_id = route_plan.get("planned_dst_sat_id")
+        if _lookup_visible_satellite_distance(
+            current_destination_visibility,
+            planned_dst_sat_id,
+        ) is not None:
+            return planned_dst_sat_id
+        return None
+
+    current = src_sat
+    visited = set()
+    steps = 0
+    while steps <= max_hops:
+        entry = fstate.get((current, dst_gs_id))
+        next_hop = normalize_next_hop(entry, current, interface_neighbor_map)
+        if next_hop == dst_gs_id:
+            return current
+        if next_hop is None:
+            return None
+        if current in visited:
+            return None
+        if not topology_graph.has_edge(current, next_hop):
+            return None
+        visited.add(current)
+        current = next_hop
+        steps += 1
+    return None
 
 
 def _shortest_path_lengths(

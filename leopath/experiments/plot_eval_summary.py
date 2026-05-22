@@ -53,7 +53,7 @@ def algorithm_family(algorithm: str) -> str:
         return "Link-state"
     if algorithm == "topological_routing":
         return "Topological"
-    if algorithm == "explicit_path_routing":
+    if algorithm in ("explicit_path_routing", "explicit_path_routing_r3"):
         return "Explicit-path"
     return algorithm
 
@@ -72,12 +72,14 @@ def read_summary(path: Path) -> list[dict]:
                 "shortest_path_link_state",
                 "topological_routing",
                 "explicit_path_routing",
+                "explicit_path_routing_r3",
             }:
                 continue
 
             row["family"] = algorithm_family(row["algorithm"])
             numeric_keys = (
                 "timestep_mean_fstate_size_mean",
+                "delta_mean_sat_fstate_updates_total_mean",
                 "delta_mean_sat_gs_churn",
                 "timestep_mean_stretch_dist_mean",
                 "timestep_mean_compute_time_ms",
@@ -234,7 +236,7 @@ def plot_churn_by_constellation(rows: list[dict], output_dir: Path) -> None:
                 label=family,
                 color=ALGORITHM_COLORS[family],
             )
-        ax.set_title(f"Sat→GS Churn by Constellation ({isl.upper()})")
+        ax.set_title(f"Effective Sat→GS Next-hop Churn ({isl.upper()})")
         ax.set_xticks(x)
         ax.set_xticklabels(constellation_labels, rotation=18, ha="right")
         ax.set_yscale("log")
@@ -246,9 +248,59 @@ def plot_churn_by_constellation(rows: list[dict], output_dir: Path) -> None:
             bbox_to_anchor=(0.5, 1.02),
         )
 
-    axes[0].set_ylabel("Mean sat→GS churn rate (log scale)")
+    axes[0].set_ylabel("Mean effective next-hop churn (log scale)")
     fig.tight_layout()
     fig.savefig(output_dir / "churn_constellation_bars.png")
+    plt.close(fig)
+
+
+def plot_updates_by_constellation(rows: list[dict], output_dir: Path) -> None:
+    families = [
+        "Link-state",
+        "Topological",
+        "Explicit-path",
+    ]
+    filtered = [row for row in rows if row["family"] in set(families) and row["isl_scenario"] in {"grid", "ring"}]
+
+    constellations = sorted({row["constellation_name"] for row in filtered})
+    constellation_labels = [constellation_label(name) for name in constellations]
+    fig, axes = plt.subplots(1, 2, figsize=(15.5, 5.2), sharey=True)
+    isls = ["grid", "ring"]
+    for ax, isl in zip(axes, isls):
+        group = [row for row in filtered if row["isl_scenario"] == isl]
+        values = defaultdict(dict)
+        for row in group:
+            values[row["constellation_name"]][row["family"]] = row[
+                "delta_mean_sat_fstate_updates_total_mean"
+            ]
+
+        x = list(range(len(constellations)))
+        width = 0.18
+        offsets = [-1.0, 0.0, 1.0]
+        for family, offset in zip(families, offsets):
+            family_vals = [max(values[c].get(family, 0.0), 1e-4) for c in constellations]
+            ax.bar(
+                [v + offset * width for v in x],
+                family_vals,
+                width,
+                label=family,
+                color=ALGORITHM_COLORS[family],
+            )
+        ax.set_title(f"Satellite Forwarding-state Updates ({isl.upper()})")
+        ax.set_xticks(x)
+        ax.set_xticklabels(constellation_labels, rotation=18, ha="right")
+        ax.set_yscale("log")
+        ax.grid(True, axis="y", alpha=0.2)
+        ax.legend(
+            frameon=False,
+            ncol=3,
+            loc="lower center",
+            bbox_to_anchor=(0.5, 1.02),
+        )
+
+    axes[0].set_ylabel("Mean per-snapshot satellite updates (log scale)")
+    fig.tight_layout()
+    fig.savefig(output_dir / "fstate_updates_constellation_bars.png")
     plt.close(fig)
 
 
@@ -314,6 +366,7 @@ def main() -> None:
 
     plot_algorithm_comparison(rows, output_dir)
     plot_fstate_by_constellation(rows, output_dir)
+    plot_updates_by_constellation(rows, output_dir)
     plot_churn_by_constellation(rows, output_dir)
     plot_stretch_by_constellation(rows, output_dir)
 

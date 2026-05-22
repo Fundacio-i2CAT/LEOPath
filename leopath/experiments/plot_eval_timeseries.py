@@ -183,13 +183,20 @@ def plot_smoothed_series(
 ) -> None:
     if show_raw:
         ax.plot(times, series, color=color, linewidth=1.0, alpha=0.12)
-    ax.plot(
-        times,
-        rolling_median(series, window),
-        label=label,
-        color=color,
-        linewidth=2.6,
-    )
+    ax.plot(times, rolling_median(series, window), label=label, color=color, linewidth=2.6)
+
+
+def rolling_mean(series: list[float], window: int) -> list[float]:
+    if window <= 1:
+        return series[:]
+    radius = window // 2
+    smoothed = []
+    for index in range(len(series)):
+        start = max(0, index - radius)
+        end = min(len(series), index + radius + 1)
+        values = [value for value in series[start:end] if not math.isnan(value)]
+        smoothed.append(sum(values) / len(values) if values else math.nan)
+    return smoothed
 
 
 def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str, log_scale: bool) -> None:
@@ -288,8 +295,10 @@ def plot_sat_gs_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None
             continue
         times = time_minutes(rows)
         series = [row[metric] for row in rows]
-        plot_smoothed_series(ax, times, series, algo, algorithm_color(algo), window=9)
-    ax.set_title(f"Sat→GS Next-hop Churn ({isl})")
+        color = algorithm_color(algo)
+        ax.step(times, series, where="mid", color=color, linewidth=1.1, alpha=0.18)
+        ax.plot(times, rolling_mean(series, 9), label=algo, color=color, linewidth=2.6)
+    ax.set_title(f"Effective Sat→GS Next-hop Churn ({isl})")
     ax.set_xlabel("Time (minutes)")
     ax.set_ylabel("Rate")
     y_min, y_max = ax.get_ylim()
@@ -298,6 +307,29 @@ def plot_sat_gs_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None
     ax.legend(ncol=3, frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.02))
     fig.tight_layout()
     fig.savefig(output_dir / f"churn_sat_gs_timeseries_{isl}.png")
+    plt.close(fig)
+
+
+def plot_satellite_update_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
+    fig, ax = plt.subplots(figsize=(9.8, 5.5))
+    metric = "sat_fstate_updates_total_mean"
+    for algo, data in runs.items():
+        rows = data["delta"]
+        if not rows or metric not in rows[0]:
+            continue
+        times = time_minutes(rows)
+        series = [row[metric] for row in rows]
+        color = algorithm_color(algo)
+        ax.step(times, series, where="mid", color=color, linewidth=1.1, alpha=0.18)
+        ax.plot(times, rolling_mean(series, 9), label=algo, color=color, linewidth=2.6)
+    ax.set_title(f"Satellite Forwarding-state Updates ({isl})")
+    ax.set_xlabel("Time (minutes)")
+    ax.set_ylabel("Mean updates per satellite")
+    ax.set_yscale("log")
+    ax.grid(True, axis="y", alpha=0.18, linewidth=0.8)
+    ax.legend(ncol=3, frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.02))
+    fig.tight_layout()
+    fig.savefig(output_dir / f"fstate_updates_timeseries_{isl}.png")
     plt.close(fig)
 
 
@@ -366,6 +398,7 @@ def main() -> None:
         plot_churn_timeseries(output_dir, runs, isl)
         plot_churn_core_timeseries(output_dir, runs, isl)
         plot_sat_gs_churn_timeseries(output_dir, runs, isl)
+        plot_satellite_update_timeseries(output_dir, runs, isl)
         plot_stretch_timeseries(output_dir, runs, isl, args.stretch_metric)
         plot_compute_timeseries(output_dir, runs, isl)
 

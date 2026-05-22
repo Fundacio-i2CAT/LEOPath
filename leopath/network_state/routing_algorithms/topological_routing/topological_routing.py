@@ -61,22 +61,14 @@ class TopologicalRoutingAlgorithm(RoutingAlgorithm):
             )
             self._cached_bandwidth_signature = bandwidth_signature
 
-        nearest_satellite_attachments = []
-        for visible_satellites in ground_station_satellites_in_range:
-            if visible_satellites:
-                nearest_satellite_attachments.append(
-                    [min(visible_satellites, key=lambda item: item[0])]
-                )
-            else:
-                nearest_satellite_attachments.append([])
-
         return algorithm_topological_routing(
             time_since_epoch_ns,
             constellation_data,
             ground_stations,
             topology_with_isls,
-            nearest_satellite_attachments,
+            ground_station_satellites_in_range,
             self._cached_bandwidth_state or {},
             prev_fstate=None,
             graph_has_changed=True,
+            algorithm_params=algorithm_params or {},
         )

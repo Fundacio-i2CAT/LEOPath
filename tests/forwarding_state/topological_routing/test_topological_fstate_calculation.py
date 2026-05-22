@@ -13,10 +13,19 @@ import ephem
 
 from leopath.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
 from leopath.network_state.routing_algorithms.topological_routing.fstate_calculation import (
+    _build_torus_weight_model,
+    _estimate_axis_step_costs,
+    _get_next_hop_decision_topological,
+    _neighbor_candidate_score,
+    _routing_topological_distance,
+    _torus_path_cost,
     calculate_fstate_topological_routing_no_gs_relay,
 )
 from leopath.topology.satellite.satellite import Satellite
-from leopath.topology.satellite.topological_network_address import TopologicalNetworkAddress
+from leopath.topology.satellite.topological_network_address import (
+    TopologicalNetworkAddress,
+    torus_topological_distance,
+)
 from leopath.topology.topology import (
     ConstellationData,
     GroundStation,
@@ -848,6 +857,136 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
 
         # Both should be the same due to wraparound (planes 0 and 127 are adjacent)
         self.assertEqual(dist_0_to_1, dist_0_to_127, "Plane wraparound should make distances equal")
+
+    def test_torus_distance_uses_real_starlink_dimensions(self):
+        sat_plane_0 = TopologicalNetworkAddress(shell_id=0, plane_id=0, sat_index=0, subnet_index=0)
+        sat_wrap = TopologicalNetworkAddress(shell_id=0, plane_id=21, sat_index=71, subnet_index=0)
+
+        distance = torus_topological_distance(
+            sat_plane_0,
+            sat_wrap,
+            plane_modulus=22,
+            sat_modulus=72,
+            plane_weight=1.0,
+            sat_weight=1.0,
+        )
+
+        self.assertEqual(distance, 2.0)
+
+    def test_axis_step_costs_follow_neighbor_edge_weights(self):
+        current = TopologicalNetworkAddress(shell_id=0, plane_id=0, sat_index=0, subnet_index=0)
+        same_plane = TopologicalNetworkAddress(shell_id=0, plane_id=0, sat_index=1, subnet_index=0)
+        adjacent_plane = TopologicalNetworkAddress(shell_id=0, plane_id=1, sat_index=0, subnet_index=0)
+
+        plane_cost, sat_cost = _estimate_axis_step_costs(
+            current,
+            [
+                (1, 0, same_plane, 7.5),
+                (2, 1, adjacent_plane, 12.0),
+            ],
+        )
+
+        self.assertEqual(plane_cost, 12.0)
+        self.assertEqual(sat_cost, 7.5)
+
+    def test_neighbor_candidate_score_uses_edge_weight_in_lookahead_mode(self):
+        self.assertEqual(
+            _neighbor_candidate_score(8.0, 2.0, "torus_weighted_lookahead"),
+            10.0,
+        )
+        self.assertEqual(
+            _neighbor_candidate_score(8.0, 2.0, "torus_unit"),
+            2.0,
+        )
+        self.assertEqual(
+            _neighbor_candidate_score(8.0, 2.0, "torus_weighted"),
+            2.0,
+        )
+
+    def test_routing_distance_mode_supports_unit_and_weighted_variants(self):
+        source = TopologicalNetworkAddress(shell_id=0, plane_id=0, sat_index=0, subnet_index=0)
+        dest = TopologicalNetworkAddress(shell_id=0, plane_id=1, sat_index=1, subnet_index=0)
+        constellation = ConstellationData(
+            orbits=3,
+            sats_per_orbit=3,
+            epoch="25001.0",
+            max_gsl_length_m=5000000,
+            max_isl_length_m=5000000,
+            satellites=[],
+        )
+
+        unit_distance = _routing_topological_distance(
+            source,
+            dest,
+            constellation,
+            distance_mode="torus_unit",
+            plane_step_cost=5.0,
+            sat_step_cost=7.0,
+        )
+        weighted_distance = _routing_topological_distance(
+            source,
+            dest,
+            constellation,
+            distance_mode="torus_weighted",
+            plane_step_cost=5.0,
+            sat_step_cost=7.0,
+        )
+
+        self.assertEqual(unit_distance, 2.0)
+        self.assertEqual(weighted_distance, 12.0)
+
+    def test_torus_path_cost_uses_cheapest_wrap_direction(self):
+        edge_costs = [1.0, 10.0, 10.0, 1.0]
+
+        self.assertEqual(_torus_path_cost(edge_costs, 0, 3), 1.0)
+        self.assertEqual(_torus_path_cost(edge_costs, 1, 3), 2.0)
+
+    def test_pivot_distance_prefers_cheap_cross_plane_row(self):
+        satellites = [Satellite(id=i, ephem_obj_manual=None, ephem_obj_direct=None) for i in range(9)]
+        constellation = ConstellationData(
+            orbits=3,
+            sats_per_orbit=3,
+            epoch="25001.0",
+            max_gsl_length_m=5000000,
+            max_isl_length_m=5000000,
+            satellites=satellites,
+        )
+        topology = LEOTopology(constellation, [])
+        for sat in satellites:
+            topology.graph.add_node(sat.id)
+        for plane in range(3):
+            for row in range(3):
+                src = plane * 3 + row
+                topology.graph.add_edge(src, plane * 3 + ((row + 1) % 3), weight=1.0)
+                cross_weight = 1.0 if row == 1 else 10.0
+                topology.graph.add_edge(src, ((plane + 1) % 3) * 3 + row, weight=cross_weight)
+
+        addresses = {
+            sat.id: TopologicalNetworkAddress.set_address_from_constellation(sat.id, 3, 3)
+            for sat in satellites
+        }
+        weight_model = _build_torus_weight_model(topology.graph, addresses, constellation)
+        source = addresses[0]
+        destination = addresses[6]
+
+        weighted_distance = _routing_topological_distance(
+            source,
+            destination,
+            constellation,
+            distance_mode="torus_weighted",
+            plane_step_cost=10.0,
+            sat_step_cost=1.0,
+        )
+        pivot_distance = _routing_topological_distance(
+            source,
+            destination,
+            constellation,
+            distance_mode="torus_weighted_pivot",
+            weight_model=weight_model,
+        )
+
+        self.assertEqual(weighted_distance, 10.0)
+        self.assertEqual(pivot_distance, 3.0)
 
 
 if __name__ == "__main__":

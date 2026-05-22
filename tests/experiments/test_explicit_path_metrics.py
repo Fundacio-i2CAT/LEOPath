@@ -8,6 +8,7 @@ from leopath.experiments.metrics import (
     compute_forwarding_state_stats,
     compute_gs_renumbering_stats,
     compute_path_stretch,
+    compute_satellite_forwarding_state_updates,
     compute_sat_to_gs_churn,
 )
 
@@ -97,16 +98,22 @@ def test_gs_renumbering_stats_match_attachment_changes() -> None:
     assert math.isclose(stats["rate"], 2.0 / 3.0)
 
 
-def test_explicit_path_state_counts_local_neighbors_only() -> None:
+def test_explicit_path_state_counts_attached_ingress_bindings_plus_local_neighbors() -> None:
     graph = nx.Graph()
     graph.add_edges_from([(0, 2), (0, 4), (1, 3)])
 
     stats = compute_forwarding_state_stats(
-        fstate={},
+        fstate={
+            (0, 100): (2, 0, 0),
+            (0, 101): (0, 0, 0),
+            (1, 100): (3, 0, 0),
+            (1, 101): (-1, -1, -1),
+        },
         topology_graph=graph,
         algorithm_name="explicit_path_routing",
         satellite_ids=[0, 1],
         ground_station_ids=[100, 101],
+        attachments=[(0, 10.0), (0, 12.0)],
         route_plans={
             (0, 100): {"satellite_path": [0, 2, 4]},
             (0, 101): {"satellite_path": [0]},
@@ -116,8 +123,8 @@ def test_explicit_path_state_counts_local_neighbors_only() -> None:
     )
 
     assert math.isclose(stats["min"], 1.0)
-    assert math.isclose(stats["max"], 2.0)
-    assert math.isclose(stats["mean"], 1.5)
+    assert math.isclose(stats["max"], 4.0)
+    assert math.isclose(stats["mean"], 2.5)
 
 
 def test_explicit_path_header_stats_track_strict_header_bytes() -> None:
@@ -177,3 +184,71 @@ def test_explicit_path_failover_stats_track_repair_and_drop_causes() -> None:
     assert math.isclose(stats["broken_adj_count"], 1.0)
     assert math.isclose(stats["egress_not_visible_count"], 1.0)
     assert math.isclose(stats["delivered_count"], 1.0)
+
+
+def test_topological_satellite_updates_only_track_local_gsl_binding_changes() -> None:
+    updates = compute_satellite_forwarding_state_updates(
+        prev_fstate={(0, 100): 7, (1, 100): 9},
+        curr_fstate={(0, 100): 8, (1, 100): 5},
+        algorithm_name="topological_routing",
+        satellite_ids=[0, 1],
+        ground_station_ids=[100],
+        prev_attachments=[(0, 10.0)],
+        curr_attachments=[(1, 11.0)],
+        prev_interface_neighbor_map={0: {7: 2}, 1: {9: 3}},
+        curr_interface_neighbor_map={0: {8: 4}, 1: {5: 6}},
+    )
+
+    assert math.isclose(updates["add"]["mean"], 0.5)
+    assert math.isclose(updates["delete"]["mean"], 0.5)
+    assert math.isclose(updates["modify"]["mean"], 0.0)
+    assert math.isclose(updates["total"]["mean"], 1.0)
+    assert math.isclose(updates["touched_satellite_rate"], 1.0)
+
+
+def test_explicit_path_satellite_updates_track_ingress_binding_changes() -> None:
+    updates = compute_satellite_forwarding_state_updates(
+        prev_fstate={},
+        curr_fstate={},
+        algorithm_name="explicit_path_routing",
+        satellite_ids=[0, 1, 2],
+        ground_station_ids=[100],
+        prev_attachments=[(0, 10.0)],
+        curr_attachments=[(0, 10.0)],
+        prev_route_plans={
+            (0, 100): {
+                "planned_dst_sat_id": 2,
+                "adjacency_sid_list": [1, 2],
+                "backup_adjacency_sid_list": [None, None],
+            }
+        },
+        curr_route_plans={
+            (0, 100): {
+                "planned_dst_sat_id": 2,
+                "adjacency_sid_list": [3, 2],
+                "backup_adjacency_sid_list": [None, None],
+            }
+        },
+    )
+
+    assert math.isclose(updates["modify"]["mean"], 1.0 / 3.0)
+    assert math.isclose(updates["total"]["mean"], 1.0 / 3.0)
+    assert math.isclose(updates["touched_satellite_count"], 1.0)
+
+
+def test_link_state_satellite_updates_track_destination_entry_rewrites() -> None:
+    updates = compute_satellite_forwarding_state_updates(
+        prev_fstate={(0, 100): (1, 7, 8), (1, 100): (2, 9, 10)},
+        curr_fstate={(0, 100): (3, 11, 12), (1, 100): (2, 9, 10)},
+        algorithm_name="shortest_path_link_state",
+        satellite_ids=[0, 1],
+        ground_station_ids=[100],
+        prev_attachments=[(4, 10.0)],
+        curr_attachments=[(4, 10.0)],
+        prev_interface_neighbor_map={0: {7: 1}, 1: {9: 2}},
+        curr_interface_neighbor_map={0: {11: 3}, 1: {9: 2}},
+    )
+
+    assert math.isclose(updates["modify"]["mean"], 0.5)
+    assert math.isclose(updates["total"]["mean"], 0.5)
+    assert math.isclose(updates["touched_satellite_count"], 1.0)

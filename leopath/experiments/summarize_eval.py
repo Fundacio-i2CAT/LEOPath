@@ -106,6 +106,15 @@ def summarize_run(run_dir: Path) -> dict:
         "gs_renumber_rate_mean": gs_renumber_rate_mean,
         "sat_gs_churn_mean": mean([fget(r, "sat_gs_churn") for r in drows]),
         "sat_gs_break_mean": mean([fget(r, "sat_gs_break_rate") for r in drows]),
+        "sat_fstate_updates_total_mean": mean(
+            [fget(r, "sat_fstate_updates_total_mean") for r in drows]
+        ),
+        "sat_fstate_updates_total_p95_mean": mean(
+            [fget(r, "sat_fstate_updates_total_p95") for r in drows]
+        ),
+        "sat_fstate_updates_touched_satellite_rate_mean": mean(
+            [fget(r, "sat_fstate_updates_touched_satellite_rate") for r in drows]
+        ),
         "gs_gs_churn_mean": mean([fget(r, "gs_gs_churn") for r in drows]),
         "gs_gs_break_mean": mean([fget(r, "gs_gs_break_rate") for r in drows]),
         "stretch_dist_mean": weighted_mean_with_positive_count(
@@ -156,6 +165,9 @@ def main() -> None:
         "gs_renumber_rate_mean",
         "sat_gs_churn_mean",
         "sat_gs_break_mean",
+        "sat_fstate_updates_total_mean",
+        "sat_fstate_updates_total_p95_mean",
+        "sat_fstate_updates_touched_satellite_rate_mean",
         "gs_gs_churn_mean",
         "gs_gs_break_mean",
         "stretch_dist_mean",

@@ -76,9 +76,9 @@ def test_summarize_run_backfills_renumbering_from_handover(tmp_path: Path) -> No
         encoding="utf-8",
     )
     (run_dir / "delta_metrics.csv").write_text(
-        "gs_handover_rate,sat_gs_churn,sat_gs_break_rate,gs_gs_churn,gs_gs_break_rate\n"
-        "0.25,0,0,0,0\n"
-        "0.50,0,0,0,0\n",
+        "gs_handover_rate,sat_gs_churn,sat_gs_break_rate,sat_fstate_updates_total_mean,sat_fstate_updates_total_p95,sat_fstate_updates_touched_satellite_rate,gs_gs_churn,gs_gs_break_rate\n"
+        "0.25,0,0,0.5,1.0,0.25,0,0\n"
+        "0.50,0,0,1.5,2.0,0.50,0,0\n",
         encoding="utf-8",
     )
 
@@ -88,3 +88,6 @@ def test_summarize_run_backfills_renumbering_from_handover(tmp_path: Path) -> No
     assert summary["handover_mean"] == 0.375
     assert summary["gs_renumber_rate_mean"] == 0.375
     assert summary["gs_renumber_count_mean"] == 1.5
+    assert summary["sat_fstate_updates_total_mean"] == 1.0
+    assert summary["sat_fstate_updates_total_p95_mean"] == 1.5
+    assert summary["sat_fstate_updates_touched_satellite_rate_mean"] == 0.375

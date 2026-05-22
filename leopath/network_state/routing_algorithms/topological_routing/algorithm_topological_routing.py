@@ -17,6 +17,7 @@ def algorithm_topological_routing(
     bandwidth_state: dict,
     prev_fstate: dict | None = None,
     graph_has_changed: bool = True,
+    algorithm_params: dict | None = None,
 ) -> dict:
     """
     Calculates bandwidth and forwarding state using topological routing over ISLs only (no GS relaying).
@@ -48,6 +49,7 @@ def algorithm_topological_routing(
         time_since_epoch_ns,
         prev_fstate,
         graph_has_changed,
+        algorithm_params=algorithm_params,
     )
 
     # Add GS -> GS entries (used by churn/stretches in evaluation)

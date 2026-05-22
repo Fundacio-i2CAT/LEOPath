@@ -39,6 +39,7 @@ from .metrics import (
     compute_gs_renumbering_stats,
     compute_gs_to_gs_churn,
     compute_path_stretch,
+    compute_satellite_forwarding_state_updates,
     compute_sat_to_gs_churn,
     get_gs_attachments,
     write_csv,
@@ -109,6 +110,7 @@ def prepare_algorithm_params(
     plane_weight: float | None,
     sat_weight: float | None,
     shell_weight: float | None,
+    distance_mode: str | None,
     time_step_minutes: float | None,
 ) -> dict:
     algorithm_params = dict(simulation_config.get("algorithm_params") or {})
@@ -136,6 +138,8 @@ def prepare_algorithm_params(
         algorithm_params["sat_weight"] = sat_weight
     if shell_weight is not None and algorithm_name != "explicit_path_routing":
         algorithm_params["shell_weight"] = shell_weight
+    if distance_mode is not None and algorithm_name == "topological_routing":
+        algorithm_params["distance_mode"] = distance_mode
 
     effective_time_step_minutes = time_step_minutes
     if effective_time_step_minutes is None:
@@ -159,6 +163,7 @@ def run_evaluation(
     plane_weight: float | None,
     sat_weight: float | None,
     shell_weight: float | None,
+    distance_mode: str | None,
 ) -> None:
     config = load_config(config_path)
     gs_override = load_ground_station_override(gs_override_path)
@@ -183,6 +188,7 @@ def run_evaluation(
         plane_weight=plane_weight,
         sat_weight=sat_weight,
         shell_weight=shell_weight,
+        distance_mode=distance_mode,
         time_step_minutes=time_step_minutes,
     )
     if algorithm_params:
@@ -244,6 +250,7 @@ def run_evaluation(
     prev_fstate: dict | None = None
     prev_attachments: list[tuple[int | None, float]] | None = None
     prev_route_plans: dict | None = None
+    prev_interface_neighbor_map: dict[int, dict[int, int]] | None = None
 
     progress_iter = time_steps
     if tqdm is not None:
@@ -293,6 +300,7 @@ def run_evaluation(
             sim_config["dynamic_state_algorithm"],
             satellite_ids,
             ground_station_ids,
+            attachments,
             algorithm_params,
             route_plans,
         )
@@ -353,6 +361,19 @@ def run_evaluation(
                 prev_route_plans,
                 route_plans,
             )
+            satellite_fstate_updates = compute_satellite_forwarding_state_updates(
+                prev_fstate=prev_fstate,
+                curr_fstate=fstate,
+                algorithm_name=sim_config["dynamic_state_algorithm"],
+                satellite_ids=satellite_ids,
+                ground_station_ids=ground_station_ids,
+                prev_attachments=prev_attachments,
+                curr_attachments=attachments,
+                prev_interface_neighbor_map=prev_interface_neighbor_map,
+                curr_interface_neighbor_map=interface_neighbor_map,
+                prev_route_plans=prev_route_plans,
+                curr_route_plans=route_plans,
+            )
             delta_rows.append(
                 {
                     "time_index": step_index,
@@ -364,12 +385,27 @@ def run_evaluation(
                     "sat_gs_break_rate": sat_gs_churn["break_rate"],
                     "gs_gs_churn": gs_gs_churn["churn"],
                     "gs_gs_break_rate": gs_gs_churn["break_rate"],
+                    "sat_fstate_updates_add_mean": satellite_fstate_updates["add"]["mean"],
+                    "sat_fstate_updates_add_p95": satellite_fstate_updates["add"]["p95"],
+                    "sat_fstate_updates_delete_mean": satellite_fstate_updates["delete"]["mean"],
+                    "sat_fstate_updates_delete_p95": satellite_fstate_updates["delete"]["p95"],
+                    "sat_fstate_updates_modify_mean": satellite_fstate_updates["modify"]["mean"],
+                    "sat_fstate_updates_modify_p95": satellite_fstate_updates["modify"]["p95"],
+                    "sat_fstate_updates_total_mean": satellite_fstate_updates["total"]["mean"],
+                    "sat_fstate_updates_total_p95": satellite_fstate_updates["total"]["p95"],
+                    "sat_fstate_updates_touched_satellite_count": satellite_fstate_updates[
+                        "touched_satellite_count"
+                    ],
+                    "sat_fstate_updates_touched_satellite_rate": satellite_fstate_updates[
+                        "touched_satellite_rate"
+                    ],
                 }
             )
 
         prev_fstate = fstate
         prev_attachments = attachments
         prev_route_plans = route_plans
+        prev_interface_neighbor_map = interface_neighbor_map
     metadata = {
         "algorithm": sim_config["dynamic_state_algorithm"],
         "algorithm_params": sim_config.get("algorithm_params") or {},
@@ -392,10 +428,18 @@ def run_evaluation(
         "forwarding_state_definition": {
             "shortest_path_link_state": "destination forwarding entries toward routable satellites (proxy: number of satellites)",
             "predictive_link_state": "destination forwarding entries toward routable satellites (proxy: number of satellites)",
-            "explicit_path_routing": "transit-local neighbor/interface entries only; explicit strict-adjacency header bytes are tracked separately in route plans",
+            "explicit_path_routing": "local neighbor/interface entries on all satellites, plus destination-to-segment ingress bindings only on satellites that currently have attached ground stations; strict-adjacency header bytes are tracked separately in route plans",
             "traditional_segment_routing": "forwarding entries toward segment endpoints / routable satellites (proxy: number of satellites)",
             "topological_routing": "local neighbor-address forwarding entries (proxy: node degree)",
             "default": "reachable GS destinations per satellite",
+        },
+        "satellite_forwarding_state_update_definition": {
+            "definition": "per-snapshot additions, deletions, or modifications of satellite-local forwarding-state units between consecutive snapshots",
+            "shortest_path_link_state": "destination-to-next-hop forwarding entries toward currently attached destination satellites",
+            "predictive_link_state": "destination-to-next-hop forwarding entries toward currently attached destination satellites",
+            "traditional_segment_routing": "destination-to-next-hop forwarding entries toward currently attached destination satellites",
+            "topological_routing": "mutable satellite-local forwarding state only; in the regular Ring/+Grid model this is limited to local GS delivery bindings and any explicit exception state, not algorithmic default forwarding",
+            "explicit_path_routing": "satellite-local GS delivery bindings plus ingress destination-to-path bindings on satellites that currently host GS attachments; packet-carried adjacency guidance is excluded",
         },
     }
     if control_plane_sample is not None:
@@ -450,6 +494,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--plane-weight", type=float, default=None)
     parser.add_argument("--sat-weight", type=float, default=None)
     parser.add_argument("--shell-weight", type=float, default=None)
+    parser.add_argument("--distance-mode", type=str, default=None)
     return parser.parse_args()
 
 
@@ -470,6 +515,7 @@ def main() -> None:
         plane_weight=args.plane_weight,
         sat_weight=args.sat_weight,
         shell_weight=args.shell_weight,
+        distance_mode=args.distance_mode,
     )
 
 
