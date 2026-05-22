@@ -85,7 +85,16 @@ def test_explicit_path_preserves_explicit_refresh_interval() -> None:
 
 def test_explicit_path_drops_unused_weighting_metadata() -> None:
     params = prepare_algorithm_params(
-        simulation_config={"time_step_minutes": 10, "algorithm_params": {}},
+        simulation_config={
+            "time_step_minutes": 10,
+            "algorithm_params": {
+                "prediction_horizon_minutes": 5,
+                "segment_mode": "plane_then_inplane",
+                "plane_weight": 50.0,
+                "sat_weight": 2.0,
+                "shell_weight": 500.0,
+            },
+        },
         algorithm_name="explicit_path_routing",
         prediction_horizon_minutes=None,
         segment_count=2,

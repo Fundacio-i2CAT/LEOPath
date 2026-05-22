@@ -36,6 +36,29 @@ def test_summarize_run_weights_stretch_by_samples(tmp_path: Path) -> None:
     assert summary["stretch_hop_valid_timestep_mean"] == 1.0
     assert summary["stretch_dist_samples_mean"] == 4 / 3
     assert summary["strict_header_bytes_mean"] == 20.0
+    assert summary["srv6_srh_bytes_mean"] == 0.0
+
+
+def test_summarize_run_reports_explicit_delivery_rates(tmp_path: Path) -> None:
+    run_dir = tmp_path / "explicit_path_routing" / "grid"
+    run_dir.mkdir(parents=True)
+
+    (run_dir / "metadata.json").write_text(
+        '{"algorithm": "explicit_path_routing", "isl_scenario": "grid"}',
+        encoding="utf-8",
+    )
+    (run_dir / "timestep_metrics.csv").write_text(
+        "explicit_failover_delivered_rate,explicit_failover_egress_not_visible_rate\n"
+        "1.0,0.0\n"
+        "0.5,0.5\n",
+        encoding="utf-8",
+    )
+    (run_dir / "delta_metrics.csv").write_text("\n", encoding="utf-8")
+
+    summary = summarize_run(run_dir)
+
+    assert summary["explicit_delivered_rate_mean"] == 0.75
+    assert summary["explicit_egress_not_visible_rate_mean"] == 0.25
 
 
 def test_aggregate_eval_ignores_zero_sample_stretch_rows(tmp_path: Path) -> None:

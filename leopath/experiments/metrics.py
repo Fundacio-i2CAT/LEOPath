@@ -116,6 +116,9 @@ def compute_forwarding_state_stats(
             reachable = 0
             if sat_id in attached_satellites:
                 for gs_id in ground_station_ids:
+                    if route_plans.get((sat_id, gs_id)):
+                        reachable += 1
+                        continue
                     entry = fstate.get((sat_id, gs_id))
                     if not is_unreachable(entry):
                         reachable += 1
@@ -361,13 +364,20 @@ def compute_gs_renumbering_stats(
 
 def compute_explicit_header_stats(
     route_plans: dict | None,
+    source_attachments: list[tuple[int | None, float]] | None = None,
+    ground_station_ids: list[int] | None = None,
+    bytes_key: str = "strict_header_bytes",
 ) -> dict:
     route_plans = route_plans or {}
     header_sizes = []
-    for route_plan in route_plans.values():
+    for _, route_plan in _iter_explicit_route_plans(
+        route_plans,
+        source_attachments,
+        ground_station_ids,
+    ):
         if not route_plan:
             continue
-        strict_header_bytes = route_plan.get("strict_header_bytes")
+        strict_header_bytes = route_plan.get(bytes_key)
         if strict_header_bytes is None:
             continue
         header_sizes.append(float(strict_header_bytes))
@@ -379,6 +389,7 @@ def compute_explicit_failover_stats(
     route_plans: dict | None,
     ground_station_ids: list[int],
     ground_station_satellites_in_range: list | None,
+    source_attachments: list[tuple[int | None, float]] | None = None,
 ) -> dict:
     route_plans = route_plans or {}
     visibility_by_gs = {}
@@ -394,7 +405,11 @@ def compute_explicit_failover_stats(
     egress_not_visible = 0
     total = 0
 
-    for (_, dst_gs_id), route_plan in route_plans.items():
+    for (_, dst_gs_id), route_plan in _iter_explicit_route_plans(
+        route_plans,
+        source_attachments,
+        ground_station_ids,
+    ):
         if not route_plan:
             continue
         sat_path = route_plan.get("satellite_path", [])
@@ -444,6 +459,30 @@ def compute_explicit_failover_stats(
         "egress_not_visible_count": float(egress_not_visible),
         "egress_not_visible_rate": (egress_not_visible / total) if total else 0.0,
     }
+
+
+def _iter_explicit_route_plans(
+    route_plans: dict,
+    source_attachments: list[tuple[int | None, float]] | None = None,
+    ground_station_ids: list[int] | None = None,
+):
+    if source_attachments is None or ground_station_ids is None:
+        yield from route_plans.items()
+        return
+
+    for src_gs_index, src_gs_id in enumerate(ground_station_ids):
+        if src_gs_index >= len(source_attachments):
+            continue
+        src_sat_id, _ = source_attachments[src_gs_index]
+        if src_sat_id is None:
+            continue
+        for dst_gs_id in ground_station_ids:
+            if dst_gs_id == src_gs_id:
+                continue
+            route_plan = route_plans.get((src_sat_id, dst_gs_id))
+            if route_plan is None:
+                continue
+            yield (src_sat_id, dst_gs_id), route_plan
 
 
 def compute_sat_to_gs_churn(

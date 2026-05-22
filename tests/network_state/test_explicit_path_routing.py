@@ -57,11 +57,46 @@ def test_build_route_plans_pins_shortest_satellite_path() -> None:
 
     assert plans[(0, 100)]["satellite_path"] == [0, 1, 2, 3]
     assert plans[(0, 100)]["adjacency_sid_list"] == [1, 2, 3]
-    assert plans[(0, 100)]["backup_adjacency_sid_list"] == [None, None, None]
+    assert plans[(0, 100)]["srv6_srh_bytes"] == 56
+    assert plans[(0, 100)]["backup_adjacency_sid_list"] == []
+    assert plans[(0, 100)]["local_protection_mode"] == "none"
     assert plans[(0, 100)]["forwarding_mode"] == "strict_adjacency_header"
     assert plans[(0, 100)]["planned_dst_sat_id"] == 3
     assert plans[(3, 100)]["satellite_path"] == [3]
     assert plans[(3, 100)]["adjacency_sid_list"] == []
+    assert plans[(3, 100)]["strict_header_bytes"] == 0
+    assert plans[(3, 100)]["srv6_srh_bytes"] == 0
+
+
+def test_build_route_plans_can_include_backup_adjacencies() -> None:
+    topology = _make_topology()
+    ground_stations = [type("GroundStation", (), {"id": 100})()]
+
+    plans = _build_route_plans(
+        topology,
+        ground_stations,
+        [[(1.0, 3)]],
+        include_backup_adjacencies=True,
+    )
+
+    assert plans[(0, 100)]["backup_adjacency_sid_list"] == [None, None, None]
+    assert plans[(0, 100)]["local_protection_mode"] == "single_hop_rejoin"
+
+
+def test_build_route_plans_selects_best_visible_egress_per_source() -> None:
+    topology = _make_topology()
+    ground_stations = [type("GroundStation", (), {"id": 100})()]
+
+    plans = _build_route_plans(
+        topology,
+        ground_stations,
+        [[(2.0, 3), (1.0, 1)]],
+    )
+
+    assert plans[(0, 100)]["planned_dst_sat_id"] == 1
+    assert plans[(0, 100)]["satellite_path"] == [0, 1]
+    assert plans[(3, 100)]["planned_dst_sat_id"] == 3
+    assert plans[(3, 100)]["satellite_path"] == [3]
 
 
 def test_waypoint_sampling_uses_segment_count() -> None:
@@ -95,16 +130,16 @@ def test_explicit_path_algorithm_returns_route_plans_and_first_hop_proxy() -> No
 
     assert output["route_plans"][(0, 100)]["satellite_path"] == [0, 1, 2, 3]
     assert output["route_plans"][(0, 100)]["adjacency_sid_list"] == [1, 2, 3]
-    assert output["route_plans"][(0, 100)]["backup_adjacency_sid_list"] == [None, None, None]
+    assert output["route_plans"][(0, 100)]["backup_adjacency_sid_list"] == []
     assert output["route_plans"][(0, 100)]["planned_dst_sat_id"] == 3
     assert output["fstate"][(0, 100)] == (1, 0, 0)
     assert output["control_plane"]["sample_route_plans"][0]["satellite_path"] == [0, 1, 2, 3]
     assert output["control_plane"]["sample_route_plans"][0]["adjacency_sid_list"] == [1, 2, 3]
-    assert output["control_plane"]["sample_route_plans"][0]["backup_adjacency_sid_list"] == [None, None, None]
+    assert output["control_plane"]["sample_route_plans"][0]["backup_adjacency_sid_list"] == []
     assert output["control_plane"]["sample_route_plans"][0]["waypoint_satellites"] == [2, 3]
 
 
-def test_build_route_plans_reuses_one_tree_per_destination_satellite() -> None:
+def test_build_route_plans_uses_one_augmented_tree_per_ground_station() -> None:
     topology = _make_topology()
     ground_stations = [
         type("GroundStation", (), {"id": 100})(),
@@ -112,17 +147,17 @@ def test_build_route_plans_reuses_one_tree_per_destination_satellite() -> None:
     ]
 
     with patch.object(
-        explicit_path_module.nx,
-        "single_source_dijkstra_path",
-        wraps=explicit_path_module.nx.single_source_dijkstra_path,
-    ) as mock_single_source_dijkstra_path:
+        explicit_path_module,
+        "_single_destination_gs_shortest_paths",
+        wraps=explicit_path_module._single_destination_gs_shortest_paths,
+    ) as mock_single_destination_gs_shortest_paths:
         plans = _build_route_plans(
             topology,
             ground_stations,
             [[(1.0, 3)], [(2.0, 3)]],
         )
 
-    assert mock_single_source_dijkstra_path.call_count == 1
+    assert mock_single_destination_gs_shortest_paths.call_count == 2
     assert plans[(0, 100)]["satellite_path"] == [0, 1, 2, 3]
     assert plans[(0, 101)]["satellite_path"] == [0, 1, 2, 3]
 

@@ -121,6 +121,10 @@ def prepare_algorithm_params(
         )
     elif algorithm_name == "explicit_path_routing":
         algorithm_params.pop("prediction_horizon_minutes", None)
+        algorithm_params.pop("segment_mode", None)
+        algorithm_params.pop("plane_weight", None)
+        algorithm_params.pop("sat_weight", None)
+        algorithm_params.pop("shell_weight", None)
     elif prediction_horizon_minutes is not None:
         algorithm_params["prediction_horizon_minutes"] = prediction_horizon_minutes
 
@@ -304,12 +308,23 @@ def run_evaluation(
             algorithm_params,
             route_plans,
         )
-        explicit_header_stats = compute_explicit_header_stats(route_plans)
+        explicit_header_stats = compute_explicit_header_stats(
+            route_plans,
+            attachments,
+            ground_station_ids,
+        )
+        explicit_srv6_srh_stats = compute_explicit_header_stats(
+            route_plans,
+            attachments,
+            ground_station_ids,
+            bytes_key="srv6_srh_bytes",
+        )
         explicit_failover_stats = compute_explicit_failover_stats(
             topology_with_isls.graph,
             route_plans,
             ground_station_ids,
             gs_sat_visibility,
+            attachments,
         )
         stretch_stats = compute_path_stretch(
             fstate,
@@ -329,6 +344,7 @@ def run_evaluation(
                 "time_since_epoch_ns": time_since_epoch_ns,
                 **flatten_distribution("fstate_size", fstate_stats),
                 **flatten_distribution("strict_header_bytes", explicit_header_stats),
+                **flatten_distribution("srv6_srh_bytes", explicit_srv6_srh_stats),
                 **flatten_distribution("stretch_hop", stretch_stats["hop"]),
                 **flatten_distribution("stretch_dist", stretch_stats["distance"]),
                 **{
@@ -440,6 +456,10 @@ def run_evaluation(
             "traditional_segment_routing": "destination-to-next-hop forwarding entries toward currently attached destination satellites",
             "topological_routing": "mutable satellite-local forwarding state only; in the regular Ring/+Grid model this is limited to local GS delivery bindings and any explicit exception state, not algorithmic default forwarding",
             "explicit_path_routing": "satellite-local GS delivery bindings plus ingress destination-to-path bindings on satellites that currently host GS attachments; packet-carried adjacency guidance is excluded",
+        },
+        "packet_guidance_definition": {
+            "strict_header_bytes": "compact proxy overhead for active GS-to-GS traffic only: fixed 20-byte metadata plus 32-bit adjacency SIDs, zero for direct local delivery",
+            "srv6_srh_bytes": "SRv6 SRH-equivalent overhead for the same active strict adjacency stack, excluding the IPv6 base header: 8 + 16 bytes per carried adjacency SID, zero for direct local delivery",
         },
     }
     if control_plane_sample is not None:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import networkx as nx
+from heapq import heappop, heappush
+from itertools import count
 from astropy.time import Time
 
 from leopath.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
@@ -42,6 +44,9 @@ def algorithm_explicit_path_routing(
         topology_with_isls,
         ground_stations,
         ground_station_satellites_in_range,
+        include_backup_adjacencies=bool(
+            algorithm_params.get("include_backup_adjacencies", False)
+        ),
     )
     waypoint_plans = _build_waypoint_plans(
         route_plans,
@@ -78,6 +83,7 @@ def algorithm_explicit_path_routing(
                     "adjacency_sid_list": route_plan.get("adjacency_sid_list", []),
                     "backup_adjacency_sid_list": route_plan.get("backup_adjacency_sid_list", []),
                     "strict_header_bytes": route_plan.get("strict_header_bytes", 0),
+                    "srv6_srh_bytes": route_plan.get("srv6_srh_bytes", 0),
                     "planned_dst_sat_id": route_plan.get("planned_dst_sat_id"),
                     "waypoint_satellites": waypoint_plans[(src_sat_id, dst_gs_id)],
                 }
@@ -91,60 +97,119 @@ def _build_route_plans(
     topology_with_isls: LEOTopology,
     ground_stations: list[GroundStation],
     ground_station_satellites_in_range: list,
+    include_backup_adjacencies: bool = False,
 ) -> dict[tuple[int, int], dict]:
     sat_ids = sorted({sat.id for sat in topology_with_isls.get_satellites()})
     sat_graph = topology_with_isls.graph.subgraph(sat_ids)
     route_plans: dict[tuple[int, int], dict] = {}
-    destination_satellites: dict[int, int | None] = {}
+    destination_satellite_options: dict[int, list[tuple[float, int]]] = {}
 
     for gs_idx, dst_gs in enumerate(ground_stations):
         visible = ground_station_satellites_in_range[gs_idx]
         if not visible:
-            destination_satellites[dst_gs.id] = None
+            destination_satellite_options[dst_gs.id] = []
             continue
-        _, dst_sat_id = min(visible, key=lambda item: item[0])
-        destination_satellites[dst_gs.id] = dst_sat_id
+        destination_satellite_options[dst_gs.id] = sorted(visible, key=lambda item: item[0])
 
-    paths_by_destination: dict[int, dict[int, list[int]]] = {}
-    for dst_sat_id in {sat_id for sat_id in destination_satellites.values() if sat_id is not None}:
-        try:
-            shortest_paths_from_destination = nx.single_source_dijkstra_path(
+    for dst_gs in ground_stations:
+        visible = destination_satellite_options.get(dst_gs.id, [])
+        if not visible:
+            for src_sat_id in sat_ids:
+                route_plans[(src_sat_id, dst_gs.id)] = {}
+            continue
+
+        best_paths = _single_destination_gs_shortest_paths(sat_graph, visible)
+
+        for src_sat_id in sat_ids:
+            path_info = best_paths.get(src_sat_id)
+            if path_info is None:
+                route_plans[(src_sat_id, dst_gs.id)] = {}
+                continue
+            total_distance, path_from_egress, dst_gsl_distance = path_info
+            dst_sat_id = path_from_egress[0]
+            sat_path_distance = float(total_distance) - float(dst_gsl_distance)
+            sat_path = list(reversed(path_from_egress))
+            route_plans[(src_sat_id, dst_gs.id)] = _build_strict_route_plan(
                 sat_graph,
+                src_sat_id,
+                sat_path,
                 dst_sat_id,
-                weight="weight",
+                sat_path_distance,
+                dst_gsl_distance,
+                include_backup_adjacencies=include_backup_adjacencies,
             )
-        except (nx.NetworkXNoPath, nx.NodeNotFound):
-            shortest_paths_from_destination = {}
-        paths_by_destination[dst_sat_id] = {
-            src_sat_id: list(reversed(path))
-            for src_sat_id, path in shortest_paths_from_destination.items()
-        }
-
-    for src_sat_id in sat_ids:
-        for dst_gs in ground_stations:
-            dst_sat_id = destination_satellites.get(dst_gs.id)
-            if dst_sat_id is None:
-                route_plans[(src_sat_id, dst_gs.id)] = {}
-                continue
-            if src_sat_id == dst_sat_id:
-                route_plans[(src_sat_id, dst_gs.id)] = _build_strict_route_plan(
-                    sat_graph,
-                    src_sat_id,
-                    [src_sat_id],
-                    dst_sat_id,
-                )
-                continue
-            sat_path = paths_by_destination.get(dst_sat_id, {}).get(src_sat_id)
-            if sat_path:
-                route_plans[(src_sat_id, dst_gs.id)] = _build_strict_route_plan(
-                    sat_graph,
-                    src_sat_id,
-                    sat_path,
-                    dst_sat_id,
-                )
-            else:
-                route_plans[(src_sat_id, dst_gs.id)] = {}
     return route_plans
+
+
+def _single_destination_gs_shortest_paths(
+    sat_graph: nx.Graph,
+    visible: list[tuple[float, int]],
+) -> dict[int, tuple[float, list[int], float]]:
+    best_seed_by_sat: dict[int, float] = {}
+    for dst_gsl_distance, dst_sat_id in visible:
+        if dst_sat_id not in sat_graph:
+            continue
+        distance = float(dst_gsl_distance)
+        if distance < best_seed_by_sat.get(dst_sat_id, float("inf")):
+            best_seed_by_sat[dst_sat_id] = distance
+
+    tie_breaker = count()
+    heap = []
+    for dst_sat_id, dst_gsl_distance in best_seed_by_sat.items():
+        heappush(
+            heap,
+            (dst_gsl_distance, next(tie_breaker), dst_sat_id, dst_sat_id, None, dst_gsl_distance),
+        )
+
+    settled: dict[int, tuple[float, int, int | None, float]] = {}
+    while heap:
+        total_distance, _, current_sat_id, root_sat_id, predecessor_sat_id, dst_gsl_distance = heappop(heap)
+        if current_sat_id in settled:
+            continue
+        settled[current_sat_id] = (
+            float(total_distance),
+            root_sat_id,
+            predecessor_sat_id,
+            float(dst_gsl_distance),
+        )
+
+        for neighbor_sat_id in sat_graph.neighbors(current_sat_id):
+            if neighbor_sat_id in settled:
+                continue
+            edge_weight = sat_graph.edges[current_sat_id, neighbor_sat_id].get("weight")
+            if edge_weight is None:
+                continue
+            edge_weight = float(edge_weight)
+            if edge_weight == float("inf"):
+                continue
+            heappush(
+                heap,
+                (
+                    float(total_distance) + edge_weight,
+                    next(tie_breaker),
+                    neighbor_sat_id,
+                    root_sat_id,
+                    current_sat_id,
+                    float(dst_gsl_distance),
+                ),
+            )
+
+    best_paths: dict[int, tuple[float, list[int], float]] = {}
+    for sat_id, (total_distance, _, _, dst_gsl_distance) in settled.items():
+        path = []
+        current_sat_id = sat_id
+        while True:
+            path.append(current_sat_id)
+            predecessor_sat_id = settled[current_sat_id][2]
+            if predecessor_sat_id is None:
+                break
+            current_sat_id = predecessor_sat_id
+        best_paths[sat_id] = (
+            float(total_distance),
+            list(reversed(path)),
+            float(dst_gsl_distance),
+        )
+    return best_paths
 
 
 def _build_strict_route_plan(
@@ -152,20 +217,32 @@ def _build_strict_route_plan(
     src_sat_id: int,
     sat_path: list[int],
     planned_dst_sat_id: int,
+    planned_sat_path_distance_m: float | None = None,
+    planned_dst_gsl_distance_m: float | None = None,
+    include_backup_adjacencies: bool = False,
 ) -> dict:
     adjacency_sid_list = sat_path[1:] if sat_path and sat_path[0] == src_sat_id else []
-    backup_adjacency_sid_list = _build_backup_adjacency_sid_list(sat_graph, sat_path)
+    backup_adjacency_sid_list = (
+        _build_backup_adjacency_sid_list(sat_graph, sat_path)
+        if include_backup_adjacencies
+        else []
+    )
     # Minimal strict-header proxy: fixed metadata plus 32-bit adjacency SIDs.
-    strict_header_bytes = 20 + (4 * len(adjacency_sid_list)) if sat_path else 0
+    strict_header_bytes = 20 + (4 * len(adjacency_sid_list)) if adjacency_sid_list else 0
+    # SRv6 SRH equivalent for the same strict adjacency stack, excluding IPv6 base header.
+    srv6_srh_bytes = 8 + (16 * len(adjacency_sid_list)) if adjacency_sid_list else 0
     return {
         "satellite_path": sat_path,
         "planned_dst_sat_id": planned_dst_sat_id,
+        "planned_sat_path_distance_m": planned_sat_path_distance_m,
+        "planned_dst_gsl_distance_m": planned_dst_gsl_distance_m,
         "forwarding_mode": "strict_adjacency_header",
-        "local_protection_mode": "single_hop_rejoin",
+        "local_protection_mode": "single_hop_rejoin" if include_backup_adjacencies else "none",
         "ingress_sat_id": src_sat_id,
         "adjacency_sid_list": adjacency_sid_list,
         "backup_adjacency_sid_list": backup_adjacency_sid_list,
         "strict_header_bytes": strict_header_bytes,
+        "srv6_srh_bytes": srv6_srh_bytes,
     }
 
 

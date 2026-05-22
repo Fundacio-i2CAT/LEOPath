@@ -353,6 +353,35 @@ def plot_stretch_timeseries(output_dir: Path, runs: dict, isl: str, metric: str)
     plt.close(fig)
 
 
+def plot_packet_overhead_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
+    data = runs.get("Explicit-path")
+    if data is None:
+        return
+    rows = data["timestep"]
+    if not rows or "strict_header_bytes_mean" not in rows[0]:
+        return
+
+    fig, ax = plt.subplots(figsize=(9.8, 5.5))
+    times = time_minutes(rows)
+    series_specs = [
+        ("strict_header_bytes_mean", "Compact proxy", "#8172b3"),
+        ("srv6_srh_bytes_mean", "SRv6 SRH equiv.", "#c44e52"),
+    ]
+    for key, label, color in series_specs:
+        if key not in rows[0]:
+            continue
+        series = [row[key] for row in rows]
+        ax.plot(times, rolling_mean(series, 9), label=label, color=color, linewidth=2.6)
+    ax.set_title(f"Explicit-path Packet Guidance ({isl})")
+    ax.set_xlabel("Time (minutes)")
+    ax.set_ylabel("Mean bytes per active GS→GS packet")
+    ax.grid(True, axis="y", alpha=0.18, linewidth=0.8)
+    ax.legend(ncol=2, frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.02))
+    fig.tight_layout()
+    fig.savefig(output_dir / f"explicit_packet_overhead_timeseries_{isl}.png")
+    plt.close(fig)
+
+
 def plot_compute_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
     fig, ax = plt.subplots(figsize=(9.2, 5.2))
     metric = "compute_time_ms"
@@ -400,6 +429,7 @@ def main() -> None:
         plot_sat_gs_churn_timeseries(output_dir, runs, isl)
         plot_satellite_update_timeseries(output_dir, runs, isl)
         plot_stretch_timeseries(output_dir, runs, isl, args.stretch_metric)
+        plot_packet_overhead_timeseries(output_dir, runs, isl)
         plot_compute_timeseries(output_dir, runs, isl)
 
 

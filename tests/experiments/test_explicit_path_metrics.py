@@ -112,19 +112,20 @@ def test_explicit_path_state_counts_attached_ingress_bindings_plus_local_neighbo
         topology_graph=graph,
         algorithm_name="explicit_path_routing",
         satellite_ids=[0, 1],
-        ground_station_ids=[100, 101],
+        ground_station_ids=[100, 101, 102],
         attachments=[(0, 10.0), (0, 12.0)],
         route_plans={
             (0, 100): {"satellite_path": [0, 2, 4]},
             (0, 101): {"satellite_path": [0]},
+            (0, 102): {"satellite_path": [0, 5]},
             (1, 100): {"satellite_path": [1, 3]},
             (1, 101): {},
         },
     )
 
     assert math.isclose(stats["min"], 1.0)
-    assert math.isclose(stats["max"], 4.0)
-    assert math.isclose(stats["mean"], 2.5)
+    assert math.isclose(stats["max"], 5.0)
+    assert math.isclose(stats["mean"], 3.0)
 
 
 def test_explicit_path_header_stats_track_strict_header_bytes() -> None:
@@ -140,6 +141,39 @@ def test_explicit_path_header_stats_track_strict_header_bytes() -> None:
     assert math.isclose(stats["max"], 32.0)
     assert math.isclose(stats["mean"], 28.0)
     assert stats["count"] == 2
+
+
+def test_explicit_path_header_stats_can_scope_to_active_gs_traffic() -> None:
+    stats = compute_explicit_header_stats(
+        {
+            (0, 100): {"strict_header_bytes": 1000},
+            (0, 101): {"strict_header_bytes": 24},
+            (1, 100): {"strict_header_bytes": 0},
+            (2, 101): {"strict_header_bytes": 500},
+        },
+        source_attachments=[(0, 10.0), (1, 20.0)],
+        ground_station_ids=[100, 101],
+    )
+
+    assert stats["count"] == 2
+    assert math.isclose(stats["min"], 0.0)
+    assert math.isclose(stats["max"], 24.0)
+    assert math.isclose(stats["mean"], 12.0)
+
+
+def test_explicit_path_header_stats_can_use_srv6_srh_bytes() -> None:
+    stats = compute_explicit_header_stats(
+        {
+            (0, 101): {"strict_header_bytes": 24, "srv6_srh_bytes": 24},
+            (1, 100): {"strict_header_bytes": 0, "srv6_srh_bytes": 0},
+        },
+        source_attachments=[(0, 10.0), (1, 20.0)],
+        ground_station_ids=[100, 101],
+        bytes_key="srv6_srh_bytes",
+    )
+
+    assert stats["count"] == 2
+    assert math.isclose(stats["mean"], 12.0)
 
 
 def test_explicit_path_failover_stats_track_repair_and_drop_causes() -> None:

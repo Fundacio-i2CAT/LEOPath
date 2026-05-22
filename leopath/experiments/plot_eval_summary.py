@@ -77,17 +77,23 @@ def read_summary(path: Path) -> list[dict]:
                 continue
 
             row["family"] = algorithm_family(row["algorithm"])
-            numeric_keys = (
+            required_numeric_keys = (
                 "timestep_mean_fstate_size_mean",
                 "delta_mean_sat_fstate_updates_total_mean",
                 "delta_mean_sat_gs_churn",
                 "timestep_mean_stretch_dist_mean",
                 "timestep_mean_compute_time_ms",
             )
-            if any(row.get(key, "") in {"", None} for key in numeric_keys):
+            optional_numeric_keys = (
+                "timestep_mean_strict_header_bytes_mean",
+                "timestep_mean_srv6_srh_bytes_mean",
+            )
+            if any(row.get(key, "") in {"", None} for key in required_numeric_keys):
                 continue
-            for key in numeric_keys:
+            for key in required_numeric_keys:
                 row[key] = float(row[key])
+            for key in optional_numeric_keys:
+                row[key] = float(row.get(key) or 0.0)
             rows.append(row)
     return rows
 
@@ -353,6 +359,55 @@ def plot_stretch_by_constellation(rows: list[dict], output_dir: Path) -> None:
     plt.close(fig)
 
 
+def plot_packet_overhead_by_constellation(rows: list[dict], output_dir: Path) -> None:
+    filtered = [
+        row
+        for row in rows
+        if row["family"] == "Explicit-path" and row["isl_scenario"] in {"grid", "ring"}
+    ]
+    if not filtered:
+        return
+
+    constellations = sorted({row["constellation_name"] for row in filtered})
+    constellation_labels = [constellation_label(name) for name in constellations]
+    fig, axes = plt.subplots(1, 2, figsize=(15.5, 5.2), sharey=True)
+    isls = ["grid", "ring"]
+    metrics = [
+        ("timestep_mean_strict_header_bytes_mean", "Compact proxy", "#8172b3"),
+        ("timestep_mean_srv6_srh_bytes_mean", "SRv6 SRH equiv.", "#c44e52"),
+    ]
+
+    for ax, isl in zip(axes, isls):
+        group = [row for row in filtered if row["isl_scenario"] == isl]
+        values = defaultdict(dict)
+        for row in group:
+            for metric, label, _ in metrics:
+                values[row["constellation_name"]][label] = row[metric]
+
+        x = list(range(len(constellations)))
+        width = 0.28
+        offsets = [-0.5, 0.5]
+        for (_, label, color), offset in zip(metrics, offsets):
+            vals = [values[c].get(label, 0.0) for c in constellations]
+            ax.bar(
+                [v + offset * width for v in x],
+                vals,
+                width,
+                label=label,
+                color=color,
+            )
+        ax.set_title(f"Explicit-path Packet Guidance ({isl.upper()})")
+        ax.set_xticks(x)
+        ax.set_xticklabels(constellation_labels, rotation=18, ha="right")
+        ax.grid(True, axis="y", alpha=0.2)
+        ax.legend(frameon=False)
+
+    axes[0].set_ylabel("Mean bytes per active GS→GS packet")
+    fig.tight_layout()
+    fig.savefig(output_dir / "explicit_packet_overhead_constellation_bars.png")
+    plt.close(fig)
+
+
 def main() -> None:
     args = parse_args()
     apply_style()
@@ -369,6 +424,7 @@ def main() -> None:
     plot_updates_by_constellation(rows, output_dir)
     plot_churn_by_constellation(rows, output_dir)
     plot_stretch_by_constellation(rows, output_dir)
+    plot_packet_overhead_by_constellation(rows, output_dir)
 
 
 if __name__ == "__main__":
