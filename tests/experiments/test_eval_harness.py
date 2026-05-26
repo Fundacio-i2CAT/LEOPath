@@ -16,6 +16,7 @@ def test_traditional_sr_defaults_to_non_predictive_control() -> None:
         sat_weight=None,
         shell_weight=None,
         distance_mode=None,
+        explicit_final_egress_mode=None,
         time_step_minutes=None,
     )
 
@@ -36,6 +37,7 @@ def test_predictive_override_is_preserved() -> None:
         sat_weight=None,
         shell_weight=None,
         distance_mode=None,
+        explicit_final_egress_mode=None,
         time_step_minutes=5,
     )
 
@@ -56,6 +58,7 @@ def test_explicit_path_ignores_prediction_horizon_for_first_pass() -> None:
         sat_weight=None,
         shell_weight=None,
         distance_mode=None,
+        explicit_final_egress_mode=None,
         time_step_minutes=5,
     )
 
@@ -77,6 +80,7 @@ def test_explicit_path_preserves_explicit_refresh_interval() -> None:
         sat_weight=None,
         shell_weight=None,
         distance_mode=None,
+        explicit_final_egress_mode=None,
         time_step_minutes=5,
     )
 
@@ -104,6 +108,7 @@ def test_explicit_path_drops_unused_weighting_metadata() -> None:
         sat_weight=1.0,
         shell_weight=1000.0,
         distance_mode="torus_weighted_lookahead",
+        explicit_final_egress_mode=None,
         time_step_minutes=5,
     )
 
@@ -125,7 +130,27 @@ def test_topological_routing_preserves_distance_mode() -> None:
         sat_weight=None,
         shell_weight=None,
         distance_mode="torus_weighted",
+        explicit_final_egress_mode=None,
         time_step_minutes=5,
     )
 
     assert params["distance_mode"] == "torus_weighted"
+
+
+def test_explicit_path_preserves_final_egress_mode() -> None:
+    params = prepare_algorithm_params(
+        simulation_config={"time_step_minutes": 10, "algorithm_params": {}},
+        algorithm_name="explicit_path_routing",
+        prediction_horizon_minutes=None,
+        segment_count=None,
+        segment_refresh_interval_steps=3,
+        segment_mode=None,
+        plane_weight=None,
+        sat_weight=None,
+        shell_weight=None,
+        distance_mode=None,
+        explicit_final_egress_mode="dynamic",
+        time_step_minutes=5,
+    )
+
+    assert params["final_egress_mode"] == "dynamic"

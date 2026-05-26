@@ -5,6 +5,7 @@ import logging
 import os
 
 import yaml
+
 try:
     from tqdm import tqdm
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
@@ -67,14 +68,10 @@ def load_ground_station_override(path: str | None) -> list[dict] | None:
         return payload["ground_stations"]
     if isinstance(payload, list):
         return payload
-    raise ValueError(
-        "Ground station override must be a list or contain ground_stations"
-    )
+    raise ValueError("Ground station override must be a list or contain ground_stations")
 
 
-def select_isls(
-    constellation: ConstellationData, scenario: str
-) -> list[tuple[int, int]]:
+def select_isls(constellation: ConstellationData, scenario: str) -> list[tuple[int, int]]:
     if scenario == "ring":
         return setup_isls_in_the_same_orbit(
             num_orbits=constellation.n_orbits,
@@ -111,6 +108,7 @@ def prepare_algorithm_params(
     sat_weight: float | None,
     shell_weight: float | None,
     distance_mode: str | None,
+    explicit_final_egress_mode: str | None,
     time_step_minutes: float | None,
 ) -> dict:
     algorithm_params = dict(simulation_config.get("algorithm_params") or {})
@@ -144,6 +142,8 @@ def prepare_algorithm_params(
         algorithm_params["shell_weight"] = shell_weight
     if distance_mode is not None and algorithm_name == "topological_routing":
         algorithm_params["distance_mode"] = distance_mode
+    if explicit_final_egress_mode is not None and algorithm_name == "explicit_path_routing":
+        algorithm_params["final_egress_mode"] = explicit_final_egress_mode
 
     effective_time_step_minutes = time_step_minutes
     if effective_time_step_minutes is None:
@@ -168,6 +168,7 @@ def run_evaluation(
     sat_weight: float | None,
     shell_weight: float | None,
     distance_mode: str | None,
+    explicit_final_egress_mode: str | None,
 ) -> None:
     config = load_config(config_path)
     gs_override = load_ground_station_override(gs_override_path)
@@ -178,9 +179,7 @@ def run_evaluation(
     if time_step_minutes is not None:
         config["simulation"]["time_step_minutes"] = time_step_minutes
 
-    effective_algorithm_name = (
-        algorithm_name or config["simulation"]["dynamic_state_algorithm"]
-    )
+    effective_algorithm_name = algorithm_name or config["simulation"]["dynamic_state_algorithm"]
     config["simulation"]["dynamic_state_algorithm"] = effective_algorithm_name
     algorithm_params = prepare_algorithm_params(
         simulation_config=config["simulation"],
@@ -193,15 +192,14 @@ def run_evaluation(
         sat_weight=sat_weight,
         shell_weight=shell_weight,
         distance_mode=distance_mode,
+        explicit_final_egress_mode=explicit_final_egress_mode,
         time_step_minutes=time_step_minutes,
     )
     if algorithm_params:
         config["simulation"]["algorithm_params"] = algorithm_params
 
     os.makedirs(output_dir, exist_ok=True)
-    logger.setup_logger(
-        is_debug=False, file_name=os.path.join(output_dir, "eval_harness.log")
-    )
+    logger.setup_logger(is_debug=False, file_name=os.path.join(output_dir, "eval_harness.log"))
     logging.getLogger(logger.APP_LOGGER_NAME).setLevel(logging.ERROR)
 
     parsed_tles_data, sim_satellites = setup_tles_and_satellites(config)
@@ -262,8 +260,7 @@ def run_evaluation(
         progress_iter = tqdm(
             time_steps,
             desc=(
-                f"{constellation_name} "
-                f"{sim_config['dynamic_state_algorithm']} {isl_scenario}"
+                f"{constellation_name} " f"{sim_config['dynamic_state_algorithm']} {isl_scenario}"
             ),
             unit="step",
         )
@@ -277,9 +274,7 @@ def run_evaluation(
             topology_with_isls, time_absolute
         )
 
-        interface_neighbor_map = build_interface_neighbor_map(
-            topology_with_isls.sat_neighbor_to_if
-        )
+        interface_neighbor_map = build_interface_neighbor_map(topology_with_isls.sat_neighbor_to_if)
         algorithm_params = sim_config.get("algorithm_params") or {}
         compute_start = time.perf_counter()
         fstate_output = algorithm.compute_state(
@@ -460,6 +455,7 @@ def run_evaluation(
         "packet_guidance_definition": {
             "strict_header_bytes": "compact proxy overhead for active GS-to-GS traffic only: fixed 20-byte metadata plus 32-bit adjacency SIDs, zero for direct local delivery",
             "srv6_srh_bytes": "SRv6 SRH-equivalent overhead for the same active strict adjacency stack, excluding the IPv6 base header: 8 + 16 bytes per carried adjacency SID, zero for direct local delivery",
+            "dynamic_egress_repair": "optional loose-final-egress repair for explicit paths: the cached strict core path terminates at its planned anchor, then final GS delivery is resolved toward the current visible egress",
         },
     }
     if control_plane_sample is not None:
@@ -468,9 +464,9 @@ def run_evaluation(
             "effective_refresh_interval_steps"
         )
         if effective_refresh_interval_steps is not None:
-            metadata["algorithm_params"]["segment_refresh_interval_steps"] = (
-                effective_refresh_interval_steps
-            )
+            metadata["algorithm_params"][
+                "segment_refresh_interval_steps"
+            ] = effective_refresh_interval_steps
 
     write_json(os.path.join(output_dir, "metadata.json"), metadata)
     write_csv(
@@ -490,21 +486,15 @@ def run_evaluation(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run LEOPath evaluation harness")
     parser.add_argument("--config", required=True, help="Base config YAML")
-    parser.add_argument(
-        "--output-dir", required=True, help="Output directory for CSV/JSON"
-    )
+    parser.add_argument("--output-dir", required=True, help="Output directory for CSV/JSON")
     parser.add_argument(
         "--isl-scenario",
         choices=("ring", "grid"),
         default="grid",
         help="ISL scenario to evaluate",
     )
-    parser.add_argument(
-        "--algorithm", default=None, help="Routing algorithm name override"
-    )
-    parser.add_argument(
-        "--gs-config", default=None, help="Ground station list override YAML"
-    )
+    parser.add_argument("--algorithm", default=None, help="Routing algorithm name override")
+    parser.add_argument("--gs-config", default=None, help="Ground station list override YAML")
     parser.add_argument("--end-time-hours", type=float, default=None)
     parser.add_argument("--time-step-minutes", type=float, default=None)
     parser.add_argument("--prediction-horizon-minutes", type=float, default=None)
@@ -515,6 +505,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sat-weight", type=float, default=None)
     parser.add_argument("--shell-weight", type=float, default=None)
     parser.add_argument("--distance-mode", type=str, default=None)
+    parser.add_argument(
+        "--explicit-final-egress-mode",
+        choices=("strict", "dynamic"),
+        default=None,
+    )
     return parser.parse_args()
 
 
@@ -536,6 +531,7 @@ def main() -> None:
         sat_weight=args.sat_weight,
         shell_weight=args.shell_weight,
         distance_mode=args.distance_mode,
+        explicit_final_egress_mode=args.explicit_final_egress_mode,
     )
 
 

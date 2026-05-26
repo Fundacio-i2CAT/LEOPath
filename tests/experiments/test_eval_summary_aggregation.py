@@ -61,6 +61,28 @@ def test_summarize_run_reports_explicit_delivery_rates(tmp_path: Path) -> None:
     assert summary["explicit_egress_not_visible_rate_mean"] == 0.25
 
 
+def test_summarize_run_reports_dynamic_egress_repair_rates(tmp_path: Path) -> None:
+    run_dir = tmp_path / "explicit_path_routing" / "grid"
+    run_dir.mkdir(parents=True)
+
+    (run_dir / "metadata.json").write_text(
+        '{"algorithm": "explicit_path_routing", "isl_scenario": "grid"}',
+        encoding="utf-8",
+    )
+    (run_dir / "timestep_metrics.csv").write_text(
+        "explicit_failover_dynamic_egress_repair_rate,explicit_failover_dynamic_egress_unavailable_rate\n"
+        "0.2,0.0\n"
+        "0.4,0.1\n",
+        encoding="utf-8",
+    )
+    (run_dir / "delta_metrics.csv").write_text("\n", encoding="utf-8")
+
+    summary = summarize_run(run_dir)
+
+    assert summary["explicit_dynamic_egress_repair_rate_mean"] == 0.30000000000000004
+    assert summary["explicit_dynamic_egress_unavailable_rate_mean"] == 0.05
+
+
 def test_aggregate_eval_ignores_zero_sample_stretch_rows(tmp_path: Path) -> None:
     csv_path = tmp_path / "timestep_metrics.csv"
     csv_path.write_text(

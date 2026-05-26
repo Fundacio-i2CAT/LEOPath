@@ -44,9 +44,7 @@ def mean_with_positive_count(rows: list[dict], value_key: str, count_key: str) -
 
 def weighted_mean_with_positive_count(rows: list[dict], value_key: str, count_key: str) -> float:
     values = [
-        (fget(row, value_key), fget(row, count_key))
-        for row in rows
-        if fget(row, count_key) > 0.0
+        (fget(row, value_key), fget(row, count_key)) for row in rows if fget(row, count_key) > 0.0
     ]
     return weighted_mean(values)
 
@@ -69,24 +67,26 @@ def summarize_run(run_dir: Path) -> dict:
         fstate_mean = mean([fget(r, "fstate_sat_gs_mean") for r in trows])
 
     ground_station_count = int(
-        meta.get("ground_station_count", 0)
-        or meta.get("ground_stations", {}).get("count", 0)
-        or 0
+        meta.get("ground_station_count", 0) or meta.get("ground_stations", {}).get("count", 0) or 0
     )
     handover_mean = mean([fget(r, "gs_handover_rate") for r in drows])
     gs_renumber_rate_mean = mean(
         [
-            fget(r, "gs_renumber_rate")
-            if r.get("gs_renumber_rate") not in (None, "")
-            else fget(r, "gs_handover_rate")
+            (
+                fget(r, "gs_renumber_rate")
+                if r.get("gs_renumber_rate") not in (None, "")
+                else fget(r, "gs_handover_rate")
+            )
             for r in drows
         ]
     )
     gs_renumber_count_mean = mean(
         [
-            fget(r, "gs_renumber_count")
-            if r.get("gs_renumber_count") not in (None, "")
-            else fget(r, "gs_handover_rate") * ground_station_count
+            (
+                fget(r, "gs_renumber_count")
+                if r.get("gs_renumber_count") not in (None, "")
+                else fget(r, "gs_handover_rate") * ground_station_count
+            )
             for r in drows
         ]
     )
@@ -102,8 +102,18 @@ def summarize_run(run_dir: Path) -> dict:
         "fstate_units_mean": fstate_mean,
         "strict_header_bytes_mean": mean([fget(r, "strict_header_bytes_mean") for r in trows]),
         "srv6_srh_bytes_mean": mean([fget(r, "srv6_srh_bytes_mean") for r in trows]),
-        "explicit_delivered_rate_mean": mean([fget(r, "explicit_failover_delivered_rate") for r in trows]),
-        "explicit_egress_not_visible_rate_mean": mean([fget(r, "explicit_failover_egress_not_visible_rate") for r in trows]),
+        "explicit_delivered_rate_mean": mean(
+            [fget(r, "explicit_failover_delivered_rate") for r in trows]
+        ),
+        "explicit_egress_not_visible_rate_mean": mean(
+            [fget(r, "explicit_failover_egress_not_visible_rate") for r in trows]
+        ),
+        "explicit_dynamic_egress_repair_rate_mean": mean(
+            [fget(r, "explicit_failover_dynamic_egress_repair_rate") for r in trows]
+        ),
+        "explicit_dynamic_egress_unavailable_rate_mean": mean(
+            [fget(r, "explicit_failover_dynamic_egress_unavailable_rate") for r in trows]
+        ),
         "handover_mean": handover_mean,
         "gs_renumber_count_mean": gs_renumber_count_mean,
         "gs_renumber_rate_mean": gs_renumber_rate_mean,
@@ -166,6 +176,8 @@ def main() -> None:
         "srv6_srh_bytes_mean",
         "explicit_delivered_rate_mean",
         "explicit_egress_not_visible_rate_mean",
+        "explicit_dynamic_egress_repair_rate_mean",
+        "explicit_dynamic_egress_unavailable_rate_mean",
         "handover_mean",
         "gs_renumber_count_mean",
         "gs_renumber_rate_mean",

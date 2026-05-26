@@ -30,6 +30,7 @@ GS_CONFIG=$(to_runtime_path "$GS_CONFIG")
 PREDICTION_HORIZONS=${PREDICTION_HORIZONS:-"0 5 10"}
 SEGMENT_COUNTS=${SEGMENT_COUNTS:-"2 3"}
 EXPLICIT_PATH_REFRESH_INTERVAL_STEPS=${EXPLICIT_PATH_REFRESH_INTERVAL_STEPS:-1}
+EXPLICIT_PATH_FINAL_EGRESS_MODE=${EXPLICIT_PATH_FINAL_EGRESS_MODE:-strict}
 TOPOLOGICAL_DISTANCE_MODE=${TOPOLOGICAL_DISTANCE_MODE:-}
 
 run_eval_harness() {
@@ -87,7 +88,8 @@ for config_name in $CONFIGS; do
           --gs-config "$GS_CONFIG" \
           --end-time-hours "$END_TIME_HOURS" \
           --time-step-minutes "$TIME_STEP_MINUTES" \
-          --segment-refresh-interval-steps "$EXPLICIT_PATH_REFRESH_INTERVAL_STEPS"
+          --segment-refresh-interval-steps "$EXPLICIT_PATH_REFRESH_INTERVAL_STEPS" \
+          --explicit-final-egress-mode "$EXPLICIT_PATH_FINAL_EGRESS_MODE"
       elif [ "$algorithm" = "topological_routing" ] && [ -n "$TOPOLOGICAL_DISTANCE_MODE" ]; then
         out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}/distance_${TOPOLOGICAL_DISTANCE_MODE}"
         mkdir -p "$out_dir"
