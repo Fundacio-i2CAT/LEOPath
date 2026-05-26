@@ -30,7 +30,13 @@ def test_explicit_path_route_plan_gives_unit_stretch() -> None:
         attachments=[(0, 10.0), (2, 20.0)],
         interface_neighbor_map={},
         max_hops=10,
-        route_plans={(0, 101): {"satellite_path": [0, 1, 2], "adjacency_sid_list": [1, 2], "planned_dst_sat_id": 2}},
+        route_plans={
+            (0, 101): {
+                "satellite_path": [0, 1, 2],
+                "adjacency_sid_list": [1, 2],
+                "planned_dst_sat_id": 2,
+            }
+        },
         ground_station_satellites_in_range=[[(10.0, 0)], [(20.0, 2)]],
     )
 
@@ -73,6 +79,42 @@ def test_explicit_path_route_plan_uses_local_backup_repair() -> None:
     assert math.isclose(stats["distance"]["mean"], 1.0)
 
 
+def test_dynamic_egress_route_plan_repairs_stale_final_handoff() -> None:
+    graph = nx.Graph()
+    graph.add_weighted_edges_from(
+        [
+            (0, 1, 1.0),
+            (1, 2, 1.0),
+            (2, 3, 1.0),
+        ]
+    )
+
+    stats = compute_path_stretch(
+        fstate={},
+        topology_graph=graph,
+        satellite_ids=[0, 1, 2, 3],
+        ground_station_ids=[100, 101],
+        attachments=[(0, 10.0), (2, 20.0)],
+        interface_neighbor_map={},
+        max_hops=10,
+        route_plans={
+            (0, 101): {
+                "satellite_path": [0, 1, 2, 3],
+                "adjacency_sid_list": [1, 2, 3],
+                "planned_dst_sat_id": 3,
+                "final_egress_mode": "dynamic",
+                "current_dst_sat_id": 2,
+                "egress_repair_satellite_path": [3, 2],
+            }
+        },
+        ground_station_satellites_in_range=[[(10.0, 0)], [(20.0, 2)]],
+    )
+
+    assert stats["hop"]["count"] == 1
+    assert math.isclose(stats["hop"]["mean"], 6.0 / 4.0)
+    assert math.isclose(stats["distance"]["mean"], 34.0 / 32.0)
+
+
 def test_explicit_path_churn_uses_first_hop_from_route_plan() -> None:
     churn = compute_sat_to_gs_churn(
         prev_fstate={},
@@ -80,8 +122,20 @@ def test_explicit_path_churn_uses_first_hop_from_route_plan() -> None:
         satellite_ids=[0],
         ground_station_ids=[101],
         interface_neighbor_map={},
-        prev_route_plans={(0, 101): {"satellite_path": [0, 1, 2], "adjacency_sid_list": [1, 2], "planned_dst_sat_id": 2}},
-        curr_route_plans={(0, 101): {"satellite_path": [0, 3, 2], "adjacency_sid_list": [3, 2], "planned_dst_sat_id": 2}},
+        prev_route_plans={
+            (0, 101): {
+                "satellite_path": [0, 1, 2],
+                "adjacency_sid_list": [1, 2],
+                "planned_dst_sat_id": 2,
+            }
+        },
+        curr_route_plans={
+            (0, 101): {
+                "satellite_path": [0, 3, 2],
+                "adjacency_sid_list": [3, 2],
+                "planned_dst_sat_id": 2,
+            }
+        },
     )
 
     assert math.isclose(churn["churn"], 1.0)
@@ -218,6 +272,39 @@ def test_explicit_path_failover_stats_track_repair_and_drop_causes() -> None:
     assert math.isclose(stats["broken_adj_count"], 1.0)
     assert math.isclose(stats["egress_not_visible_count"], 1.0)
     assert math.isclose(stats["delivered_count"], 1.0)
+
+
+def test_explicit_path_failover_counts_dynamic_egress_repair() -> None:
+    graph = nx.Graph()
+    graph.add_weighted_edges_from(
+        [
+            (0, 1, 1.0),
+            (1, 2, 1.0),
+            (2, 3, 1.0),
+        ]
+    )
+
+    stats = compute_explicit_failover_stats(
+        topology_graph=graph,
+        route_plans={
+            (0, 100): {
+                "satellite_path": [0, 1, 2, 3],
+                "adjacency_sid_list": [1, 2, 3],
+                "backup_adjacency_sid_list": [],
+                "planned_dst_sat_id": 3,
+                "final_egress_mode": "dynamic",
+                "current_dst_sat_id": 2,
+                "egress_repair_satellite_path": [3, 2],
+            }
+        },
+        ground_station_ids=[100],
+        ground_station_satellites_in_range=[[(20.0, 2)]],
+    )
+
+    assert math.isclose(stats["delivered_count"], 1.0)
+    assert math.isclose(stats["delivered_rate"], 1.0)
+    assert math.isclose(stats["dynamic_egress_repair_count"], 1.0)
+    assert math.isclose(stats["egress_not_visible_count"], 0.0)
 
 
 def test_topological_satellite_updates_only_track_local_gsl_binding_changes() -> None:

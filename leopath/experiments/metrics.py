@@ -49,7 +49,9 @@ def is_unreachable(entry: object) -> bool:
     return False
 
 
-def build_interface_neighbor_map(sat_neighbor_to_if: dict[tuple[int, int], int]) -> dict[int, dict[int, int]]:
+def build_interface_neighbor_map(
+    sat_neighbor_to_if: dict[tuple[int, int], int],
+) -> dict[int, dict[int, int]]:
     interface_map: dict[int, dict[int, int]] = {}
     for (src, dst), iface in sat_neighbor_to_if.items():
         interface_map.setdefault(src, {})[iface] = dst
@@ -221,8 +223,7 @@ def project_satellite_forwarding_state(
     route_plans = route_plans or {}
     projected_state = {sat_id: {} for sat_id in satellite_ids}
     attachment_by_gs = {
-        gs_id: sat_id
-        for gs_id, (sat_id, _) in zip(ground_station_ids, attachments)
+        gs_id: sat_id for gs_id, (sat_id, _) in zip(ground_station_ids, attachments)
     }
 
     _add_local_delivery_entries(projected_state, attachment_by_gs)
@@ -325,6 +326,7 @@ def _normalize_explicit_binding(route_plan: dict) -> tuple:
         tuple(route_plan.get("adjacency_sid_list") or []),
         tuple(route_plan.get("backup_adjacency_sid_list") or []),
         route_plan.get("local_protection_mode"),
+        route_plan.get("final_egress_mode", "strict"),
     )
 
 
@@ -403,6 +405,8 @@ def compute_explicit_failover_stats(
     protected_repair = 0
     broken_adj = 0
     egress_not_visible = 0
+    dynamic_egress_repair = 0
+    dynamic_egress_unavailable = 0
     total = 0
 
     for (_, dst_gs_id), route_plan in _iter_explicit_route_plans(
@@ -444,6 +448,25 @@ def compute_explicit_failover_stats(
             continue
         visibility = visibility_by_gs.get(dst_gs_id, [])
         if _lookup_visible_satellite_distance(visibility, planned_dst_sat_id) is None:
+            if route_plan.get("final_egress_mode") == "dynamic":
+                current_dst_sat_id = route_plan.get("current_dst_sat_id")
+                repair_path = route_plan.get("egress_repair_satellite_path", [])
+                if (
+                    current_dst_sat_id is not None
+                    and repair_path
+                    and repair_path[0] == planned_dst_sat_id
+                    and repair_path[-1] == current_dst_sat_id
+                    and _lookup_visible_satellite_distance(
+                        visibility,
+                        current_dst_sat_id,
+                    )
+                    is not None
+                    and _satellite_path_is_available(topology_graph, repair_path)
+                ):
+                    dynamic_egress_repair += 1
+                    delivered += 1
+                    continue
+                dynamic_egress_unavailable += 1
             egress_not_visible += 1
             continue
         delivered += 1
@@ -458,7 +481,21 @@ def compute_explicit_failover_stats(
         "broken_adj_rate": (broken_adj / total) if total else 0.0,
         "egress_not_visible_count": float(egress_not_visible),
         "egress_not_visible_rate": (egress_not_visible / total) if total else 0.0,
+        "dynamic_egress_repair_count": float(dynamic_egress_repair),
+        "dynamic_egress_repair_rate": (dynamic_egress_repair / total) if total else 0.0,
+        "dynamic_egress_unavailable_count": float(dynamic_egress_unavailable),
+        "dynamic_egress_unavailable_rate": (dynamic_egress_unavailable / total if total else 0.0),
     }
+
+
+def _satellite_path_is_available(topology_graph: nx.Graph, sat_path: list[int]) -> bool:
+    for current_sat_id, next_sat_id in zip(sat_path, sat_path[1:]):
+        if not topology_graph.has_edge(current_sat_id, next_sat_id):
+            return False
+        weight = topology_graph.edges[current_sat_id, next_sat_id].get("weight")
+        if weight is None or math.isinf(weight):
+            return False
+    return True
 
 
 def _iter_explicit_route_plans(
@@ -698,11 +735,26 @@ def _resolve_routed_destination_satellite(
     route_plans = route_plans or {}
     route_plan = route_plans.get((src_sat, dst_gs_id))
     if route_plan:
+        if route_plan.get("final_egress_mode") == "dynamic":
+            current_dst_sat_id = route_plan.get("current_dst_sat_id")
+            if (
+                current_dst_sat_id is not None
+                and _lookup_visible_satellite_distance(
+                    current_destination_visibility,
+                    current_dst_sat_id,
+                )
+                is not None
+            ):
+                return current_dst_sat_id
+            return None
         planned_dst_sat_id = route_plan.get("planned_dst_sat_id")
-        if _lookup_visible_satellite_distance(
-            current_destination_visibility,
-            planned_dst_sat_id,
-        ) is not None:
+        if (
+            _lookup_visible_satellite_distance(
+                current_destination_visibility,
+                planned_dst_sat_id,
+            )
+            is not None
+        ):
             return planned_dst_sat_id
         return None
 
@@ -811,6 +863,14 @@ def _extract_next_hop(
     route_plan = route_plans.get((sat_id, gs_id), {})
     adjacency_sid_list = route_plan.get("adjacency_sid_list", [])
     planned_dst_sat_id = route_plan.get("planned_dst_sat_id")
+    if route_plan.get("final_egress_mode") == "dynamic" and planned_dst_sat_id == sat_id:
+        current_dst_sat_id = route_plan.get("current_dst_sat_id")
+        if current_dst_sat_id == sat_id:
+            return gs_id
+        repair_path = route_plan.get("egress_repair_satellite_path", [])
+        if len(repair_path) > 1 and repair_path[0] == sat_id:
+            return repair_path[1]
+        return None
     if planned_dst_sat_id == sat_id:
         return gs_id
     if adjacency_sid_list:
@@ -884,10 +944,34 @@ def _follow_explicit_route_plan(
             return None, None
         total_hops += 1
         total_dist += float(weight)
-    dst_gsl_dist = _lookup_visible_satellite_distance(
-        current_destination_visibility,
-        planned_dst_sat_id,
-    )
+
+    if route_plan.get("final_egress_mode") == "dynamic":
+        repair_path = route_plan.get("egress_repair_satellite_path", [])
+        current_dst_sat_id = route_plan.get("current_dst_sat_id")
+        if (
+            current_dst_sat_id is None
+            or not repair_path
+            or repair_path[0] != planned_dst_sat_id
+            or repair_path[-1] != current_dst_sat_id
+        ):
+            return None, None
+        for repair_current, repair_next in zip(repair_path, repair_path[1:]):
+            if not topology_graph.has_edge(repair_current, repair_next):
+                return None, None
+            repair_weight = topology_graph.edges[repair_current, repair_next].get("weight")
+            if repair_weight is None or math.isinf(repair_weight):
+                return None, None
+            total_hops += 1
+            total_dist += float(repair_weight)
+        dst_gsl_dist = _lookup_visible_satellite_distance(
+            current_destination_visibility,
+            current_dst_sat_id,
+        )
+    else:
+        dst_gsl_dist = _lookup_visible_satellite_distance(
+            current_destination_visibility,
+            planned_dst_sat_id,
+        )
     if dst_gsl_dist is None:
         return None, None
     total_hops += 1

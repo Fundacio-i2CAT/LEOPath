@@ -9,12 +9,13 @@ from .explicit_path_routing_algorithm import algorithm_explicit_path_routing
 
 
 class ExplicitPathRoutingAlgorithm(RoutingAlgorithm):
-    """Strict explicit-path proxy with SRv6-like adjacency headers.
+    """Explicit-path proxy with SRv6-like adjacency headers.
 
     Transit satellites are modeled as local forwarding points that consume the
     next adjacency instruction from the packet header and map it to an outgoing
-    interface. Protection is intentionally scoped to SRv6-like local repair
-    semantics rather than per-hop shortest-path recomputation.
+    interface. By default, final GS egress is strict; optional dynamic egress
+    keeps cached core paths but repairs the final handoff toward current GS
+    visibility.
     """
 
     def compute_state(
@@ -67,13 +68,35 @@ class ExplicitPathRoutingAlgorithm(RoutingAlgorithm):
             },
         )
         if should_refresh:
-            self._cached_route_plans = output.get("route_plans", {})
+            self._cached_route_plans = _strip_dynamic_snapshot_fields(output.get("route_plans", {}))
             self._cached_planning_step_index = current_step_index
             output.setdefault("control_plane", {})["planning_step_index"] = current_step_index
         else:
             output.setdefault("control_plane", {})["planning_step_index"] = getattr(
                 self, "_cached_planning_step_index", None
             )
-        output.setdefault("control_plane", {})["effective_refresh_interval_steps"] = refresh_interval
+        output.setdefault("control_plane", {})[
+            "effective_refresh_interval_steps"
+        ] = refresh_interval
         output.setdefault("control_plane", {})["used_cached_route_plans"] = not should_refresh
         return output
+
+
+_DYNAMIC_SNAPSHOT_FIELDS = (
+    "current_dst_sat_id",
+    "current_dst_gsl_distance_m",
+    "egress_repair_required",
+    "egress_repair_satellite_path",
+    "egress_repair_sat_path_distance_m",
+    "egress_repair_hops",
+)
+
+
+def _strip_dynamic_snapshot_fields(route_plans: dict) -> dict:
+    stripped_route_plans = {}
+    for key, route_plan in route_plans.items():
+        stripped_route_plan = dict(route_plan)
+        for field in _DYNAMIC_SNAPSHOT_FIELDS:
+            stripped_route_plan.pop(field, None)
+        stripped_route_plans[key] = stripped_route_plan
+    return stripped_route_plans

@@ -5,6 +5,7 @@ from unittest.mock import patch
 import leopath.network_state.routing_algorithms.explicit_path_routing.explicit_path_routing_algorithm as explicit_path_module
 from leopath.network_state.routing_algorithms.explicit_path_routing.explicit_path_routing import (
     ExplicitPathRoutingAlgorithm,
+    _strip_dynamic_snapshot_fields,
 )
 from leopath.network_state.routing_algorithms.explicit_path_routing.explicit_path_routing_algorithm import (
     _build_route_plans,
@@ -99,6 +100,81 @@ def test_build_route_plans_selects_best_visible_egress_per_source() -> None:
     assert plans[(3, 100)]["satellite_path"] == [3]
 
 
+def test_dynamic_egress_route_plans_keep_core_path_and_repair_final_handoff() -> None:
+    topology = _make_topology()
+    ground_stations = [type("GroundStation", (), {"id": 100})()]
+
+    core_plans = _build_route_plans(
+        topology,
+        ground_stations,
+        [[(1.0, 3)]],
+        final_egress_mode="dynamic",
+    )
+    output = algorithm_explicit_path_routing(
+        constellation_data=type("ConstellationData", (), {"number_of_satellites": 4})(),
+        ground_stations=ground_stations,
+        topology_with_isls=topology,
+        gsl_attachment_strategy=_StubGslStrategy([(1.0, 3)]),
+        current_time=Time("2000-01-01T00:00:00"),
+        list_gsl_interfaces_info=[],
+        algorithm_params={"final_egress_mode": "dynamic"},
+        current_ground_station_satellites_in_range=[[(1.0, 2)]],
+        cached_route_plans=core_plans,
+    )
+
+    repaired_plan = output["route_plans"][(0, 100)]
+    assert repaired_plan["satellite_path"] == [0, 1, 2, 3]
+    assert repaired_plan["planned_dst_sat_id"] == 3
+    assert repaired_plan["current_dst_sat_id"] == 2
+    assert repaired_plan["egress_repair_required"] is True
+    assert repaired_plan["egress_repair_satellite_path"] == [3, 2]
+    assert repaired_plan["final_egress_mode"] == "dynamic"
+
+
+def test_dynamic_egress_exposes_repair_first_hop_when_anchor_is_ingress() -> None:
+    topology = _make_topology()
+    ground_stations = [type("GroundStation", (), {"id": 100})()]
+    core_plans = _build_route_plans(
+        topology,
+        ground_stations,
+        [[(1.0, 3)]],
+        final_egress_mode="dynamic",
+    )
+
+    output = algorithm_explicit_path_routing(
+        constellation_data=type("ConstellationData", (), {"number_of_satellites": 4})(),
+        ground_stations=ground_stations,
+        topology_with_isls=topology,
+        gsl_attachment_strategy=_StubGslStrategy([(1.0, 3)]),
+        current_time=Time("2000-01-01T00:00:00"),
+        list_gsl_interfaces_info=[],
+        algorithm_params={"final_egress_mode": "dynamic"},
+        current_ground_station_satellites_in_range=[[(1.0, 2)]],
+        cached_route_plans=core_plans,
+    )
+
+    assert output["route_plans"][(3, 100)]["egress_repair_satellite_path"] == [3, 2]
+    assert output["fstate"][(3, 100)] == (2, 0, 0)
+
+
+def test_strip_dynamic_snapshot_fields_preserves_cached_core_route() -> None:
+    route_plans = {
+        (0, 100): {
+            "satellite_path": [0, 1, 2, 3],
+            "planned_dst_sat_id": 3,
+            "current_dst_sat_id": 2,
+            "egress_repair_satellite_path": [3, 2],
+        }
+    }
+
+    stripped = _strip_dynamic_snapshot_fields(route_plans)
+
+    assert stripped[(0, 100)] == {
+        "satellite_path": [0, 1, 2, 3],
+        "planned_dst_sat_id": 3,
+    }
+
+
 def test_waypoint_sampling_uses_segment_count() -> None:
     waypoints = _build_waypoint_plans(
         {(0, 100): {"satellite_path": [0, 1, 2, 3], "planned_dst_sat_id": 3}},
@@ -178,13 +254,25 @@ def test_explicit_path_refresh_reuses_cached_route_plans(
         {
             "fstate": {},
             "bandwidth": {},
-            "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "adjacency_sid_list": [1, 2, 3], "planned_dst_sat_id": 3}},
+            "route_plans": {
+                (0, 100): {
+                    "satellite_path": [0, 1, 2, 3],
+                    "adjacency_sid_list": [1, 2, 3],
+                    "planned_dst_sat_id": 3,
+                }
+            },
             "control_plane": {},
         },
         {
             "fstate": {},
             "bandwidth": {},
-            "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "adjacency_sid_list": [1, 2, 3], "planned_dst_sat_id": 3}},
+            "route_plans": {
+                (0, 100): {
+                    "satellite_path": [0, 1, 2, 3],
+                    "adjacency_sid_list": [1, 2, 3],
+                    "planned_dst_sat_id": 3,
+                }
+            },
             "control_plane": {},
         },
     ]
@@ -217,7 +305,11 @@ def test_explicit_path_refresh_reuses_cached_route_plans(
     second_call = mock_algorithm_explicit_path_routing.call_args_list[1].kwargs
     assert first_call["cached_route_plans"] is None
     assert second_call["cached_route_plans"] == {
-        (0, 100): {"satellite_path": [0, 1, 2, 3], "adjacency_sid_list": [1, 2, 3], "planned_dst_sat_id": 3}
+        (0, 100): {
+            "satellite_path": [0, 1, 2, 3],
+            "adjacency_sid_list": [1, 2, 3],
+            "planned_dst_sat_id": 3,
+        }
     }
     assert second_call["current_ground_station_satellites_in_range"] == [[(2.0, 2)]]
 
@@ -238,13 +330,25 @@ def test_explicit_path_control_plane_reports_refresh_behavior(
         {
             "fstate": {},
             "bandwidth": {},
-            "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "adjacency_sid_list": [1, 2, 3], "planned_dst_sat_id": 3}},
+            "route_plans": {
+                (0, 100): {
+                    "satellite_path": [0, 1, 2, 3],
+                    "adjacency_sid_list": [1, 2, 3],
+                    "planned_dst_sat_id": 3,
+                }
+            },
             "control_plane": {},
         },
         {
             "fstate": {},
             "bandwidth": {},
-            "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "adjacency_sid_list": [1, 2, 3], "planned_dst_sat_id": 3}},
+            "route_plans": {
+                (0, 100): {
+                    "satellite_path": [0, 1, 2, 3],
+                    "adjacency_sid_list": [1, 2, 3],
+                    "planned_dst_sat_id": 3,
+                }
+            },
             "control_plane": {},
         },
     ]
@@ -296,7 +400,13 @@ def test_explicit_path_refresh_boundary_replans(
     mock_algorithm_explicit_path_routing.return_value = {
         "fstate": {},
         "bandwidth": {},
-        "route_plans": {(0, 100): {"satellite_path": [0, 1, 2, 3], "adjacency_sid_list": [1, 2, 3], "planned_dst_sat_id": 3}},
+        "route_plans": {
+            (0, 100): {
+                "satellite_path": [0, 1, 2, 3],
+                "adjacency_sid_list": [1, 2, 3],
+                "planned_dst_sat_id": 3,
+            }
+        },
         "control_plane": {},
     }
 
