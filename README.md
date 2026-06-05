@@ -18,6 +18,8 @@ LEOPath is a simulation framework for analyzing routing algorithms in Low Earth 
 
 ## Documentation
 
-- Docs site (GitHub Pages): coming soon
-- Local docs: `zensical serve`
+- Docs site (GitHub Pages): https://fundacio-i2cat.github.io/LEOPath/
+- Interactive constellation viewer: https://fundacio-i2cat.github.io/LEOPath/cesium/
+- Local docs build: `bash scripts/build-docs-site.sh`
+- Local docs serve: `python -m http.server -d site`
 - Source docs: `docs/`

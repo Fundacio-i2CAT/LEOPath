@@ -11,6 +11,7 @@ nav:
   - Configuration: configuration.md
   - Algorithms: algorithms.md
   - Evaluation: evaluation.md
+  - Visualizations: visualizations.md
   - Experiments: experiments.md
   - Architecture: architecture.md
   - Contributing: contributing.md

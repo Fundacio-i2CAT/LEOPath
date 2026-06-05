@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LEOPath Cesium Constellation Viewer</title>
+  <script defer src="https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/Cesium.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/satellite.js@5.0.0/dist/satellite.min.js"></script>
+  <script defer src="./viewer.js"></script>
+  <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/Widgets/widgets.css">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <main id="cesiumContainer" aria-label="Interactive 3D constellation viewer"></main>
+
+  <aside class="panel" aria-label="Visualization controls">
+    <div class="panel__header">
+      <p class="eyebrow">LEOPath artifact</p>
+      <h1>Constellation viewer</h1>
+      <p>
+        Cesium view of the synthetic single-shell constellations used in the routing evaluation.
+        Positions are propagated in browser from LEOPath TLE exports.
+      </p>
+    </div>
+
+    <label class="field" for="constellationSelect">
+      <span>Constellation</span>
+      <select id="constellationSelect"></select>
+    </label>
+
+    <div class="control-grid">
+      <label><input id="showRing" type="checkbox" checked> Ring ISLs</label>
+      <label><input id="showGrid" type="checkbox"> +Grid ISLs</label>
+      <label><input id="showGround" type="checkbox" checked> Ground stations</label>
+      <label><input id="fullDensity" type="checkbox"> Full density</label>
+    </div>
+
+    <label class="field" for="speedSlider">
+      <span>Clock speed: <output id="speedLabel">120x</output></span>
+      <input id="speedSlider" type="range" min="1" max="1440" step="1" value="120">
+    </label>
+
+    <div class="button-row">
+      <button id="loadButton" type="button">Load constellation</button>
+      <button id="resetButton" type="button">Reset view</button>
+    </div>
+
+    <p id="status" class="status" role="status">Loading metadata...</p>
+    <div id="stats" class="stats" aria-live="polite"></div>
+
+    <a id="tleLink" class="tle-link" href="#" target="_blank" rel="noopener">Open TLE data</a>
+  </aside>
+
+  <footer class="credit">
+    Built from LEOPath TLE outputs. CesiumJS and satellite.js run client-side.
+  </footer>
+</body>
+</html>
