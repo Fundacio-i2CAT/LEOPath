@@ -2,6 +2,7 @@
   "defaults": {
     "epochIso": "2000-01-01T00:00:00Z",
     "earthRadiusKm": 6378.135,
+    "coneAngleDeg": 25,
     "durationHours": 6,
     "clockMultiplier": 120
   },

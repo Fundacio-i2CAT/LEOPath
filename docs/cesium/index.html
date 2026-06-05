@@ -16,6 +16,7 @@
   <aside class="panel" aria-label="Visualization controls">
     <div class="panel__header">
       <p class="panel__meta">LEOPath / Cesium</p>
+      <button id="hidePanel" class="panel-hide" type="button">Hide</button>
       <h1>Constellation state</h1>
       <p>
         TLE propagation for the single-shell evaluation constellations.
@@ -28,11 +29,19 @@
       <select id="constellationSelect"></select>
     </label>
 
+    <label class="field" for="islTopology">
+      <span>ISL topology</span>
+      <select id="islTopology">
+        <option value="none">None</option>
+        <option value="ring" selected>Ring</option>
+        <option value="grid">+Grid</option>
+      </select>
+    </label>
+
     <div class="control-grid">
-      <label><input id="showRing" type="checkbox" checked> Ring ISLs</label>
-      <label><input id="showGrid" type="checkbox"> +Grid ISLs</label>
       <label><input id="showGround" type="checkbox" checked> Ground stations</label>
-      <label><input id="fullDensity" type="checkbox"> Full density</label>
+      <label id="showGslLabel"><input id="showGsl" type="checkbox" checked> GSL attachments</label>
+      <label id="fullDensityLabel"><input id="fullDensity" type="checkbox"> Render all satellites</label>
     </div>
 
     <label class="field" for="speedSlider">
@@ -40,19 +49,13 @@
       <input id="speedSlider" type="range" min="1" max="1440" step="1" value="120">
     </label>
 
-    <div class="button-row">
-      <button id="loadButton" class="button-primary" type="button">Apply</button>
-      <button id="resetButton" type="button">Reset camera</button>
-    </div>
+    <button id="resetButton" type="button">Reset camera</button>
 
     <p id="status" class="status" role="status">Loading configuration...</p>
     <div id="stats" class="stats" aria-live="polite"></div>
 
     <a id="tleLink" class="tle-link" href="#" target="_blank" rel="noopener">Open TLE data</a>
   </aside>
-
-  <footer class="credit">
-    LEOPath TLE output. CesiumJS + satellite.js.
-  </footer>
+  <button id="showPanel" class="panel-toggle" type="button" hidden>Controls</button>
 </body>
 </html>

@@ -21,7 +21,8 @@ Open the standalone viewer:
 ## Controls
 
 - Select a constellation from the drop-down menu.
-- Toggle ring-only ISLs, +Grid ISLs, ground stations, and full-density rendering.
+- Select the ISL topology: `Ring` draws intra-plane links, while `+Grid` draws both intra-plane and inter-plane links.
+- Toggle ground-station markers, nearest-visible GSL attachments, and all-satellite rendering for sampled dense views.
 - Use the clock-speed slider or Cesium timeline to inspect orbital motion.
 
 ## Local Build

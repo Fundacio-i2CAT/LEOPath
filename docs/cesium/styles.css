@@ -33,10 +33,10 @@ body {
 .panel {
   position: fixed;
   top: 18px;
+  bottom: 150px;
   left: 18px;
   z-index: 10;
   width: min(360px, calc(100vw - 36px));
-  max-height: calc(100vh - 36px);
   overflow: auto;
   box-sizing: border-box;
   padding: 16px;
@@ -47,9 +47,36 @@ body {
 }
 
 .panel__header {
+  position: relative;
   margin: -2px 0 14px;
+  padding-right: 58px;
   padding-bottom: 12px;
   border-bottom: 1px solid rgba(190, 197, 208, 0.14);
+}
+
+.panel-hide,
+.panel-toggle {
+  width: auto;
+  font-size: 0.78rem;
+}
+
+.panel-hide {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 4px 8px;
+}
+
+.panel-toggle {
+  position: fixed;
+  top: 18px;
+  left: 18px;
+  z-index: 11;
+  padding: 7px 10px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.34);
 }
 
 .panel__meta {
@@ -83,7 +110,6 @@ p {
 }
 
 select,
-button,
 input[type="range"] {
   width: 100%;
 }
@@ -121,28 +147,20 @@ select {
   font-size: 0.82rem;
 }
 
-.button-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin: 12px 0;
-}
-
 button {
   padding: 8px 10px;
   cursor: pointer;
+  width: 100%;
 }
 
-.button-primary {
-  border-color: rgba(214, 222, 232, 0.5);
-  background: #d6dee8;
-  color: #111820;
-  font-weight: 600;
+.control-grid label.is-disabled {
+  color: #727b86;
+  cursor: not-allowed;
 }
 
 button:hover,
 select:hover,
-.control-grid label:hover {
+.control-grid label:not(.is-disabled):hover {
   border-color: rgba(214, 222, 232, 0.42);
 }
 
@@ -203,30 +221,21 @@ button:disabled {
   text-decoration: underline;
 }
 
-.credit {
-  position: fixed;
-  right: 18px;
-  bottom: 12px;
-  z-index: 9;
-  color: rgba(238, 244, 255, 0.7);
-  font-size: 0.76rem;
-  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.8);
-}
-
 @media (max-width: 720px) {
   .panel {
     top: auto;
-    bottom: 0;
+    bottom: 96px;
     left: 0;
     width: 100vw;
-    max-height: 46vh;
+    max-height: 42vh;
     border-right: 0;
     border-bottom: 0;
     border-left: 0;
     border-radius: 8px 8px 0 0;
   }
 
-  .credit {
-    display: none;
+  .panel-toggle {
+    top: auto;
+    bottom: 96px;
   }
 }

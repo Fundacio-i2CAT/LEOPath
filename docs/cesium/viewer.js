@@ -7,6 +7,7 @@
     activeConfig: null,
     activeRecords: [],
     activeSource: "",
+    gslCache: null,
     loading: false,
   };
 
@@ -38,27 +39,35 @@
   function bindElements() {
     els.container = document.getElementById("cesiumContainer");
     els.select = document.getElementById("constellationSelect");
-    els.showRing = document.getElementById("showRing");
-    els.showGrid = document.getElementById("showGrid");
+    els.islTopology = document.getElementById("islTopology");
     els.showGround = document.getElementById("showGround");
+    els.showGsl = document.getElementById("showGsl");
+    els.showGslLabel = document.getElementById("showGslLabel");
     els.fullDensity = document.getElementById("fullDensity");
+    els.fullDensityLabel = document.getElementById("fullDensityLabel");
     els.speedSlider = document.getElementById("speedSlider");
     els.speedLabel = document.getElementById("speedLabel");
-    els.loadButton = document.getElementById("loadButton");
     els.resetButton = document.getElementById("resetButton");
+    els.hidePanel = document.getElementById("hidePanel");
+    els.showPanel = document.getElementById("showPanel");
+    els.panel = document.querySelector(".panel");
     els.status = document.getElementById("status");
     els.stats = document.getElementById("stats");
     els.tleLink = document.getElementById("tleLink");
   }
 
   function bindEvents() {
-    els.loadButton.addEventListener("click", loadSelectedConstellation);
     els.select.addEventListener("change", loadSelectedConstellation);
-    els.showRing.addEventListener("change", reloadActiveConstellation);
-    els.showGrid.addEventListener("change", reloadActiveConstellation);
-    els.showGround.addEventListener("change", reloadActiveConstellation);
+    els.islTopology.addEventListener("change", reloadActiveConstellation);
+    els.showGround.addEventListener("change", function () {
+      syncGslControl();
+      reloadActiveConstellation();
+    });
+    els.showGsl.addEventListener("change", reloadActiveConstellation);
     els.fullDensity.addEventListener("change", reloadActiveConstellation);
     els.resetButton.addEventListener("click", function () { resetCamera(0.8); });
+    els.hidePanel.addEventListener("click", function () { setPanelVisible(false); });
+    els.showPanel.addEventListener("click", function () { setPanelVisible(true); });
     els.speedSlider.addEventListener("input", function () {
       const speed = Number(els.speedSlider.value);
       els.speedLabel.textContent = `${speed}x`;
@@ -66,6 +75,11 @@
         state.viewer.clock.multiplier = speed;
       }
     });
+  }
+
+  function setPanelVisible(visible) {
+    els.panel.hidden = !visible;
+    els.showPanel.hidden = visible;
   }
 
   function createViewer() {
@@ -165,8 +179,8 @@
     }
 
     state.loading = true;
-    els.loadButton.disabled = true;
     setStatus(`Loading ${config.name} TLE data...`);
+    updateDensityControl(config);
 
     try {
       const parsed = await loadRecords(config);
@@ -180,7 +194,6 @@
       setStatus(`Failed to load constellation: ${error.message}`, true);
     } finally {
       state.loading = false;
-      els.loadButton.disabled = false;
     }
   }
 
@@ -216,19 +229,26 @@
 
     const sampleStep = getSampleStep(config);
     const groundStations = getGroundStations(config);
+    const topology = els.islTopology.value;
     const color = Cesium.Color.fromCssColorString(config.color || "#8cc8ff");
+    state.gslCache = createGslCache(config, records, groundStations);
     const renderedSatellites = addSatellites(records, config, sampleStep, color);
     let ringLinks = 0;
     let gridLinks = 0;
+    let gslLinks = 0;
 
-    if (els.showRing.checked) {
+    if (topology === "ring" || topology === "grid") {
       ringLinks = addLinks(records, config, sampleStep, "ring", color);
     }
-    if (els.showGrid.checked) {
+    if (topology === "grid") {
       gridLinks = addLinks(records, config, sampleStep, "grid", color);
     }
     if (els.showGround.checked) {
       addGroundStations(groundStations);
+      if (els.showGsl.checked) {
+        addGslLinks(groundStations);
+        gslLinks = countVisibleGslAttachments();
+      }
     }
 
     updateStats(
@@ -237,6 +257,7 @@
       renderedSatellites,
       ringLinks,
       gridLinks,
+      gslLinks,
       sampleStep,
       groundStations.length
     );
@@ -270,6 +291,18 @@
       return 1;
     }
     return Math.max(1, Number(config.defaultSampleStep || 1));
+  }
+
+  function updateDensityControl(config) {
+    const isSampled = Number(config.defaultSampleStep || 1) > 1;
+    els.fullDensity.disabled = !isSampled;
+    els.fullDensityLabel.classList.toggle("is-disabled", !isSampled);
+    els.fullDensity.checked = !isSampled;
+  }
+
+  function syncGslControl() {
+    els.showGsl.disabled = !els.showGround.checked;
+    els.showGslLabel.classList.toggle("is-disabled", !els.showGround.checked);
   }
 
   function getGroundStations(config) {
@@ -379,6 +412,111 @@
         },
       });
     });
+  }
+
+  function addGslLinks(groundStations) {
+    const material = Cesium.Color.CYAN.withAlpha(0.62);
+    groundStations.forEach(function (station, index) {
+      state.viewer.entities.add({
+        id: `gsl-${index}`,
+        name: `GSL ${station.name}`,
+        polyline: {
+          positions: new Cesium.CallbackProperty(function (time) {
+            const attachment = getGslAttachment(index, time);
+            if (!attachment) {
+              return [];
+            }
+            const satellitePosition = positionForRecord(attachment.satellite, time);
+            return satellitePosition ? [attachment.groundPosition, satellitePosition] : [];
+          }, false),
+          width: 1.8,
+          arcType: Cesium.ArcType.NONE,
+          material,
+        },
+      });
+    });
+  }
+
+  function countVisibleGslAttachments() {
+    return calculateGslAttachments(state.viewer.clock.currentTime).filter(Boolean).length;
+  }
+
+  function createGslCache(config, records, groundStations) {
+    return {
+      config,
+      records,
+      groundStations: groundStations.map(prepareGroundStation),
+      key: null,
+      attachments: [],
+    };
+  }
+
+  function prepareGroundStation(station) {
+    const groundPosition = Cesium.Cartesian3.fromDegrees(
+      Number(station.longitude),
+      Number(station.latitude),
+      Number(station.elevationM || 0)
+    );
+    const normal = Cesium.Cartesian3.normalize(groundPosition, new Cesium.Cartesian3());
+    return Object.assign({}, station, { groundPosition, normal });
+  }
+
+  function getGslAttachment(groundStationIndex, time) {
+    if (!state.gslCache) {
+      return null;
+    }
+
+    const key = Math.floor(Cesium.JulianDate.toDate(time).getTime() / 60000);
+    if (state.gslCache.key !== key) {
+      state.gslCache.key = key;
+      state.gslCache.attachments = calculateGslAttachments(time);
+    }
+    return state.gslCache.attachments[groundStationIndex] || null;
+  }
+
+  function calculateGslAttachments(time) {
+    const cache = state.gslCache;
+    const maxDistanceM = maxGslDistanceM(cache.config);
+    return cache.groundStations.map(function (station) {
+      let best = null;
+      let bestDistance = Number.POSITIVE_INFINITY;
+
+      cache.records.forEach(function (record) {
+        const satellitePosition = positionForRecord(record, time);
+        if (!satellitePosition) {
+          return;
+        }
+
+        const vector = Cesium.Cartesian3.subtract(
+          satellitePosition,
+          station.groundPosition,
+          new Cesium.Cartesian3()
+        );
+        if (Cesium.Cartesian3.dot(vector, station.normal) <= 0) {
+          return;
+        }
+
+        const distance = Cesium.Cartesian3.magnitude(vector);
+        if (distance <= maxDistanceM && distance < bestDistance) {
+          bestDistance = distance;
+          best = {
+            groundPosition: station.groundPosition,
+            satellite: record,
+            satelliteId: record.index,
+            distance,
+          };
+        }
+      });
+      return best;
+    });
+  }
+
+  function maxGslDistanceM(config) {
+    const defaults = state.metadata.defaults || {};
+    const altitudeM = Number(config.altitudeKm || 550) * 1000;
+    const coneAngleDeg = Number(config.coneAngleDeg || defaults.coneAngleDeg || 25);
+    const coneRadiusM = altitudeM / Math.tan(Cesium.Math.toRadians(coneAngleDeg));
+    return Math.sqrt(coneRadiusM * coneRadiusM + altitudeM * altitudeM);
   }
 
   function positionForRecord(record, time) {
@@ -570,6 +708,7 @@
     renderedSatellites,
     ringLinks,
     gridLinks,
+    gslLinks,
     sampleStep,
     groundStationCount
   ) {
@@ -580,8 +719,9 @@
       ["Sats/orbit", Number(config.satsPerOrbit).toLocaleString()],
       ["Altitude", `${Number(config.altitudeKm).toLocaleString()} km`],
       ["Inclination", `${config.inclinationDeg} deg`],
-      ["Ring links", ringLinks.toLocaleString()],
-      ["+Grid links", gridLinks.toLocaleString()],
+      ["Intra-plane links", ringLinks.toLocaleString()],
+      ["Inter-plane links", gridLinks.toLocaleString()],
+      ["GSL attachments", gslLinks.toLocaleString()],
       ["Ground stations", groundStationCount.toLocaleString()],
       ["Sample step", sampleStep === 1 ? "full" : `1/${sampleStep}`],
     ];
