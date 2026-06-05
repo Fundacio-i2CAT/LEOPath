@@ -43,10 +43,11 @@ Then open `http://localhost:8000/cesium/`.
 <style>
 .leopath-viewer-button {
   display: inline-block;
-  padding: 0.85rem 1.1rem;
-  border-radius: 0.65rem;
-  background: linear-gradient(135deg, #2979ff, #6d69ff);
-  color: white !important;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid #4b5563;
+  border-radius: 0.25rem;
+  background: #1f2937;
+  color: #fff !important;
   font-weight: 700;
   text-decoration: none;
 }

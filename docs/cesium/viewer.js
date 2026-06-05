@@ -586,9 +586,15 @@
       ["Sample step", sampleStep === 1 ? "full" : `1/${sampleStep}`],
     ];
 
-    els.stats.innerHTML = stats.map(function (item) {
-      return `<div class="stat"><span>${item[0]}</span><strong>${item[1]}</strong></div>`;
-    }).join("");
+    els.stats.innerHTML = [
+      "<table>",
+      "<tbody>",
+      stats.map(function (item) {
+        return `<tr><th scope="row">${item[0]}</th><td>${item[1]}</td></tr>`;
+      }).join(""),
+      "</tbody>",
+      "</table>",
+    ].join("");
   }
 
   function updateTleLink(config) {

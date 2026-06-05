@@ -15,11 +15,11 @@
 
   <aside class="panel" aria-label="Visualization controls">
     <div class="panel__header">
-      <p class="eyebrow">LEOPath artifact</p>
-      <h1>Constellation viewer</h1>
+      <p class="panel__meta">LEOPath / Cesium</p>
+      <h1>Constellation state</h1>
       <p>
-        Cesium view of the synthetic single-shell constellations used in the routing evaluation.
-        Positions are propagated in browser from LEOPath TLE exports.
+        TLE propagation for the single-shell evaluation constellations.
+        Ground stations use the paper evaluation set.
       </p>
     </div>
 
@@ -41,18 +41,18 @@
     </label>
 
     <div class="button-row">
-      <button id="loadButton" type="button">Load constellation</button>
-      <button id="resetButton" type="button">Reset view</button>
+      <button id="loadButton" class="button-primary" type="button">Apply</button>
+      <button id="resetButton" type="button">Reset camera</button>
     </div>
 
-    <p id="status" class="status" role="status">Loading metadata...</p>
+    <p id="status" class="status" role="status">Loading configuration...</p>
     <div id="stats" class="stats" aria-live="polite"></div>
 
     <a id="tleLink" class="tle-link" href="#" target="_blank" rel="noopener">Open TLE data</a>
   </aside>
 
   <footer class="credit">
-    Built from LEOPath TLE outputs. CesiumJS and satellite.js run client-side.
+    LEOPath TLE output. CesiumJS + satellite.js.
   </footer>
 </body>
 </html>
