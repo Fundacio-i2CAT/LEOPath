@@ -1,14 +1,13 @@
 import argparse
 import csv
+import math
 from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt
-import math
-
+import matplotlib.pyplot as plt  # noqa: E402
 
 ALGORITHM_COLORS = {
     "shortest_path_link_state": "#4c72b0",
@@ -223,8 +222,6 @@ def plot_sat_gs_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None
 def plot_stretch_timeseries(output_dir: Path, runs: dict, isl: str, metric: str) -> None:
     fig, ax = plt.subplots(figsize=(9.2, 5.2))
     metric_suffix = "dist" if metric == "distance" else metric
-    mean_col = f"stretch_{metric_suffix}_mean"
-    p95_col = f"stretch_{metric_suffix}_p95"
     for algo, data in runs.items():
         rows = data["timestep"]
         times = time_minutes(rows)

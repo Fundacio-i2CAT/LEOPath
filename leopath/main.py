@@ -99,9 +99,7 @@ def setup_isls_in_the_same_orbit(num_orbits: int, sats_per_orbit: int):
             src = base + i
             dst = base + ((i + 1) % sats_per_orbit)
             undirected_isls.append((src, dst))
-    log.info(
-        f"Created {len(undirected_isls)} intra-orbit ISLs (rings) for {num_orbits} orbits."
-    )
+    log.info(f"Created {len(undirected_isls)} intra-orbit ISLs (rings) for {num_orbits} orbits.")
     if log.isEnabledFor(logging.DEBUG):
         log.debug(f"undirected_isls={undirected_isls}")
     return undirected_isls

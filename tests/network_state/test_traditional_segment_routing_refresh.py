@@ -2,7 +2,6 @@ import unittest
 from unittest.mock import patch
 
 import networkx as nx
-from astropy.time import Time
 
 from leopath.network_state.routing_algorithms.traditional_segment_routing.traditional_segment_routing import (
     TraditionalSegmentRoutingAlgorithm,
@@ -133,7 +132,9 @@ class TestTraditionalSegmentRoutingRefresh(unittest.TestCase):
         self.assertIs(planning_args[0], planning_topology)
         self.assertEqual(planning_args[2], future_visibility)
         forwarded = mock_algorithm_traditional_segment_routing.call_args.kwargs
-        self.assertEqual(forwarded["planning_ground_station_satellites_in_range"], future_visibility)
+        self.assertEqual(
+            forwarded["planning_ground_station_satellites_in_range"], future_visibility
+        )
         self.assertEqual(
             forwarded["current_ground_station_satellites_in_range"],
             self.visibility,

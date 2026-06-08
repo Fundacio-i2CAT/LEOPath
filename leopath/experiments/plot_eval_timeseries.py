@@ -1,16 +1,15 @@
 import argparse
 import csv
 import json
+import math
+import statistics
 from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt
-import math
-import statistics
-
+import matplotlib.pyplot as plt  # noqa: E402
 
 REPRESENTATIVE_CONSTELLATION = "Starlink-550"
 
@@ -101,7 +100,6 @@ def format_label(metadata: dict) -> str:
 
 def should_include_run(metadata: dict) -> bool:
     algorithm = metadata.get("algorithm", "")
-    params = metadata.get("algorithm_params") or {}
     if algorithm == "shortest_path_link_state":
         return True
     if algorithm == "topological_routing":

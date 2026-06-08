@@ -545,7 +545,7 @@ def _calculate_sat_to_gs_fstate(
 
     for curr_sat_id in nodelist:
         try:
-            curr_satellite = topology_with_isls.get_satellite(curr_sat_id)
+            topology_with_isls.get_satellite(curr_sat_id)
         except KeyError:
             log.error(f"Could not find satellite object {curr_sat_id}")
             continue
@@ -987,12 +987,10 @@ def _routing_tie_break_tuple(
     source_address: TopologicalNetworkAddress,
     destination_address: TopologicalNetworkAddress,
     constellation_data: ConstellationData,
-) -> tuple[int, int]:
+) -> tuple[int, int, int]:
     source_sat = source_address.get_satellite_address()
     destination_sat = destination_address.get_satellite_address()
-    plane_forward = (
-        destination_sat.plane_id - source_sat.plane_id
-    ) % constellation_data.n_orbits
+    plane_forward = (destination_sat.plane_id - source_sat.plane_id) % constellation_data.n_orbits
     sat_forward = (
         destination_sat.sat_index - source_sat.sat_index
     ) % constellation_data.n_sats_per_orbit

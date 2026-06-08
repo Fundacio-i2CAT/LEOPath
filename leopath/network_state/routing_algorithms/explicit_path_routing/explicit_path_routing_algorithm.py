@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import networkx as nx
 from heapq import heappop, heappush
 from itertools import count
+
+import networkx as nx
 from astropy.time import Time
 
 from leopath.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
-from leopath.topology.topology import ConstellationData, GroundStation, LEOTopology
-
 from leopath.network_state.routing_algorithms.traditional_segment_routing.traditional_segment_routing_algorithm import (
     _add_gs_to_gs_fstate,
     _calculate_bandwidth_state,
     _handle_direct_gs_path,
     _path_to_segments,
 )
+from leopath.topology.topology import ConstellationData, GroundStation, LEOTopology
 
 
 def algorithm_explicit_path_routing(
@@ -270,7 +270,7 @@ def _single_destination_gs_shortest_paths(
             best_seed_by_sat[dst_sat_id] = distance
 
     tie_breaker = count()
-    heap = []
+    heap: list[tuple[float, int, int, int, int | None, float]] = []
     for dst_sat_id, dst_gsl_distance in best_seed_by_sat.items():
         heappush(
             heap,

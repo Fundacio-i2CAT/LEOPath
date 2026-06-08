@@ -8,8 +8,8 @@ from leopath.experiments.metrics import (
     compute_forwarding_state_stats,
     compute_gs_renumbering_stats,
     compute_path_stretch,
-    compute_satellite_forwarding_state_updates,
     compute_sat_to_gs_churn,
+    compute_satellite_forwarding_state_updates,
 )
 
 

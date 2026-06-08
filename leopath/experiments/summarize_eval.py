@@ -32,9 +32,9 @@ def weighted_mean(values: list[tuple[float, float]]) -> float:
 
 def fget(row: dict, key: str) -> float:
     value = row.get(key)
-    if value in (None, ""):
+    if value is None or value == "":
         return 0.0
-    return float(value)
+    return float(str(value))
 
 
 def mean_with_positive_count(rows: list[dict], value_key: str, count_key: str) -> float:

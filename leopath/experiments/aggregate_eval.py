@@ -4,7 +4,6 @@ import glob
 import json
 import os
 
-
 STRETCH_COUNT_KEYS = {
     "stretch_dist_min": "stretch_dist_count",
     "stretch_dist_max": "stretch_dist_count",
@@ -27,16 +26,16 @@ def _read_csv_mean(path: str) -> dict:
     if not rows:
         return {}
 
-    sums = {}
-    counts = {}
-    weighted_sums = {}
-    weighted_counts = {}
+    sums: dict[str, float] = {}
+    counts: dict[str, int] = {}
+    weighted_sums: dict[str, float] = {}
+    weighted_counts: dict[str, float] = {}
     for row in rows:
         for key, value in row.items():
             if value is None or value == "":
                 continue
             try:
-                val = float(value)
+                val = float(str(value))
             except ValueError:
                 continue
             sums[key] = sums.get(key, 0.0) + val
@@ -46,7 +45,7 @@ def _read_csv_mean(path: str) -> dict:
             if weight_key is None:
                 continue
             weight_raw = row.get(weight_key)
-            if weight_raw in (None, ""):
+            if weight_raw is None or weight_raw == "":
                 continue
             try:
                 weight = float(weight_raw)
@@ -97,7 +96,9 @@ def aggregate(base_dir: str, output_csv: str) -> None:
     for run in _discover_runs(base_dir):
         metadata = _read_metadata(run["metadata_path"])
         timestep_mean = _read_csv_mean(run["timestep_metrics"])
-        delta_mean = _read_csv_mean(run["delta_metrics"]) if os.path.exists(run["delta_metrics"]) else {}
+        delta_mean = (
+            _read_csv_mean(run["delta_metrics"]) if os.path.exists(run["delta_metrics"]) else {}
+        )
 
         row = {
             "run_dir": run["run_dir"],

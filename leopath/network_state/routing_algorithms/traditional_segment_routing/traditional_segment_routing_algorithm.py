@@ -9,7 +9,6 @@ from astropy.time import Time
 from leopath.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
 from leopath.topology.topology import ConstellationData, GroundStation, LEOTopology
 
-
 DEFAULT_SRV6_LOCATOR_PREFIX = "fd00:10:0:1::/64"
 
 
@@ -100,9 +99,7 @@ def _build_segment_plans(
                 plans[(curr_sat_id, dst_gs_id)] = []
                 continue
             _, dst_sat_id = min(visible, key=lambda item: item[0])
-            plans[(curr_sat_id, dst_gs_id)] = [
-                satellite_srv6_sid(dst_sat_id, srv6_locator_prefix)
-            ]
+            plans[(curr_sat_id, dst_gs_id)] = [satellite_srv6_sid(dst_sat_id, srv6_locator_prefix)]
     return plans
 
 
@@ -221,19 +218,21 @@ def _materialize_fstate_from_segments(
             if next_sid is None:
                 fstate[(curr_sat_id, dst_gs_id)] = (-1, -1, -1)
                 continue
-            if next_sid == curr_sat_id:
+            next_hop_sat_id: int = next_sid
+            if next_hop_sat_id == curr_sat_id:
                 if len(segments) == 1:
-                    next_sid = dst_sat_id
+                    next_hop_sat_id = dst_sat_id
                 else:
-                    next_sid = satellite_id_from_srv6_sid(
+                    next_segment_sat_id = satellite_id_from_srv6_sid(
                         segments[1],
                         srv6_locator_prefix,
                     )
-                    if next_sid is None:
+                    if next_segment_sat_id is None:
                         fstate[(curr_sat_id, dst_gs_id)] = (-1, -1, -1)
                         continue
+                    next_hop_sat_id = next_segment_sat_id
 
-            next_hop = next_hops.get((curr_sat_id, next_sid), (-1, -1, -1))
+            next_hop = next_hops.get((curr_sat_id, next_hop_sat_id), (-1, -1, -1))
             fstate[(curr_sat_id, dst_gs_id)] = next_hop
 
     return fstate
@@ -295,7 +294,9 @@ def _select_next_hop_from_distance_matrix(
         dist_neighbor_to_destination = float(dist_matrix[neighbor_idx, destination_idx])
         if math.isinf(dist_neighbor_to_destination):
             continue
-        distance = sat_graph.edges[source, neighbor].get("weight", 1.0) + dist_neighbor_to_destination
+        distance = (
+            sat_graph.edges[source, neighbor].get("weight", 1.0) + dist_neighbor_to_destination
+        )
         if distance < best_distance:
             best_distance = distance
             best_neighbor = neighbor

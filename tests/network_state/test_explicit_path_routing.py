@@ -1,6 +1,7 @@
+from unittest.mock import patch
+
 import networkx as nx
 from astropy.time import Time
-from unittest.mock import patch
 
 import leopath.network_state.routing_algorithms.explicit_path_routing.explicit_path_routing_algorithm as explicit_path_module
 from leopath.network_state.routing_algorithms.explicit_path_routing.explicit_path_routing import (

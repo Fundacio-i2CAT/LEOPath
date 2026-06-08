@@ -1,8 +1,8 @@
 import argparse
 import datetime
-import time
 import logging
 import os
+import time
 
 import yaml
 
@@ -32,16 +32,16 @@ from leopath.network_state.routing_algorithms.routing_algorithm_factory import (
 from leopath.topology.topology import ConstellationData
 
 from .metrics import (
-    compute_explicit_failover_stats,
     build_interface_neighbor_map,
+    compute_explicit_failover_stats,
     compute_explicit_header_stats,
     compute_forwarding_state_stats,
     compute_gs_handover_rate,
     compute_gs_renumbering_stats,
     compute_gs_to_gs_churn,
     compute_path_stretch,
-    compute_satellite_forwarding_state_updates,
     compute_sat_to_gs_churn,
+    compute_satellite_forwarding_state_updates,
     get_gs_attachments,
     write_csv,
     write_json,

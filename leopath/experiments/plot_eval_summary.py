@@ -7,8 +7,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt
-
+import matplotlib.pyplot as plt  # noqa: E402
 
 ALGORITHM_COLORS = {
     "Link-state": "#4c72b0",
@@ -164,7 +163,11 @@ def plot_fstate_by_constellation(rows: list[dict], output_dir: Path) -> None:
         "Topological",
         "Explicit-path",
     ]
-    filtered = [row for row in rows if row["family"] in set(families) and row["isl_scenario"] in {"grid", "ring"}]
+    filtered = [
+        row
+        for row in rows
+        if row["family"] in set(families) and row["isl_scenario"] in {"grid", "ring"}
+    ]
 
     constellations = sorted({row["constellation_name"] for row in filtered})
     constellation_labels = [constellation_label(name) for name in constellations]
@@ -172,11 +175,9 @@ def plot_fstate_by_constellation(rows: list[dict], output_dir: Path) -> None:
     isls = ["grid", "ring"]
     for ax, isl in zip(axes, isls):
         group = [row for row in filtered if row["isl_scenario"] == isl]
-        values = defaultdict(dict)
+        values: defaultdict[str, dict[str, float]] = defaultdict(dict)
         for row in group:
-            values[row["constellation_name"]][row["family"]] = row[
-                "timestep_mean_fstate_size_mean"
-            ]
+            values[row["constellation_name"]][row["family"]] = row["timestep_mean_fstate_size_mean"]
 
         x = list(range(len(constellations)))
         width = 0.18
@@ -216,7 +217,11 @@ def plot_churn_by_constellation(rows: list[dict], output_dir: Path) -> None:
         "Topological",
         "Explicit-path",
     ]
-    filtered = [row for row in rows if row["family"] in set(families) and row["isl_scenario"] in {"grid", "ring"}]
+    filtered = [
+        row
+        for row in rows
+        if row["family"] in set(families) and row["isl_scenario"] in {"grid", "ring"}
+    ]
 
     constellations = sorted({row["constellation_name"] for row in filtered})
     constellation_labels = [constellation_label(name) for name in constellations]
@@ -224,11 +229,9 @@ def plot_churn_by_constellation(rows: list[dict], output_dir: Path) -> None:
     isls = ["grid", "ring"]
     for ax, isl in zip(axes, isls):
         group = [row for row in filtered if row["isl_scenario"] == isl]
-        values = defaultdict(dict)
+        values: defaultdict[str, dict[str, float]] = defaultdict(dict)
         for row in group:
-            values[row["constellation_name"]][row["family"]] = row[
-                "delta_mean_sat_gs_churn"
-            ]
+            values[row["constellation_name"]][row["family"]] = row["delta_mean_sat_gs_churn"]
 
         x = list(range(len(constellations)))
         width = 0.18
@@ -266,7 +269,11 @@ def plot_updates_by_constellation(rows: list[dict], output_dir: Path) -> None:
         "Topological",
         "Explicit-path",
     ]
-    filtered = [row for row in rows if row["family"] in set(families) and row["isl_scenario"] in {"grid", "ring"}]
+    filtered = [
+        row
+        for row in rows
+        if row["family"] in set(families) and row["isl_scenario"] in {"grid", "ring"}
+    ]
 
     constellations = sorted({row["constellation_name"] for row in filtered})
     constellation_labels = [constellation_label(name) for name in constellations]
@@ -274,7 +281,7 @@ def plot_updates_by_constellation(rows: list[dict], output_dir: Path) -> None:
     isls = ["grid", "ring"]
     for ax, isl in zip(axes, isls):
         group = [row for row in filtered if row["isl_scenario"] == isl]
-        values = defaultdict(dict)
+        values: defaultdict[str, dict[str, float]] = defaultdict(dict)
         for row in group:
             values[row["constellation_name"]][row["family"]] = row[
                 "delta_mean_sat_fstate_updates_total_mean"
@@ -316,7 +323,11 @@ def plot_stretch_by_constellation(rows: list[dict], output_dir: Path) -> None:
         "Topological",
         "Explicit-path",
     ]
-    filtered = [row for row in rows if row["family"] in set(families) and row["isl_scenario"] in {"grid", "ring"}]
+    filtered = [
+        row
+        for row in rows
+        if row["family"] in set(families) and row["isl_scenario"] in {"grid", "ring"}
+    ]
 
     constellations = sorted({row["constellation_name"] for row in filtered})
     constellation_labels = [constellation_label(name) for name in constellations]
@@ -324,7 +335,7 @@ def plot_stretch_by_constellation(rows: list[dict], output_dir: Path) -> None:
     isls = ["grid", "ring"]
     for ax, isl in zip(axes, isls):
         group = [row for row in filtered if row["isl_scenario"] == isl]
-        values = defaultdict(dict)
+        values: defaultdict[str, dict[str, float]] = defaultdict(dict)
         for row in group:
             values[row["constellation_name"]][row["family"]] = row[
                 "timestep_mean_stretch_dist_mean"
@@ -379,7 +390,7 @@ def plot_packet_overhead_by_constellation(rows: list[dict], output_dir: Path) ->
 
     for ax, isl in zip(axes, isls):
         group = [row for row in filtered if row["isl_scenario"] == isl]
-        values = defaultdict(dict)
+        values: defaultdict[str, dict[str, float]] = defaultdict(dict)
         for row in group:
             for metric, label, _ in metrics:
                 values[row["constellation_name"]][label] = row[metric]

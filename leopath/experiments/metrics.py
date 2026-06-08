@@ -221,7 +221,7 @@ def project_satellite_forwarding_state(
     attachments = attachments or []
     interface_neighbor_map = interface_neighbor_map or {}
     route_plans = route_plans or {}
-    projected_state = {sat_id: {} for sat_id in satellite_ids}
+    projected_state: dict[int, dict[tuple, object]] = {sat_id: {} for sat_id in satellite_ids}
     attachment_by_gs = {
         gs_id: sat_id for gs_id, (sat_id, _) in zip(ground_station_ids, attachments)
     }

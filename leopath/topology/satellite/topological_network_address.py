@@ -28,6 +28,11 @@ MAX_PLANES = 128  # Max index = 127. Requires 7 bits.
 # Current constellations range from ~20 to ~80. Allowing 0-127 provides headroom.
 MAX_SATS_PER_PLANE = 128  # Max index = 127. Requires 7 bits.
 
+# Default orbital mapping used when only a sequential satellite ID is available.
+# Keep this separate from MAX_SATS_PER_PLANE: addressing supports up to 128 slots,
+# but the legacy 6GRUPA-style ID mapping assumes 64 satellites per plane.
+DEFAULT_ORBITAL_MAPPING_SATS_PER_PLANE = 64
+
 # Maximum number of Ground Stations simultaneously associated with (homed to)
 # a single satellite's sub-network (x > 0). Index x=0 is reserved for the satellite itself.
 # This depends on satellite antenna capability and network design.
@@ -179,13 +184,10 @@ class TopologicalNetworkAddress:
         # This is a basic implementation - in a real system this would map to actual constellation structure
         shell_id = 0  # Single shell for simplicity
 
-        # For a Starlink-like constellation with 22 planes and ~72 sats per plane:
-        # We'll use a simple division to determine plane and position within plane
-        # This assumes satellites are numbered sequentially across planes
-
-        # Estimate constellation size based on common configurations
-        # If we have more satellites than fit in one shell, we can add more shells
-        max_sats_per_shell = MAX_PLANES * MAX_SATS_PER_PLANE
+        # Legacy topological routing assumes 64 satellites per plane when only a
+        # flat satellite ID is known. Keep that mapping stable for deterministic
+        # address generation and existing test expectations.
+        max_sats_per_shell = MAX_PLANES * DEFAULT_ORBITAL_MAPPING_SATS_PER_PLANE
 
         if satellite_id >= max_sats_per_shell:
             # Multiple shells needed
@@ -203,8 +205,8 @@ class TopologicalNetworkAddress:
 
         # Distribute satellites across planes
         # Simple strategy: fill planes sequentially
-        plane_id = sat_id_in_shell // MAX_SATS_PER_PLANE
-        sat_index = sat_id_in_shell % MAX_SATS_PER_PLANE
+        plane_id = sat_id_in_shell // DEFAULT_ORBITAL_MAPPING_SATS_PER_PLANE
+        sat_index = sat_id_in_shell % DEFAULT_ORBITAL_MAPPING_SATS_PER_PLANE
 
         # Validate the computed values
         if plane_id >= MAX_PLANES:
@@ -237,17 +239,11 @@ class TopologicalNetworkAddress:
                 f"satellite_id {satellite_id} exceeds constellation size ({n_orbits}x{n_sats_per_orbit})"
             )
         if plane_id >= MAX_PLANES:
-            raise ValueError(
-                f"plane_id {plane_id} out of range [0, {MAX_PLANES - 1}]"
-            )
+            raise ValueError(f"plane_id {plane_id} out of range [0, {MAX_PLANES - 1}]")
         if sat_index >= MAX_SATS_PER_PLANE:
-            raise ValueError(
-                f"sat_index {sat_index} out of range [0, {MAX_SATS_PER_PLANE - 1}]"
-            )
+            raise ValueError(f"sat_index {sat_index} out of range [0, {MAX_SATS_PER_PLANE - 1}]")
         if shell_id >= MAX_SHELLS:
-            raise ValueError(
-                f"shell_id {shell_id} out of range [0, {MAX_SHELLS - 1}]"
-            )
+            raise ValueError(f"shell_id {shell_id} out of range [0, {MAX_SHELLS - 1}]")
         return TopologicalNetworkAddress(
             shell_id=shell_id,
             plane_id=plane_id,

@@ -15,7 +15,6 @@ from leopath.network_state.gsl_attachment.gsl_attachment_interface import GSLAtt
 from leopath.network_state.routing_algorithms.topological_routing.fstate_calculation import (
     _build_torus_weight_model,
     _estimate_axis_step_costs,
-    _get_next_hop_decision_topological,
     _neighbor_candidate_score,
     _routing_topological_distance,
     _torus_path_cost,
@@ -876,7 +875,9 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
     def test_axis_step_costs_follow_neighbor_edge_weights(self):
         current = TopologicalNetworkAddress(shell_id=0, plane_id=0, sat_index=0, subnet_index=0)
         same_plane = TopologicalNetworkAddress(shell_id=0, plane_id=0, sat_index=1, subnet_index=0)
-        adjacent_plane = TopologicalNetworkAddress(shell_id=0, plane_id=1, sat_index=0, subnet_index=0)
+        adjacent_plane = TopologicalNetworkAddress(
+            shell_id=0, plane_id=1, sat_index=0, subnet_index=0
+        )
 
         plane_cost, sat_cost = _estimate_axis_step_costs(
             current,
@@ -942,7 +943,9 @@ class TestTopologicalRoutingFstateCalculation(unittest.TestCase):
         self.assertEqual(_torus_path_cost(edge_costs, 1, 3), 2.0)
 
     def test_pivot_distance_prefers_cheap_cross_plane_row(self):
-        satellites = [Satellite(id=i, ephem_obj_manual=None, ephem_obj_direct=None) for i in range(9)]
+        satellites = [
+            Satellite(id=i, ephem_obj_manual=None, ephem_obj_direct=None) for i in range(9)
+        ]
         constellation = ConstellationData(
             orbits=3,
             sats_per_orbit=3,

@@ -2,14 +2,18 @@ from astropy import units as astro_units
 from astropy.time import Time
 
 from leopath.network_state.gsl_attachment.gsl_attachment_factory import GSLAttachmentFactory
-from leopath.network_state.helpers import _build_topologies, _compute_ground_station_satellites_in_range, _compute_isls
+from leopath.network_state.helpers import (
+    _build_topologies,
+    _compute_ground_station_satellites_in_range,
+    _compute_isls,
+)
 from leopath.network_state.routing_algorithms.routing_algorithm import RoutingAlgorithm
 from leopath.topology.topology import ConstellationData, GroundStation, LEOTopology
 
 from .traditional_segment_routing_algorithm import (
     DEFAULT_SRV6_LOCATOR_PREFIX,
-    algorithm_traditional_segment_routing,
     _build_segment_plans,
+    algorithm_traditional_segment_routing,
 )
 
 
