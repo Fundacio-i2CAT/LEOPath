@@ -23,6 +23,7 @@ ether_simple.txt
 *.txt.tmp
 visualisation_output
 *.tmp
+!tles_starlink_550_sgp.txt.tmp
 output/
 ether_simple_tles.txt
 
