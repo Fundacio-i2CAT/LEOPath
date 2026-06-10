@@ -1,16 +1,29 @@
-# LEOPath: A LEO Satellite Routing Simulation Framework
+# LEOPath
 
-<img src="i2cat_logo.png" alt="i2CAT Logo" width="150"/>
-<img src="leopath_logo.png" alt="LEOPath Logo" width="450"/>
+<p align="center">
+  <img src="leopath_logo.png" alt="LEOPath logo" width="520"/>
+</p>
 
-[![PyPI](https://img.shields.io/pypi/v/leopath.svg)](https://pypi.org/project/leopath/)
-[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+<p align="center">
+  <strong>Research-grade LEO satellite routing simulator with dynamic topology, routing-state evaluation, and CesiumJS constellation visualization.</strong>
+</p>
 
-A simple, user-friendly and extensible simulation framework for analyzing and comparing routing algorithms in Low Earth Orbit (LEO) satellite constellations.
+<p align="center">
+  <a href="https://pypi.org/project/leopath/"><img src="https://img.shields.io/pypi/v/leopath.svg" alt="PyPI"/></a>
+  <a href="https://pypi.org/project/leopath/"><img src="https://img.shields.io/pypi/status/leopath.svg" alt="PyPI status"/></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.8+-blue.svg" alt="Python 3.8+"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"/></a>
+  <a href="https://fundacio-i2cat.github.io/LEOPath/"><img src="https://img.shields.io/badge/docs-online-brightgreen.svg" alt="Documentation"/></a>
+  <a href="https://fundacio-i2cat.github.io/LEOPath/cesium/"><img src="https://img.shields.io/badge/demo-CesiumJS-6f42c1.svg" alt="CesiumJS demo"/></a>
+  <a href="https://github.com/Fundacio-i2CAT/LEOPath/stargazers"><img src="https://img.shields.io/github/stars/Fundacio-i2CAT/LEOPath?style=flat" alt="GitHub stars"/></a>
+  <a href="https://github.com/Fundacio-i2CAT/LEOPath/issues"><img src="https://img.shields.io/github/issues/Fundacio-i2CAT/LEOPath" alt="GitHub issues"/></a>
+  <a href="https://github.com/Fundacio-i2CAT/LEOPath/commits"><img src="https://img.shields.io/github/last-commit/Fundacio-i2CAT/LEOPath" alt="Last commit"/></a>
+  <a href="https://github.com/psf/black"><img src="https://img.shields.io/badge/code%20style-black-000000.svg" alt="Code style: black"/></a>
+</p>
 
-This tool enables researchers and engineers to study network dynamics, routing performance, and connectivity patterns in satellite networks such as Starlink, Kuiper, and other LEO constellations.
+LEOPath helps researchers and network engineers study how routing algorithms behave when the network itself is moving. It generates synthetic LEO constellations, builds time-varying inter-satellite and ground-to-satellite links, computes forwarding state, and exports metrics for scalability studies.
+
+The short version: use LEOPath when you want to compare routing strategies under realistic orbital dynamics without building a full packet-level simulator first.
 
 ## Table of Contents
 
@@ -91,6 +104,29 @@ LEOPath focuses on **network topology and routing state generation**, not full p
 
 For packet-level simulations, LEOPath's forwarding state output can be integrated with network simulators like NS-3 (as demonstrated in Hypatia), enabling end-to-end performance evaluation when needed.
 
+## Visualization
+
+One of LEOPath's best features is the interactive CesiumJS constellation viewer:
+
+**Open the live demo:** https://fundacio-i2cat.github.io/LEOPath/cesium/
+
+<p align="center">
+  <a href="https://fundacio-i2cat.github.io/LEOPath/cesium/">
+    <img src="docs/assets/cesium-demo.gif" alt="LEOPath Cesium constellation visualization demo" width="720"/>
+  </a>
+</p>
+
+The viewer runs in the browser and lets you inspect satellite motion, ring vs +grid ISL topologies, ground stations, nearest-visible GSL attachments, and dense constellation samples. A great way to develop intuition about how the constellation moves and how topology changes over time.
+
+## What You Can Study
+
+| Question | LEOPath output |
+| --- | --- |
+| How much stretch does a routing strategy introduce? | Hop and distance stretch vs shortest-path baseline |
+| How often does forwarding state change? | Per-step churn metrics |
+| How much state does each satellite need? | Forwarding-state size metrics |
+| How expensive is route recomputation? | Per-step compute-time metrics |
+| How does topology shape behavior? | Ring and +grid ISL scenarios |
 
 ## Prerequisites
 
@@ -457,6 +493,38 @@ In your configuration file (e.g., `config/ether_simple.yaml`), set:
 dynamic_state_algorithm: "my_custom_algorithm"
 ```
 
+## Evaluation Workflow
+
+Run a compact evaluation matrix across multiple algorithms and ISL scenarios:
+
+```bash
+./run-quick-eval.sh
+```
+
+Generate paper-oriented evaluation outputs:
+
+```bash
+./run-paper-eval.sh
+```
+
+Common outputs include CSV metrics, logs, plots, and metadata describing algorithm parameters and topology scenarios.
+
+## Documentation
+
+- Documentation site: https://fundacio-i2cat.github.io/LEOPath/
+- Cesium constellation viewer: https://fundacio-i2cat.github.io/LEOPath/cesium/
+- Quickstart: https://fundacio-i2cat.github.io/LEOPath/quickstart/
+- Routing algorithms: https://fundacio-i2cat.github.io/LEOPath/algorithms/
+- Evaluation guide: https://fundacio-i2cat.github.io/LEOPath/evaluation/
+
+Build and serve docs locally:
+
+```bash
+bash scripts/build-docs-site.sh
+python -m http.server -d site
+```
+
+Then open `http://localhost:8000`.
 
 ## Output Format
 
@@ -516,6 +584,17 @@ pytest tests/topology/test_gsl_attachment_integration.py -v
 - **Network State Tests**: Verify dynamic state computation and routing algorithm correctness
 - **Forwarding State Tests**: Test routing decisions and path computation
 - **Integration Tests**: End-to-end simulation workflows
+
+## Development
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+pytest
+flake8
+black .
+```
 
 ## Contributing
 
@@ -624,4 +703,8 @@ Attributions of Third Party Components of this work:
 
  * Sergio Giménez [@sergio-gimenez](https://github.com/sergio-gimenez) ([sergio.gimenez@i2cat.net](mailto:sergio.gimenez@i2cat.net))
  * Eduard Grasa [@edugrasa](https://github.com/edugrasa) ([eduard.grasa@i2cat.net](mailto:eduard.grasa@i2cat.net))
+
+<p align="center">
+  <img src="i2cat_logo.png" alt="i2CAT logo" width="150"/>
+</p>
 
