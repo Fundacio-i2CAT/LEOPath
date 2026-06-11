@@ -83,6 +83,13 @@ def select_isls(constellation: ConstellationData, scenario: str) -> list[tuple[i
             n_sats_per_orbit=constellation.n_sats_per_orbit,
             idx_offset=0,
         )
+    if scenario == "grid_seam":
+        return generate_plus_grid_isls(
+            n_orbits=constellation.n_orbits,
+            n_sats_per_orbit=constellation.n_sats_per_orbit,
+            idx_offset=0,
+            seam=True,
+        )
     raise ValueError(f"Unknown ISL scenario: {scenario}")
 
 
@@ -491,7 +498,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True, help="Output directory for CSV/JSON")
     parser.add_argument(
         "--isl-scenario",
-        choices=("ring", "grid"),
+        choices=("ring", "grid", "grid_seam"),
         default="grid",
         help="ISL scenario to evaluate",
     )

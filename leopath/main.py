@@ -105,7 +105,7 @@ def setup_isls_in_the_same_orbit(num_orbits: int, sats_per_orbit: int):
     return undirected_isls
 
 
-def generate_plus_grid_isls(n_orbits, n_sats_per_orbit, isl_shift=0, idx_offset=0):
+def generate_plus_grid_isls(n_orbits, n_sats_per_orbit, isl_shift=0, idx_offset=0, seam=False):
     """
     Generate plus grid ISL file.
 
@@ -114,6 +114,12 @@ def generate_plus_grid_isls(n_orbits, n_sats_per_orbit, isl_shift=0, idx_offset=
     :param isl_shift:               ISL shift between orbits (e.g., if satellite id in orbit is X,
                                     does it also connect to the satellite at X in the adjacent orbit)
     :param idx_offset:              Index offset (e.g., if you have multiple shells)
+    :param seam:                    If True, omit the inter-plane links between the last and first
+                                    orbital planes. These planes are counter-rotating across the
+                                    constellation seam, so cross-seam ISLs are physically infeasible.
+                                    The resulting logical graph is a cylinder (cyclic in the
+                                    satellite-slot dimension, open in the orbital-plane dimension)
+                                    rather than a torus.
     """
     if n_orbits < 3 or n_sats_per_orbit < 3:
         raise ValueError("Number of x and y must each be at least 3")
@@ -124,21 +130,24 @@ def generate_plus_grid_isls(n_orbits, n_sats_per_orbit, isl_shift=0, idx_offset=
             sat = i * n_sats_per_orbit + j
             # Link to the next in the orbit
             sat_same_orbit = i * n_sats_per_orbit + ((j + 1) % n_sats_per_orbit)
-            sat_adjacent_orbit = ((i + 1) % n_orbits) * n_sats_per_orbit + (
-                (j + isl_shift) % n_sats_per_orbit
-            )
             # Same orbit
             list_isls.append(
                 (idx_offset + min(sat, sat_same_orbit), idx_offset + max(sat, sat_same_orbit))
             )
-            # Adjacent orbit
+            # Adjacent orbit. Under the seam model, skip the wrap from the last
+            # plane back to the first, which would cross the counter-rotating seam.
+            if seam and i == n_orbits - 1:
+                continue
+            sat_adjacent_orbit = ((i + 1) % n_orbits) * n_sats_per_orbit + (
+                (j + isl_shift) % n_sats_per_orbit
+            )
             list_isls.append(
                 (
                     idx_offset + min(sat, sat_adjacent_orbit),
                     idx_offset + max(sat, sat_adjacent_orbit),
                 )
             )
-    log.info(f"Created {len(list_isls)} ISLs (+Grid).")
+    log.info(f"Created {len(list_isls)} ISLs (+Grid{', seam' if seam else ''}).")
     if log.isEnabledFor(logging.DEBUG):
         log.debug(f"undirected_isls={list_isls}")
     return list_isls
