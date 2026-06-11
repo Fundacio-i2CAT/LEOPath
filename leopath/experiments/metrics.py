@@ -125,7 +125,7 @@ def compute_forwarding_state_stats(
                     if not is_unreachable(entry):
                         reachable += 1
             counts.append(float(reachable + len(list(topology_graph.neighbors(sat_id)))))
-    elif algorithm_name == "topological_routing":
+    elif algorithm_name in {"topological_routing", "dra_routing"}:
         counts = [float(len(list(topology_graph.neighbors(sat_id)))) for sat_id in satellite_ids]
     else:
         for sat_id in satellite_ids:

@@ -442,6 +442,7 @@ def run_evaluation(
             "explicit_path_routing": "local neighbor/interface entries on all satellites, plus destination-to-segment ingress bindings only on satellites that currently have attached ground stations; strict-adjacency header bytes are tracked separately in route plans",
             "traditional_segment_routing": "forwarding entries toward segment endpoints / routable satellites (proxy: number of satellites)",
             "topological_routing": "local neighbor-address forwarding entries (proxy: node degree)",
+            "dra_routing": "local neighbor-address forwarding entries (proxy: node degree); DRA-style hop-only logical-coordinate baseline",
             "default": "reachable GS destinations per satellite",
         },
         "satellite_forwarding_state_update_definition": {
@@ -450,6 +451,7 @@ def run_evaluation(
             "predictive_link_state": "destination-to-next-hop forwarding entries toward currently attached destination satellites",
             "traditional_segment_routing": "destination-to-next-hop forwarding entries toward currently attached destination satellites",
             "topological_routing": "mutable satellite-local forwarding state only; in the regular Ring/+Grid model this is limited to local GS delivery bindings and any explicit exception state, not algorithmic default forwarding",
+            "dra_routing": "mutable satellite-local forwarding state only, as for topological_routing; the families differ solely in the distance metric used for default forwarding",
             "explicit_path_routing": "satellite-local GS delivery bindings plus ingress destination-to-path bindings on satellites that currently host GS attachments; packet-carried adjacency guidance is excluded",
         },
         "packet_guidance_definition": {
