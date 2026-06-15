@@ -1,0 +1,38 @@
+name: Site Build
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  build-site:
+    name: Build static site
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install site builder
+        run: pip install zensical
+
+      - name: Build docs site
+        run: bash scripts/build-docs-site.sh
+
+      - name: Upload site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: leopath-site
+          path: site/
+          retention-days: 7

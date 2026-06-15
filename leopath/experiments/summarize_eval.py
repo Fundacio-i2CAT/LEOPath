@@ -21,11 +21,32 @@ def mean(values: list[float]) -> float:
     return sum(values) / len(values)
 
 
+def weighted_mean(values: list[tuple[float, float]]) -> float:
+    if not values:
+        return 0.0
+    total_weight = sum(weight for _, weight in values)
+    if total_weight <= 0.0:
+        return 0.0
+    return sum(value * weight for value, weight in values) / total_weight
+
+
 def fget(row: dict, key: str) -> float:
     value = row.get(key)
-    if value in (None, ""):
+    if value is None or value == "":
         return 0.0
-    return float(value)
+    return float(str(value))
+
+
+def mean_with_positive_count(rows: list[dict], value_key: str, count_key: str) -> float:
+    values = [fget(row, value_key) for row in rows if fget(row, count_key) > 0.0]
+    return mean(values)
+
+
+def weighted_mean_with_positive_count(rows: list[dict], value_key: str, count_key: str) -> float:
+    values = [
+        (fget(row, value_key), fget(row, count_key)) for row in rows if fget(row, count_key) > 0.0
+    ]
+    return weighted_mean(values)
 
 
 def summarize_run(run_dir: Path) -> dict:
@@ -45,23 +66,83 @@ def summarize_run(run_dir: Path) -> dict:
     else:
         fstate_mean = mean([fget(r, "fstate_sat_gs_mean") for r in trows])
 
+    ground_station_count = int(
+        meta.get("ground_station_count", 0) or meta.get("ground_stations", {}).get("count", 0) or 0
+    )
+    handover_mean = mean([fget(r, "gs_handover_rate") for r in drows])
+    gs_renumber_rate_mean = mean(
+        [
+            (
+                fget(r, "gs_renumber_rate")
+                if r.get("gs_renumber_rate") not in (None, "")
+                else fget(r, "gs_handover_rate")
+            )
+            for r in drows
+        ]
+    )
+    gs_renumber_count_mean = mean(
+        [
+            (
+                fget(r, "gs_renumber_count")
+                if r.get("gs_renumber_count") not in (None, "")
+                else fget(r, "gs_handover_rate") * ground_station_count
+            )
+            for r in drows
+        ]
+    )
+
     summary = {
         "algorithm": meta.get("algorithm", run_dir.parts[-2]),
         "isl": meta.get("isl_scenario", run_dir.parts[-1]),
-        "G": int(meta.get("ground_station_count", 0) or 0),
+        "G": ground_station_count,
         "dt_min": float(meta.get("time_step_minutes", 0.0) or 0.0),
         "hours": float(meta.get("end_time_hours", 0.0) or 0.0),
         "snapshots": len(trows),
         "deltas": len(drows),
         "fstate_units_mean": fstate_mean,
-        "handover_mean": mean([fget(r, "gs_handover_rate") for r in drows]),
+        "strict_header_bytes_mean": mean([fget(r, "strict_header_bytes_mean") for r in trows]),
+        "srv6_srh_bytes_mean": mean([fget(r, "srv6_srh_bytes_mean") for r in trows]),
+        "explicit_delivered_rate_mean": mean(
+            [fget(r, "explicit_failover_delivered_rate") for r in trows]
+        ),
+        "explicit_egress_not_visible_rate_mean": mean(
+            [fget(r, "explicit_failover_egress_not_visible_rate") for r in trows]
+        ),
+        "explicit_dynamic_egress_repair_rate_mean": mean(
+            [fget(r, "explicit_failover_dynamic_egress_repair_rate") for r in trows]
+        ),
+        "explicit_dynamic_egress_unavailable_rate_mean": mean(
+            [fget(r, "explicit_failover_dynamic_egress_unavailable_rate") for r in trows]
+        ),
+        "handover_mean": handover_mean,
+        "gs_renumber_count_mean": gs_renumber_count_mean,
+        "gs_renumber_rate_mean": gs_renumber_rate_mean,
         "sat_gs_churn_mean": mean([fget(r, "sat_gs_churn") for r in drows]),
         "sat_gs_break_mean": mean([fget(r, "sat_gs_break_rate") for r in drows]),
+        "sat_fstate_updates_total_mean": mean(
+            [fget(r, "sat_fstate_updates_total_mean") for r in drows]
+        ),
+        "sat_fstate_updates_total_p95_mean": mean(
+            [fget(r, "sat_fstate_updates_total_p95") for r in drows]
+        ),
+        "sat_fstate_updates_touched_satellite_rate_mean": mean(
+            [fget(r, "sat_fstate_updates_touched_satellite_rate") for r in drows]
+        ),
         "gs_gs_churn_mean": mean([fget(r, "gs_gs_churn") for r in drows]),
         "gs_gs_break_mean": mean([fget(r, "gs_gs_break_rate") for r in drows]),
-        "stretch_dist_mean": mean([fget(r, "stretch_dist_mean") for r in trows]),
-        "stretch_hop_mean": mean([fget(r, "stretch_hop_mean") for r in trows]),
+        "stretch_dist_mean": weighted_mean_with_positive_count(
+            trows, "stretch_dist_mean", "stretch_dist_count"
+        ),
+        "stretch_hop_mean": weighted_mean_with_positive_count(
+            trows, "stretch_hop_mean", "stretch_hop_count"
+        ),
         "stretch_dist_samples_mean": mean([fget(r, "stretch_dist_count") for r in trows]),
+        "stretch_dist_valid_timestep_mean": mean_with_positive_count(
+            trows, "stretch_dist_mean", "stretch_dist_count"
+        ),
+        "stretch_hop_valid_timestep_mean": mean_with_positive_count(
+            trows, "stretch_hop_mean", "stretch_hop_count"
+        ),
     }
     return summary
 
@@ -91,14 +172,27 @@ def main() -> None:
         "hours",
         "snapshots",
         "fstate_units_mean",
+        "strict_header_bytes_mean",
+        "srv6_srh_bytes_mean",
+        "explicit_delivered_rate_mean",
+        "explicit_egress_not_visible_rate_mean",
+        "explicit_dynamic_egress_repair_rate_mean",
+        "explicit_dynamic_egress_unavailable_rate_mean",
         "handover_mean",
+        "gs_renumber_count_mean",
+        "gs_renumber_rate_mean",
         "sat_gs_churn_mean",
         "sat_gs_break_mean",
+        "sat_fstate_updates_total_mean",
+        "sat_fstate_updates_total_p95_mean",
+        "sat_fstate_updates_touched_satellite_rate_mean",
         "gs_gs_churn_mean",
         "gs_gs_break_mean",
         "stretch_dist_mean",
         "stretch_hop_mean",
         "stretch_dist_samples_mean",
+        "stretch_dist_valid_timestep_mean",
+        "stretch_hop_valid_timestep_mean",
     ]
 
     print("| " + " | ".join(columns) + " |")

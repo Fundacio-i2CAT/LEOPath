@@ -25,8 +25,13 @@ MAX_SHELLS = 16  # Max index = 15. Requires 4 bits.
 MAX_PLANES = 128  # Max index = 127. Requires 7 bits.
 
 # Maximum number of satellites within any single plane (s).
-# Current constellations range from ~20 to ~40. Allowing 0-63 provides headroom.
-MAX_SATS_PER_PLANE = 64  # Max index = 63. Requires 6 bits.
+# Current constellations range from ~20 to ~80. Allowing 0-127 provides headroom.
+MAX_SATS_PER_PLANE = 128  # Max index = 127. Requires 7 bits.
+
+# Default orbital mapping used when only a sequential satellite ID is available.
+# Keep this separate from MAX_SATS_PER_PLANE: addressing supports up to 128 slots,
+# but the legacy 6GRUPA-style ID mapping assumes 64 satellites per plane.
+DEFAULT_ORBITAL_MAPPING_SATS_PER_PLANE = 64
 
 # Maximum number of Ground Stations simultaneously associated with (homed to)
 # a single satellite's sub-network (x > 0). Index x=0 is reserved for the satellite itself.
@@ -179,13 +184,10 @@ class TopologicalNetworkAddress:
         # This is a basic implementation - in a real system this would map to actual constellation structure
         shell_id = 0  # Single shell for simplicity
 
-        # For a Starlink-like constellation with 22 planes and ~72 sats per plane:
-        # We'll use a simple division to determine plane and position within plane
-        # This assumes satellites are numbered sequentially across planes
-
-        # Estimate constellation size based on common configurations
-        # If we have more satellites than fit in one shell, we can add more shells
-        max_sats_per_shell = MAX_PLANES * MAX_SATS_PER_PLANE
+        # Legacy topological routing assumes 64 satellites per plane when only a
+        # flat satellite ID is known. Keep that mapping stable for deterministic
+        # address generation and existing test expectations.
+        max_sats_per_shell = MAX_PLANES * DEFAULT_ORBITAL_MAPPING_SATS_PER_PLANE
 
         if satellite_id >= max_sats_per_shell:
             # Multiple shells needed
@@ -203,8 +205,8 @@ class TopologicalNetworkAddress:
 
         # Distribute satellites across planes
         # Simple strategy: fill planes sequentially
-        plane_id = sat_id_in_shell // MAX_SATS_PER_PLANE
-        sat_index = sat_id_in_shell % MAX_SATS_PER_PLANE
+        plane_id = sat_id_in_shell // DEFAULT_ORBITAL_MAPPING_SATS_PER_PLANE
+        sat_index = sat_id_in_shell % DEFAULT_ORBITAL_MAPPING_SATS_PER_PLANE
 
         # Validate the computed values
         if plane_id >= MAX_PLANES:
@@ -217,6 +219,36 @@ class TopologicalNetworkAddress:
 
         return TopologicalNetworkAddress(
             shell_id=shell_id, plane_id=plane_id, sat_index=sat_index, subnet_index=subnet_index
+        )
+
+    @staticmethod
+    def set_address_from_constellation(
+        satellite_id: int,
+        n_orbits: int,
+        n_sats_per_orbit: int,
+        shell_id: int = 0,
+    ) -> "TopologicalNetworkAddress":
+        if satellite_id < 0:
+            raise ValueError(f"satellite_id must be non-negative, got {satellite_id}")
+        if n_orbits <= 0 or n_sats_per_orbit <= 0:
+            raise ValueError("n_orbits and n_sats_per_orbit must be positive")
+        plane_id = satellite_id // n_sats_per_orbit
+        sat_index = satellite_id % n_sats_per_orbit
+        if plane_id >= n_orbits:
+            raise ValueError(
+                f"satellite_id {satellite_id} exceeds constellation size ({n_orbits}x{n_sats_per_orbit})"
+            )
+        if plane_id >= MAX_PLANES:
+            raise ValueError(f"plane_id {plane_id} out of range [0, {MAX_PLANES - 1}]")
+        if sat_index >= MAX_SATS_PER_PLANE:
+            raise ValueError(f"sat_index {sat_index} out of range [0, {MAX_SATS_PER_PLANE - 1}]")
+        if shell_id >= MAX_SHELLS:
+            raise ValueError(f"shell_id {shell_id} out of range [0, {MAX_SHELLS - 1}]")
+        return TopologicalNetworkAddress(
+            shell_id=shell_id,
+            plane_id=plane_id,
+            sat_index=sat_index,
+            subnet_index=0,
         )
 
     def topological_distance_to(self, other: "TopologicalNetworkAddress") -> float:
@@ -244,25 +276,77 @@ class TopologicalNetworkAddress:
         ):
             return 0.0
 
-        # Different shells have highest distance
-        if self_sat.shell_id != other_sat.shell_id:
-            shell_diff = abs(self_sat.shell_id - other_sat.shell_id)
-            return 1000.0 + shell_diff * 100.0
-
-        # Same shell, different planes
-        if self_sat.plane_id != other_sat.plane_id:
-            # Calculate plane distance considering wraparound
-            plane_diff = abs(self_sat.plane_id - other_sat.plane_id)
-            plane_diff_wrap = MAX_PLANES - plane_diff
-            plane_distance = min(plane_diff, plane_diff_wrap)
-            return 100.0 + plane_distance * 10.0
-
-        # Same shell and plane, different satellite index
-        sat_diff = abs(self_sat.sat_index - other_sat.sat_index)
-        sat_diff_wrap = MAX_SATS_PER_PLANE - sat_diff
-        sat_distance = min(sat_diff, sat_diff_wrap)
-        return 1.0 + sat_distance
+        # Legacy fallback without constellation-size context. Keep for compatibility,
+        # but routing should prefer distance helpers that use actual constellation dimensions.
+        return legacy_topological_distance(self_sat, other_sat)
 
     def __str__(self) -> str:
         kind = "Sat" if self.is_satellite else f"GS[{self.subnet_index}]"
         return f"TopoAddr(sh:{self.shell_id}, o:{self.plane_id}, s:{self.sat_index}, x:{kind})"
+
+
+def torus_delta(index_a: int, index_b: int, modulus: int) -> int:
+    if modulus <= 0:
+        raise ValueError("modulus must be positive")
+    diff = abs(index_a - index_b)
+    return min(diff, modulus - diff)
+
+
+def torus_topological_distance(
+    addr_a: TopologicalNetworkAddress,
+    addr_b: TopologicalNetworkAddress,
+    plane_modulus: int,
+    sat_modulus: int,
+    plane_weight: float = 1.0,
+    sat_weight: float = 1.0,
+    shell_penalty: float = 1000.0,
+) -> float:
+    sat_a = addr_a.get_satellite_address()
+    sat_b = addr_b.get_satellite_address()
+    if sat_a == sat_b:
+        return 0.0
+    if sat_a.shell_id != sat_b.shell_id:
+        shell_diff = abs(sat_a.shell_id - sat_b.shell_id)
+        return shell_penalty + shell_diff * shell_penalty
+    plane_distance = torus_delta(sat_a.plane_id, sat_b.plane_id, plane_modulus)
+    sat_distance = torus_delta(sat_a.sat_index, sat_b.sat_index, sat_modulus)
+    return (plane_weight * float(plane_distance)) + (sat_weight * float(sat_distance))
+
+
+def weighted_torus_progress_distance(
+    addr_a: TopologicalNetworkAddress,
+    addr_b: TopologicalNetworkAddress,
+    plane_modulus: int,
+    sat_modulus: int,
+    plane_step_cost: float,
+    sat_step_cost: float,
+    shell_penalty: float = 1000.0,
+) -> float:
+    sat_a = addr_a.get_satellite_address()
+    sat_b = addr_b.get_satellite_address()
+    if sat_a == sat_b:
+        return 0.0
+    if sat_a.shell_id != sat_b.shell_id:
+        shell_diff = abs(sat_a.shell_id - sat_b.shell_id)
+        return shell_penalty + shell_diff * shell_penalty
+    plane_distance = torus_delta(sat_a.plane_id, sat_b.plane_id, plane_modulus)
+    sat_distance = torus_delta(sat_a.sat_index, sat_b.sat_index, sat_modulus)
+    return (float(plane_distance) * plane_step_cost) + (float(sat_distance) * sat_step_cost)
+
+
+def legacy_topological_distance(
+    addr_a: TopologicalNetworkAddress,
+    addr_b: TopologicalNetworkAddress,
+) -> float:
+    if addr_a.shell_id != addr_b.shell_id:
+        shell_diff = abs(addr_a.shell_id - addr_b.shell_id)
+        return 1000.0 + shell_diff * 100.0
+    if addr_a.plane_id != addr_b.plane_id:
+        plane_diff = abs(addr_a.plane_id - addr_b.plane_id)
+        plane_diff_wrap = MAX_PLANES - plane_diff
+        plane_distance = min(plane_diff, plane_diff_wrap)
+        return 100.0 + plane_distance * 10.0
+    sat_diff = abs(addr_a.sat_index - addr_b.sat_index)
+    sat_diff_wrap = MAX_SATS_PER_PLANE - sat_diff
+    sat_distance = min(sat_diff, sat_diff_wrap)
+    return 1.0 + sat_distance

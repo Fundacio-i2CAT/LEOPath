@@ -1,8 +1,11 @@
 import argparse
 import datetime
+import logging
 import os
+import time
 
 import yaml
+
 try:
     from tqdm import tqdm
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
@@ -30,11 +33,15 @@ from leopath.topology.topology import ConstellationData
 
 from .metrics import (
     build_interface_neighbor_map,
+    compute_explicit_failover_stats,
+    compute_explicit_header_stats,
     compute_forwarding_state_stats,
     compute_gs_handover_rate,
+    compute_gs_renumbering_stats,
     compute_gs_to_gs_churn,
     compute_path_stretch,
     compute_sat_to_gs_churn,
+    compute_satellite_forwarding_state_updates,
     get_gs_attachments,
     write_csv,
     write_json,
@@ -61,14 +68,10 @@ def load_ground_station_override(path: str | None) -> list[dict] | None:
         return payload["ground_stations"]
     if isinstance(payload, list):
         return payload
-    raise ValueError(
-        "Ground station override must be a list or contain ground_stations"
-    )
+    raise ValueError("Ground station override must be a list or contain ground_stations")
 
 
-def select_isls(
-    constellation: ConstellationData, scenario: str
-) -> list[tuple[int, int]]:
+def select_isls(constellation: ConstellationData, scenario: str) -> list[tuple[int, int]]:
     if scenario == "ring":
         return setup_isls_in_the_same_orbit(
             num_orbits=constellation.n_orbits,
@@ -79,6 +82,13 @@ def select_isls(
             n_orbits=constellation.n_orbits,
             n_sats_per_orbit=constellation.n_sats_per_orbit,
             idx_offset=0,
+        )
+    if scenario == "grid_seam":
+        return generate_plus_grid_isls(
+            n_orbits=constellation.n_orbits,
+            n_sats_per_orbit=constellation.n_sats_per_orbit,
+            idx_offset=0,
+            seam=True,
         )
     raise ValueError(f"Unknown ISL scenario: {scenario}")
 
@@ -94,6 +104,61 @@ def flatten_distribution(prefix: str, stats: dict) -> dict:
     }
 
 
+def prepare_algorithm_params(
+    simulation_config: dict,
+    algorithm_name: str,
+    prediction_horizon_minutes: float | None,
+    segment_count: int | None,
+    segment_refresh_interval_steps: int | None,
+    segment_mode: str | None,
+    plane_weight: float | None,
+    sat_weight: float | None,
+    shell_weight: float | None,
+    distance_mode: str | None,
+    explicit_final_egress_mode: str | None,
+    time_step_minutes: float | None,
+) -> dict:
+    algorithm_params = dict(simulation_config.get("algorithm_params") or {})
+
+    if algorithm_name == "traditional_segment_routing":
+        algorithm_params["prediction_horizon_minutes"] = (
+            0.0 if prediction_horizon_minutes is None else prediction_horizon_minutes
+        )
+    elif algorithm_name == "explicit_path_routing":
+        algorithm_params.pop("prediction_horizon_minutes", None)
+        algorithm_params.pop("segment_mode", None)
+        algorithm_params.pop("plane_weight", None)
+        algorithm_params.pop("sat_weight", None)
+        algorithm_params.pop("shell_weight", None)
+    elif prediction_horizon_minutes is not None:
+        algorithm_params["prediction_horizon_minutes"] = prediction_horizon_minutes
+
+    if segment_count is not None:
+        algorithm_params["segment_count"] = segment_count
+    if segment_refresh_interval_steps is not None:
+        algorithm_params["segment_refresh_interval_steps"] = segment_refresh_interval_steps
+    elif algorithm_name == "explicit_path_routing":
+        algorithm_params.setdefault("segment_refresh_interval_steps", 1)
+    if segment_mode is not None and algorithm_name != "explicit_path_routing":
+        algorithm_params["segment_mode"] = segment_mode
+    if plane_weight is not None and algorithm_name != "explicit_path_routing":
+        algorithm_params["plane_weight"] = plane_weight
+    if sat_weight is not None and algorithm_name != "explicit_path_routing":
+        algorithm_params["sat_weight"] = sat_weight
+    if shell_weight is not None and algorithm_name != "explicit_path_routing":
+        algorithm_params["shell_weight"] = shell_weight
+    if distance_mode is not None and algorithm_name == "topological_routing":
+        algorithm_params["distance_mode"] = distance_mode
+    if explicit_final_egress_mode is not None and algorithm_name == "explicit_path_routing":
+        algorithm_params["final_egress_mode"] = explicit_final_egress_mode
+
+    effective_time_step_minutes = time_step_minutes
+    if effective_time_step_minutes is None:
+        effective_time_step_minutes = simulation_config["time_step_minutes"]
+    algorithm_params["time_step_minutes"] = effective_time_step_minutes
+    return algorithm_params
+
+
 def run_evaluation(
     config_path: str,
     output_dir: str,
@@ -102,22 +167,47 @@ def run_evaluation(
     gs_override_path: str | None,
     end_time_hours: float | None,
     time_step_minutes: float | None,
+    prediction_horizon_minutes: float | None,
+    segment_count: int | None,
+    segment_refresh_interval_steps: int | None,
+    segment_mode: str | None,
+    plane_weight: float | None,
+    sat_weight: float | None,
+    shell_weight: float | None,
+    distance_mode: str | None,
+    explicit_final_egress_mode: str | None,
 ) -> None:
     config = load_config(config_path)
     gs_override = load_ground_station_override(gs_override_path)
     if gs_override is not None:
         config["ground_stations"] = gs_override
-    if algorithm_name:
-        config["simulation"]["dynamic_state_algorithm"] = algorithm_name
     if end_time_hours is not None:
         config["simulation"]["end_time_hours"] = end_time_hours
     if time_step_minutes is not None:
         config["simulation"]["time_step_minutes"] = time_step_minutes
 
-    os.makedirs(output_dir, exist_ok=True)
-    logger.setup_logger(
-        is_debug=False, file_name=os.path.join(output_dir, "eval_harness.log")
+    effective_algorithm_name = algorithm_name or config["simulation"]["dynamic_state_algorithm"]
+    config["simulation"]["dynamic_state_algorithm"] = effective_algorithm_name
+    algorithm_params = prepare_algorithm_params(
+        simulation_config=config["simulation"],
+        algorithm_name=effective_algorithm_name,
+        prediction_horizon_minutes=prediction_horizon_minutes,
+        segment_count=segment_count,
+        segment_refresh_interval_steps=segment_refresh_interval_steps,
+        segment_mode=segment_mode,
+        plane_weight=plane_weight,
+        sat_weight=sat_weight,
+        shell_weight=shell_weight,
+        distance_mode=distance_mode,
+        explicit_final_egress_mode=explicit_final_egress_mode,
+        time_step_minutes=time_step_minutes,
     )
+    if algorithm_params:
+        config["simulation"]["algorithm_params"] = algorithm_params
+
+    os.makedirs(output_dir, exist_ok=True)
+    logger.setup_logger(is_debug=False, file_name=os.path.join(output_dir, "eval_harness.log"))
+    logging.getLogger(logger.APP_LOGGER_NAME).setLevel(logging.ERROR)
 
     parsed_tles_data, sim_satellites = setup_tles_and_satellites(config)
     ground_stations = setup_ground_stations(config)
@@ -133,6 +223,12 @@ def run_evaluation(
     )
 
     undirected_isls = select_isls(constellation_data, isl_scenario)
+    if config["simulation"]["dynamic_state_algorithm"] in {
+        "predictive_link_state",
+        "traditional_segment_routing",
+    }:
+        algorithm_params = {**algorithm_params, "undirected_isls": undirected_isls}
+        config["simulation"]["algorithm_params"] = algorithm_params
 
     sim_config = config["simulation"]
     simulation_end_time_ns = int(sim_config["end_time_hours"] * 60 * 60 * 1e9)
@@ -159,14 +255,20 @@ def run_evaluation(
 
     timestep_rows: list[dict] = []
     delta_rows: list[dict] = []
+    control_plane_sample: dict | None = None
     prev_fstate: dict | None = None
     prev_attachments: list[tuple[int | None, float]] | None = None
+    prev_route_plans: dict | None = None
+    prev_interface_neighbor_map: dict[int, dict[int, int]] | None = None
 
     progress_iter = time_steps
     if tqdm is not None:
+        constellation_name = config["constellation"]["name"]
         progress_iter = tqdm(
             time_steps,
-            desc=f"{sim_config['dynamic_state_algorithm']} {isl_scenario}",
+            desc=(
+                f"{constellation_name} " f"{sim_config['dynamic_state_algorithm']} {isl_scenario}"
+            ),
             unit="step",
         )
 
@@ -179,9 +281,9 @@ def run_evaluation(
             topology_with_isls, time_absolute
         )
 
-        interface_neighbor_map = build_interface_neighbor_map(
-            topology_with_isls.sat_neighbor_to_if
-        )
+        interface_neighbor_map = build_interface_neighbor_map(topology_with_isls.sat_neighbor_to_if)
+        algorithm_params = sim_config.get("algorithm_params") or {}
+        compute_start = time.perf_counter()
         fstate_output = algorithm.compute_state(
             time_since_epoch_ns=time_since_epoch_ns,
             constellation_data=constellation_data,
@@ -189,8 +291,13 @@ def run_evaluation(
             topology_with_isls=topology_with_isls,
             ground_station_satellites_in_range=gs_sat_visibility,
             list_gsl_interfaces_info=topology_with_isls.gsl_interfaces_info,
+            algorithm_params=algorithm_params,
         )
+        compute_duration_ms = (time.perf_counter() - compute_start) * 1000.0
         fstate = fstate_output.get("fstate", {})
+        route_plans = fstate_output.get("route_plans", {})
+        if control_plane_sample is None and fstate_output.get("control_plane"):
+            control_plane_sample = fstate_output["control_plane"]
 
         attachments = get_gs_attachments(gs_sat_visibility)
         fstate_stats = compute_forwarding_state_stats(
@@ -199,6 +306,27 @@ def run_evaluation(
             sim_config["dynamic_state_algorithm"],
             satellite_ids,
             ground_station_ids,
+            attachments,
+            algorithm_params,
+            route_plans,
+        )
+        explicit_header_stats = compute_explicit_header_stats(
+            route_plans,
+            attachments,
+            ground_station_ids,
+        )
+        explicit_srv6_srh_stats = compute_explicit_header_stats(
+            route_plans,
+            attachments,
+            ground_station_ids,
+            bytes_key="srv6_srh_bytes",
+        )
+        explicit_failover_stats = compute_explicit_failover_stats(
+            topology_with_isls.graph,
+            route_plans,
+            ground_station_ids,
+            gs_sat_visibility,
+            attachments,
         )
         stretch_stats = compute_path_stretch(
             fstate,
@@ -208,6 +336,8 @@ def run_evaluation(
             attachments,
             interface_neighbor_map,
             max_hops,
+            route_plans,
+            gs_sat_visibility,
         )
 
         timestep_rows.append(
@@ -215,19 +345,29 @@ def run_evaluation(
                 "time_index": step_index,
                 "time_since_epoch_ns": time_since_epoch_ns,
                 **flatten_distribution("fstate_size", fstate_stats),
+                **flatten_distribution("strict_header_bytes", explicit_header_stats),
+                **flatten_distribution("srv6_srh_bytes", explicit_srv6_srh_stats),
                 **flatten_distribution("stretch_hop", stretch_stats["hop"]),
                 **flatten_distribution("stretch_dist", stretch_stats["distance"]),
+                **{
+                    f"explicit_failover_{key}": value
+                    for key, value in explicit_failover_stats.items()
+                },
+                "compute_time_ms": compute_duration_ms,
             }
         )
 
         if prev_fstate is not None and prev_attachments is not None:
             gs_handover_rate = compute_gs_handover_rate(prev_attachments, attachments)
+            gs_renumbering = compute_gs_renumbering_stats(prev_attachments, attachments)
             sat_gs_churn = compute_sat_to_gs_churn(
                 prev_fstate,
                 fstate,
                 satellite_ids,
                 ground_station_ids,
                 interface_neighbor_map,
+                prev_route_plans,
+                route_plans,
             )
             gs_gs_churn = compute_gs_to_gs_churn(
                 prev_fstate,
@@ -236,39 +376,106 @@ def run_evaluation(
                 prev_attachments,
                 attachments,
                 interface_neighbor_map,
+                prev_route_plans,
+                route_plans,
+            )
+            satellite_fstate_updates = compute_satellite_forwarding_state_updates(
+                prev_fstate=prev_fstate,
+                curr_fstate=fstate,
+                algorithm_name=sim_config["dynamic_state_algorithm"],
+                satellite_ids=satellite_ids,
+                ground_station_ids=ground_station_ids,
+                prev_attachments=prev_attachments,
+                curr_attachments=attachments,
+                prev_interface_neighbor_map=prev_interface_neighbor_map,
+                curr_interface_neighbor_map=interface_neighbor_map,
+                prev_route_plans=prev_route_plans,
+                curr_route_plans=route_plans,
             )
             delta_rows.append(
                 {
                     "time_index": step_index,
                     "time_since_epoch_ns": time_since_epoch_ns,
                     "gs_handover_rate": gs_handover_rate,
+                    "gs_renumber_count": gs_renumbering["count"],
+                    "gs_renumber_rate": gs_renumbering["rate"],
                     "sat_gs_churn": sat_gs_churn["churn"],
                     "sat_gs_break_rate": sat_gs_churn["break_rate"],
                     "gs_gs_churn": gs_gs_churn["churn"],
                     "gs_gs_break_rate": gs_gs_churn["break_rate"],
+                    "sat_fstate_updates_add_mean": satellite_fstate_updates["add"]["mean"],
+                    "sat_fstate_updates_add_p95": satellite_fstate_updates["add"]["p95"],
+                    "sat_fstate_updates_delete_mean": satellite_fstate_updates["delete"]["mean"],
+                    "sat_fstate_updates_delete_p95": satellite_fstate_updates["delete"]["p95"],
+                    "sat_fstate_updates_modify_mean": satellite_fstate_updates["modify"]["mean"],
+                    "sat_fstate_updates_modify_p95": satellite_fstate_updates["modify"]["p95"],
+                    "sat_fstate_updates_total_mean": satellite_fstate_updates["total"]["mean"],
+                    "sat_fstate_updates_total_p95": satellite_fstate_updates["total"]["p95"],
+                    "sat_fstate_updates_touched_satellite_count": satellite_fstate_updates[
+                        "touched_satellite_count"
+                    ],
+                    "sat_fstate_updates_touched_satellite_rate": satellite_fstate_updates[
+                        "touched_satellite_rate"
+                    ],
                 }
             )
 
         prev_fstate = fstate
         prev_attachments = attachments
+        prev_route_plans = route_plans
+        prev_interface_neighbor_map = interface_neighbor_map
     metadata = {
         "algorithm": sim_config["dynamic_state_algorithm"],
+        "algorithm_params": sim_config.get("algorithm_params") or {},
         "isl_scenario": isl_scenario,
         "constellation": {
             "name": config["constellation"]["name"],
             "num_orbits": config["constellation"]["num_orbits"],
             "num_sats_per_orbit": config["constellation"]["num_sats_per_orbit"],
+            "altitude_m": config.get("satellite", {}).get("altitude_m"),
+            "inclination_degree": config["constellation"].get("inclination_degree"),
         },
-        "ground_station_count": len(ground_stations),
+        "ground_stations": {
+            "count": len(ground_stations),
+            "override_path": gs_override_path,
+        },
         "time_step_minutes": sim_config["time_step_minutes"],
         "end_time_hours": sim_config["end_time_hours"],
+        "offset_ns": sim_config.get("offset_ns", 0),
         "generated_at": datetime.datetime.now().isoformat(),
         "forwarding_state_definition": {
-            "shortest_path_link_state": "global node map (nodes in topology graph)",
-            "topological_routing": "immediate neighbors (node degree in topology graph)",
+            "shortest_path_link_state": "destination forwarding entries toward routable satellites (proxy: number of satellites)",
+            "predictive_link_state": "destination forwarding entries toward routable satellites (proxy: number of satellites)",
+            "explicit_path_routing": "local neighbor/interface entries on all satellites, plus destination-to-segment ingress bindings only on satellites that currently have attached ground stations; strict-adjacency header bytes are tracked separately in route plans",
+            "traditional_segment_routing": "forwarding entries toward segment endpoints / routable satellites (proxy: number of satellites)",
+            "topological_routing": "local neighbor-address forwarding entries (proxy: node degree)",
+            "dra_routing": "local neighbor-address forwarding entries (proxy: node degree); DRA-style hop-only logical-coordinate baseline",
             "default": "reachable GS destinations per satellite",
         },
+        "satellite_forwarding_state_update_definition": {
+            "definition": "per-snapshot additions, deletions, or modifications of satellite-local forwarding-state units between consecutive snapshots",
+            "shortest_path_link_state": "destination-to-next-hop forwarding entries toward currently attached destination satellites",
+            "predictive_link_state": "destination-to-next-hop forwarding entries toward currently attached destination satellites",
+            "traditional_segment_routing": "destination-to-next-hop forwarding entries toward currently attached destination satellites",
+            "topological_routing": "mutable satellite-local forwarding state only; in the regular Ring/+Grid model this is limited to local GS delivery bindings and any explicit exception state, not algorithmic default forwarding",
+            "dra_routing": "mutable satellite-local forwarding state only, as for topological_routing; the families differ solely in the distance metric used for default forwarding",
+            "explicit_path_routing": "satellite-local GS delivery bindings plus ingress destination-to-path bindings on satellites that currently host GS attachments; packet-carried adjacency guidance is excluded",
+        },
+        "packet_guidance_definition": {
+            "strict_header_bytes": "compact proxy overhead for active GS-to-GS traffic only: fixed 20-byte metadata plus 32-bit adjacency SIDs, zero for direct local delivery",
+            "srv6_srh_bytes": "SRv6 SRH-equivalent overhead for the same active strict adjacency stack, excluding the IPv6 base header: 8 + 16 bytes per carried adjacency SID, zero for direct local delivery",
+            "dynamic_egress_repair": "optional loose-final-egress repair for explicit paths: the cached strict core path terminates at its planned anchor, then final GS delivery is resolved toward the current visible egress",
+        },
     }
+    if control_plane_sample is not None:
+        metadata["control_plane_sample"] = control_plane_sample
+        effective_refresh_interval_steps = control_plane_sample.get(
+            "effective_refresh_interval_steps"
+        )
+        if effective_refresh_interval_steps is not None:
+            metadata["algorithm_params"][
+                "segment_refresh_interval_steps"
+            ] = effective_refresh_interval_steps
 
     write_json(os.path.join(output_dir, "metadata.json"), metadata)
     write_csv(
@@ -288,23 +495,30 @@ def run_evaluation(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run LEOPath evaluation harness")
     parser.add_argument("--config", required=True, help="Base config YAML")
-    parser.add_argument(
-        "--output-dir", required=True, help="Output directory for CSV/JSON"
-    )
+    parser.add_argument("--output-dir", required=True, help="Output directory for CSV/JSON")
     parser.add_argument(
         "--isl-scenario",
-        choices=("ring", "grid"),
+        choices=("ring", "grid", "grid_seam"),
         default="grid",
         help="ISL scenario to evaluate",
     )
-    parser.add_argument(
-        "--algorithm", default=None, help="Routing algorithm name override"
-    )
-    parser.add_argument(
-        "--gs-config", default=None, help="Ground station list override YAML"
-    )
+    parser.add_argument("--algorithm", default=None, help="Routing algorithm name override")
+    parser.add_argument("--gs-config", default=None, help="Ground station list override YAML")
     parser.add_argument("--end-time-hours", type=float, default=None)
     parser.add_argument("--time-step-minutes", type=float, default=None)
+    parser.add_argument("--prediction-horizon-minutes", type=float, default=None)
+    parser.add_argument("--segment-count", type=int, default=None)
+    parser.add_argument("--segment-refresh-interval-steps", type=int, default=None)
+    parser.add_argument("--segment-mode", type=str, default=None)
+    parser.add_argument("--plane-weight", type=float, default=None)
+    parser.add_argument("--sat-weight", type=float, default=None)
+    parser.add_argument("--shell-weight", type=float, default=None)
+    parser.add_argument("--distance-mode", type=str, default=None)
+    parser.add_argument(
+        "--explicit-final-egress-mode",
+        choices=("strict", "dynamic"),
+        default=None,
+    )
     return parser.parse_args()
 
 
@@ -318,6 +532,15 @@ def main() -> None:
         gs_override_path=args.gs_config,
         end_time_hours=args.end_time_hours,
         time_step_minutes=args.time_step_minutes,
+        prediction_horizon_minutes=args.prediction_horizon_minutes,
+        segment_count=args.segment_count,
+        segment_refresh_interval_steps=args.segment_refresh_interval_steps,
+        segment_mode=args.segment_mode,
+        plane_weight=args.plane_weight,
+        sat_weight=args.sat_weight,
+        shell_weight=args.shell_weight,
+        distance_mode=args.distance_mode,
+        explicit_final_egress_mode=args.explicit_final_egress_mode,
     )
 
 

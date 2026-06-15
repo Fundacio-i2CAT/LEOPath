@@ -1,0 +1,25 @@
+site_name: LEOPath
+docs_dir: docs
+site_dir: site
+
+theme:
+  variant: modern
+
+nav:
+  - Home: index.md
+  - Getting Started: quickstart.md
+  - Configuration: configuration.md
+  - Algorithms: algorithms.md
+  - Evaluation: evaluation.md
+  - Visualizations: visualizations.md
+  - Experiments: experiments.md
+  - Architecture: architecture.md
+  - Contributing: contributing.md
+  - FAQ: faq.md
+  - License: license.md
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true

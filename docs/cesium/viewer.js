@@ -1,0 +1,777 @@
+(function () {
+  "use strict";
+
+  const state = {
+    viewer: null,
+    metadata: null,
+    activeConfig: null,
+    activeRecords: [],
+    activeSource: "",
+    gslCache: null,
+    loading: false,
+  };
+
+  const els = {};
+
+  document.addEventListener("DOMContentLoaded", init);
+
+  async function init() {
+    bindElements();
+    bindEvents();
+
+    if (!window.Cesium || !window.satellite) {
+      setStatus("CesiumJS or satellite.js failed to load.", true);
+      return;
+    }
+
+    try {
+      state.viewer = createViewer();
+      resetCamera(0);
+      state.metadata = await fetchJson("constellations.json");
+      populateConstellations(state.metadata.constellations || []);
+      applyDefaultClockSpeed();
+      await loadSelectedConstellation();
+    } catch (error) {
+      setStatus(`Failed to initialize viewer: ${error.message}`, true);
+    }
+  }
+
+  function bindElements() {
+    els.container = document.getElementById("cesiumContainer");
+    els.select = document.getElementById("constellationSelect");
+    els.islTopology = document.getElementById("islTopology");
+    els.showGround = document.getElementById("showGround");
+    els.showGsl = document.getElementById("showGsl");
+    els.showGslLabel = document.getElementById("showGslLabel");
+    els.fullDensity = document.getElementById("fullDensity");
+    els.fullDensityLabel = document.getElementById("fullDensityLabel");
+    els.speedSlider = document.getElementById("speedSlider");
+    els.speedLabel = document.getElementById("speedLabel");
+    els.resetButton = document.getElementById("resetButton");
+    els.hidePanel = document.getElementById("hidePanel");
+    els.showPanel = document.getElementById("showPanel");
+    els.panel = document.querySelector(".panel");
+    els.status = document.getElementById("status");
+    els.stats = document.getElementById("stats");
+    els.tleLink = document.getElementById("tleLink");
+  }
+
+  function bindEvents() {
+    els.select.addEventListener("change", loadSelectedConstellation);
+    els.islTopology.addEventListener("change", reloadActiveConstellation);
+    els.showGround.addEventListener("change", function () {
+      syncGslControl();
+      reloadActiveConstellation();
+    });
+    els.showGsl.addEventListener("change", reloadActiveConstellation);
+    els.fullDensity.addEventListener("change", reloadActiveConstellation);
+    els.resetButton.addEventListener("click", function () { resetCamera(0.8); });
+    els.hidePanel.addEventListener("click", function () { setPanelVisible(false); });
+    els.showPanel.addEventListener("click", function () { setPanelVisible(true); });
+    els.speedSlider.addEventListener("input", function () {
+      const speed = Number(els.speedSlider.value);
+      els.speedLabel.textContent = `${speed}x`;
+      if (state.viewer) {
+        state.viewer.clock.multiplier = speed;
+      }
+    });
+  }
+
+  function setPanelVisible(visible) {
+    els.panel.hidden = !visible;
+    els.showPanel.hidden = visible;
+  }
+
+  function createViewer() {
+    const viewer = new Cesium.Viewer("cesiumContainer", {
+      animation: true,
+      baseLayerPicker: false,
+      fullscreenButton: true,
+      geocoder: false,
+      homeButton: false,
+      imageryProvider: false,
+      infoBox: true,
+      navigationHelpButton: false,
+      sceneModePicker: false,
+      selectionIndicator: true,
+      shouldAnimate: true,
+      timeline: true,
+      terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+    });
+
+    viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#050914");
+    viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#0a172c");
+    viewer.scene.globe.depthTestAgainstTerrain = true;
+    viewer.scene.globe.enableLighting = false;
+    if (viewer.scene.globe.translucency) {
+      viewer.scene.globe.translucency.enabled = false;
+      viewer.scene.globe.translucency.frontFaceAlpha = 1.0;
+      viewer.scene.globe.translucency.backFaceAlpha = 1.0;
+    }
+    viewer.scene.highDynamicRange = false;
+    viewer.scene.fog.enabled = false;
+    viewer.clock.shouldAnimate = true;
+    addEarthImagery(viewer);
+    return viewer;
+  }
+
+  function addEarthImagery(viewer) {
+    try {
+      const naturalEarthUrl = Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII");
+      const providerOrPromise = Cesium.TileMapServiceImageryProvider.fromUrl(naturalEarthUrl);
+      Promise.resolve(providerOrPromise)
+        .then(function (provider) {
+          viewer.imageryLayers.removeAll();
+          viewer.imageryLayers.addImageryProvider(provider);
+        })
+        .catch(function () {
+          addOpenStreetMapImagery(viewer);
+        });
+    } catch (error) {
+      addOpenStreetMapImagery(viewer);
+    }
+  }
+
+  function addOpenStreetMapImagery(viewer) {
+    try {
+      viewer.imageryLayers.removeAll();
+      viewer.imageryLayers.addImageryProvider(new Cesium.OpenStreetMapImageryProvider({
+        url: "https://tile.openstreetmap.org/",
+      }));
+    } catch (error) {
+      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#12345a");
+    }
+  }
+
+  function populateConstellations(constellations) {
+    els.select.innerHTML = "";
+    constellations.forEach(function (config) {
+      const option = document.createElement("option");
+      option.value = config.id;
+      option.textContent = config.label || config.name;
+      els.select.appendChild(option);
+    });
+  }
+
+  function applyDefaultClockSpeed() {
+    const speed = Number(state.metadata.defaults?.clockMultiplier || els.speedSlider.value || 120);
+    els.speedSlider.value = String(speed);
+    els.speedLabel.textContent = `${speed}x`;
+    state.viewer.clock.multiplier = speed;
+  }
+
+  async function reloadActiveConstellation() {
+    if (!state.activeConfig || state.loading) {
+      return;
+    }
+    renderConstellation(state.activeConfig, state.activeRecords);
+  }
+
+  async function loadSelectedConstellation() {
+    if (state.loading) {
+      return;
+    }
+
+    const config = findSelectedConfig();
+    if (!config) {
+      setStatus("No constellation selected.", true);
+      return;
+    }
+
+    state.loading = true;
+    setStatus(`Loading ${config.name} TLE data...`);
+    updateDensityControl(config);
+
+    try {
+      const parsed = await loadRecords(config);
+      state.activeConfig = Object.assign({}, config, parsed.header);
+      state.activeRecords = parsed.records;
+      state.activeSource = parsed.source;
+      renderConstellation(state.activeConfig, state.activeRecords);
+      setStatus(`Ready: ${state.activeConfig.name} (${state.activeSource}).`);
+    } catch (error) {
+      clearScene();
+      setStatus(`Failed to load constellation: ${error.message}`, true);
+    } finally {
+      state.loading = false;
+    }
+  }
+
+  function findSelectedConfig() {
+    const id = els.select.value;
+    return (state.metadata.constellations || []).find(function (config) {
+      return config.id === id;
+    });
+  }
+
+  async function loadRecords(config) {
+    try {
+      const tleText = await fetchTextWithFallback(config.tlePath, config.rawTleUrl);
+      const parsed = parseTle(tleText, config);
+      parsed.source = "TLE data";
+      return parsed;
+    } catch (error) {
+      const records = createSyntheticRecords(config);
+      return {
+        header: {
+          orbits: Number(config.orbits),
+          satsPerOrbit: Number(config.satsPerOrbit),
+        },
+        records,
+        source: "metadata fallback",
+      };
+    }
+  }
+
+  function renderConstellation(config, records) {
+    clearScene();
+    configureClock(config);
+
+    const sampleStep = getSampleStep(config);
+    const groundStations = getGroundStations(config);
+    const topology = els.islTopology.value;
+    const color = Cesium.Color.fromCssColorString(config.color || "#8cc8ff");
+    state.gslCache = createGslCache(config, records, groundStations);
+    const renderedSatellites = addSatellites(records, config, sampleStep, color);
+    let ringLinks = 0;
+    let gridLinks = 0;
+    let gslLinks = 0;
+
+    if (topology === "ring" || topology === "grid") {
+      ringLinks = addLinks(records, config, sampleStep, "ring", color);
+    }
+    if (topology === "grid") {
+      gridLinks = addLinks(records, config, sampleStep, "grid", color);
+    }
+    if (els.showGround.checked) {
+      addGroundStations(groundStations);
+      if (els.showGsl.checked) {
+        addGslLinks(groundStations);
+        gslLinks = countVisibleGslAttachments();
+      }
+    }
+
+    updateStats(
+      config,
+      records.length,
+      renderedSatellites,
+      ringLinks,
+      gridLinks,
+      gslLinks,
+      sampleStep,
+      groundStations.length
+    );
+    updateTleLink(config);
+    resetCamera(0.8);
+  }
+
+  function clearScene() {
+    state.viewer.entities.removeAll();
+    els.stats.innerHTML = "";
+  }
+
+  function configureClock(config) {
+    const defaults = state.metadata.defaults || {};
+    const startIso = config.epochIso || defaults.epochIso || "2000-01-01T00:00:00Z";
+    const durationHours = Number(config.durationHours || defaults.durationHours || 6);
+    const start = Cesium.JulianDate.fromIso8601(startIso);
+    const stop = Cesium.JulianDate.addHours(start, durationHours, new Cesium.JulianDate());
+
+    state.viewer.clock.startTime = Cesium.JulianDate.clone(start);
+    state.viewer.clock.stopTime = Cesium.JulianDate.clone(stop);
+    state.viewer.clock.currentTime = Cesium.JulianDate.clone(start);
+    state.viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
+    state.viewer.clock.clockStep = Cesium.ClockStep.SYSTEM_CLOCK_MULTIPLIER;
+    state.viewer.clock.shouldAnimate = true;
+    state.viewer.timeline.zoomTo(start, stop);
+  }
+
+  function getSampleStep(config) {
+    if (els.fullDensity.checked) {
+      return 1;
+    }
+    return Math.max(1, Number(config.defaultSampleStep || 1));
+  }
+
+  function updateDensityControl(config) {
+    const isSampled = Number(config.defaultSampleStep || 1) > 1;
+    els.fullDensity.disabled = !isSampled;
+    els.fullDensityLabel.classList.toggle("is-disabled", !isSampled);
+    els.fullDensity.checked = !isSampled;
+  }
+
+  function syncGslControl() {
+    els.showGsl.disabled = !els.showGround.checked;
+    els.showGslLabel.classList.toggle("is-disabled", !els.showGround.checked);
+  }
+
+  function getGroundStations(config) {
+    return state.metadata.groundStations || config.groundStations || [];
+  }
+
+  function addSatellites(records, config, sampleStep, color) {
+    let rendered = 0;
+    records.forEach(function (record) {
+      if (record.index % sampleStep !== 0) {
+        return;
+      }
+
+      state.viewer.entities.add({
+        id: `sat-${config.id}-${record.index}`,
+        name: record.name,
+        description: satelliteDescription(record, config),
+        position: new Cesium.CallbackProperty(function (time) {
+          return positionForRecord(record, time);
+        }, false),
+        point: {
+          color: color.withAlpha(0.92),
+          outlineColor: Cesium.Color.BLACK.withAlpha(0.7),
+          outlineWidth: 1,
+          pixelSize: config.pointSize || 4,
+        },
+      });
+      rendered += 1;
+    });
+    return rendered;
+  }
+
+  function addLinks(records, config, sampleStep, mode, color) {
+    const orbits = Number(config.orbits);
+    const satsPerOrbit = Number(config.satsPerOrbit);
+    if (!orbits || !satsPerOrbit) {
+      return 0;
+    }
+
+    const maxLinks = Number(config.maxLinks || 2000);
+    const material = color.withAlpha(mode === "grid" ? 0.34 : 0.42);
+    const width = mode === "grid" ? 0.7 : 0.9;
+    let count = 0;
+
+    for (let plane = 0; plane < orbits; plane += 1) {
+      for (let slot = 0; slot < satsPerOrbit; slot += 1) {
+        const sourceIndex = plane * satsPerOrbit + slot;
+        if (sourceIndex % sampleStep !== 0) {
+          continue;
+        }
+        if (count >= maxLinks) {
+          return count;
+        }
+
+        const targetPlane = mode === "grid" ? (plane + 1) % orbits : plane;
+        const targetSlot = mode === "grid" ? slot : (slot + 1) % satsPerOrbit;
+        const source = records[sourceIndex];
+        const target = records[targetPlane * satsPerOrbit + targetSlot];
+        if (!source || !target) {
+          continue;
+        }
+
+        state.viewer.entities.add({
+          name: `${mode}-isl-${source.index}-${target.index}`,
+          polyline: {
+            positions: new Cesium.CallbackProperty(function (time) {
+              const sourcePosition = positionForRecord(source, time);
+              const targetPosition = positionForRecord(target, time);
+              return sourcePosition && targetPosition ? [sourcePosition, targetPosition] : [];
+            }, false),
+            width,
+            arcType: Cesium.ArcType.NONE,
+            material,
+          },
+        });
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  function addGroundStations(groundStations) {
+    groundStations.forEach(function (station) {
+      state.viewer.entities.add({
+        id: `gs-${station.name}`,
+        name: station.name,
+        description: `<p>Ground station at ${station.latitude}, ${station.longitude}</p>`,
+        position: Cesium.Cartesian3.fromDegrees(
+          Number(station.longitude),
+          Number(station.latitude),
+          Number(station.elevationM || 0)
+        ),
+        point: {
+          color: Cesium.Color.CYAN,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          pixelSize: 10,
+        },
+        label: {
+          text: station.name,
+          font: "13px sans-serif",
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          pixelOffset: new Cesium.Cartesian2(0, -18),
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        },
+      });
+    });
+  }
+
+  function addGslLinks(groundStations) {
+    const material = Cesium.Color.CYAN.withAlpha(0.62);
+    groundStations.forEach(function (station, index) {
+      state.viewer.entities.add({
+        id: `gsl-${index}`,
+        name: `GSL ${station.name}`,
+        polyline: {
+          positions: new Cesium.CallbackProperty(function (time) {
+            const attachment = getGslAttachment(index, time);
+            if (!attachment) {
+              return [];
+            }
+            const satellitePosition = positionForRecord(attachment.satellite, time);
+            return satellitePosition ? [attachment.groundPosition, satellitePosition] : [];
+          }, false),
+          width: 1.8,
+          arcType: Cesium.ArcType.NONE,
+          material,
+        },
+      });
+    });
+  }
+
+  function countVisibleGslAttachments() {
+    return calculateGslAttachments(state.viewer.clock.currentTime).filter(Boolean).length;
+  }
+
+  function createGslCache(config, records, groundStations) {
+    return {
+      config,
+      records,
+      groundStations: groundStations.map(prepareGroundStation),
+      key: null,
+      attachments: [],
+    };
+  }
+
+  function prepareGroundStation(station) {
+    const groundPosition = Cesium.Cartesian3.fromDegrees(
+      Number(station.longitude),
+      Number(station.latitude),
+      Number(station.elevationM || 0)
+    );
+    const normal = Cesium.Cartesian3.normalize(groundPosition, new Cesium.Cartesian3());
+    return Object.assign({}, station, { groundPosition, normal });
+  }
+
+  function getGslAttachment(groundStationIndex, time) {
+    if (!state.gslCache) {
+      return null;
+    }
+
+    const key = Math.floor(Cesium.JulianDate.toDate(time).getTime() / 60000);
+    if (state.gslCache.key !== key) {
+      state.gslCache.key = key;
+      state.gslCache.attachments = calculateGslAttachments(time);
+    }
+    return state.gslCache.attachments[groundStationIndex] || null;
+  }
+
+  function calculateGslAttachments(time) {
+    const cache = state.gslCache;
+    const maxDistanceM = maxGslDistanceM(cache.config);
+    return cache.groundStations.map(function (station) {
+      let best = null;
+      let bestDistance = Number.POSITIVE_INFINITY;
+
+      cache.records.forEach(function (record) {
+        const satellitePosition = positionForRecord(record, time);
+        if (!satellitePosition) {
+          return;
+        }
+
+        const vector = Cesium.Cartesian3.subtract(
+          satellitePosition,
+          station.groundPosition,
+          new Cesium.Cartesian3()
+        );
+        if (Cesium.Cartesian3.dot(vector, station.normal) <= 0) {
+          return;
+        }
+
+        const distance = Cesium.Cartesian3.magnitude(vector);
+        if (distance <= maxDistanceM && distance < bestDistance) {
+          bestDistance = distance;
+          best = {
+            groundPosition: station.groundPosition,
+            satellite: record,
+            satelliteId: record.index,
+            distance,
+          };
+        }
+      });
+      return best;
+    });
+  }
+
+  function maxGslDistanceM(config) {
+    const defaults = state.metadata.defaults || {};
+    const altitudeM = Number(config.altitudeKm || 550) * 1000;
+    const coneAngleDeg = Number(config.coneAngleDeg || defaults.coneAngleDeg || 25);
+    const coneRadiusM = altitudeM / Math.tan(Cesium.Math.toRadians(coneAngleDeg));
+    return Math.sqrt(coneRadiusM * coneRadiusM + altitudeM * altitudeM);
+  }
+
+  function positionForRecord(record, time) {
+    if (record.synthetic) {
+      return syntheticPositionForRecord(record, time);
+    }
+
+    const date = Cesium.JulianDate.toDate(time);
+    const propagated = satellite.propagate(record.satrec, date);
+    if (!propagated || !propagated.position) {
+      return undefined;
+    }
+
+    const gmst = satellite.gstime(date);
+    const geodetic = satellite.eciToGeodetic(propagated.position, gmst);
+    return Cesium.Cartesian3.fromRadians(
+      geodetic.longitude,
+      geodetic.latitude,
+      geodetic.height * 1000
+    );
+  }
+
+  function syntheticPositionForRecord(record, time) {
+    const date = Cesium.JulianDate.toDate(time);
+    const epochMs = Date.parse(record.epochIso || "2000-01-01T00:00:00Z");
+    const elapsedSeconds = (date.getTime() - epochMs) / 1000;
+    const angle = record.meanAnomalyRad + (2 * Math.PI * record.meanMotionRevPerDay * elapsedSeconds / 86400);
+    const xOrbital = record.radiusKm * Math.cos(angle);
+    const yOrbital = record.radiusKm * Math.sin(angle);
+    const cosRaan = Math.cos(record.raanRad);
+    const sinRaan = Math.sin(record.raanRad);
+    const cosInclination = Math.cos(record.inclinationRad);
+    const sinInclination = Math.sin(record.inclinationRad);
+    const eci = {
+      x: cosRaan * xOrbital - sinRaan * cosInclination * yOrbital,
+      y: sinRaan * xOrbital + cosRaan * cosInclination * yOrbital,
+      z: sinInclination * yOrbital,
+    };
+    const ecf = satellite.eciToEcf(eci, satellite.gstime(date));
+    return Cesium.Cartesian3.fromElements(ecf.x * 1000, ecf.y * 1000, ecf.z * 1000);
+  }
+
+  async function fetchJson(url) {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`${url} returned ${response.status}`);
+    }
+    return response.json();
+  }
+
+  async function fetchTextWithFallback(primaryUrl, fallbackUrl) {
+    const urls = [primaryUrl, fallbackUrl].filter(Boolean);
+    let lastError = null;
+
+    for (const [index, url] of urls.entries()) {
+      try {
+        const response = await fetch(url, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`${url} returned ${response.status}`);
+        }
+        return response.text();
+      } catch (error) {
+        lastError = error;
+        if (index === 0 && isLocalPreview() && String(primaryUrl).startsWith("data/")) {
+          break;
+        }
+      }
+    }
+    throw lastError || new Error("No TLE URL configured");
+  }
+
+  function isLocalPreview() {
+    return ["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname);
+  }
+
+  function parseTle(tleText, config) {
+    const lines = tleText.split(/\r?\n/).map(function (line) {
+      return line.trim();
+    }).filter(Boolean);
+
+    if (lines.length < 3) {
+      throw new Error("TLE file is empty or malformed");
+    }
+
+    let cursor = 0;
+    const headerMatch = lines[0].match(/^(\d+)\s+(\d+)$/);
+    const header = {};
+    if (headerMatch) {
+      header.orbits = Number(headerMatch[1]);
+      header.satsPerOrbit = Number(headerMatch[2]);
+      cursor = 1;
+    }
+
+    const satsPerOrbit = Number(config.satsPerOrbit || header.satsPerOrbit || 1);
+    const records = [];
+    while (cursor + 2 < lines.length) {
+      const name = lines[cursor];
+      const line1 = lines[cursor + 1];
+      const line2 = lines[cursor + 2];
+      cursor += 3;
+
+      if (!line1.startsWith("1 ") || !line2.startsWith("2 ")) {
+        continue;
+      }
+
+      const index = records.length;
+      records.push({
+        index,
+        name,
+        line1,
+        line2,
+        plane: Math.floor(index / satsPerOrbit),
+        slot: index % satsPerOrbit,
+        satrec: satellite.twoline2satrec(line1, line2),
+      });
+    }
+
+    if (records.length === 0) {
+      throw new Error("No valid TLE records found");
+    }
+
+    if (!header.orbits && config.orbits) {
+      header.orbits = config.orbits;
+    }
+    if (!header.satsPerOrbit && config.satsPerOrbit) {
+      header.satsPerOrbit = config.satsPerOrbit;
+    }
+
+    return { header, records };
+  }
+
+  function createSyntheticRecords(config) {
+    const orbits = Number(config.orbits);
+    const satsPerOrbit = Number(config.satsPerOrbit);
+    if (!orbits || !satsPerOrbit) {
+      throw new Error("No TLE data and insufficient metadata for fallback propagation");
+    }
+
+    const defaults = state.metadata.defaults || {};
+    const phaseDiff = config.phaseDiff !== false;
+    const inclinationRad = Cesium.Math.toRadians(Number(config.inclinationDeg || 0));
+    const meanMotionRevPerDay = Number(config.meanMotionRevPerDay || 15);
+    const radiusKm = Number(config.altitudeKm || 550) + Number(config.earthRadiusKm || defaults.earthRadiusKm || 6378.135);
+    const records = [];
+
+    for (let plane = 0; plane < orbits; plane += 1) {
+      const raanRad = 2 * Math.PI * plane / orbits;
+      const planeShift = phaseDiff && plane % 2 === 1 ? Math.PI / satsPerOrbit : 0;
+      for (let slot = 0; slot < satsPerOrbit; slot += 1) {
+        const index = plane * satsPerOrbit + slot;
+        records.push({
+          synthetic: true,
+          index,
+          name: `${config.name} ${index}`,
+          plane,
+          slot,
+          epochIso: config.epochIso || defaults.epochIso,
+          inclinationRad,
+          meanMotionRevPerDay,
+          meanAnomalyRad: planeShift + 2 * Math.PI * slot / satsPerOrbit,
+          radiusKm,
+          raanRad,
+          line1: "metadata fallback",
+          line2: "metadata fallback",
+        });
+      }
+    }
+
+    return records;
+  }
+
+  function satelliteDescription(record, config) {
+    return [
+      `<h2>${escapeHtml(record.name)}</h2>`,
+      "<table>",
+      `<tr><th>Constellation</th><td>${escapeHtml(config.name)}</td></tr>`,
+      `<tr><th>Plane</th><td>${record.plane}</td></tr>`,
+      `<tr><th>Slot</th><td>${record.slot}</td></tr>`,
+      `<tr><th>Satellite ID</th><td>${record.index}</td></tr>`,
+      `<tr><th>TLE line 1</th><td><code>${escapeHtml(record.line1)}</code></td></tr>`,
+      `<tr><th>TLE line 2</th><td><code>${escapeHtml(record.line2)}</code></td></tr>`,
+      "</table>",
+    ].join("");
+  }
+
+  function updateStats(
+    config,
+    totalSatellites,
+    renderedSatellites,
+    ringLinks,
+    gridLinks,
+    gslLinks,
+    sampleStep,
+    groundStationCount
+  ) {
+    const stats = [
+      ["Satellites", totalSatellites.toLocaleString()],
+      ["Rendered", renderedSatellites.toLocaleString()],
+      ["Orbits", Number(config.orbits).toLocaleString()],
+      ["Sats/orbit", Number(config.satsPerOrbit).toLocaleString()],
+      ["Altitude", `${Number(config.altitudeKm).toLocaleString()} km`],
+      ["Inclination", `${config.inclinationDeg} deg`],
+      ["Intra-plane links", ringLinks.toLocaleString()],
+      ["Inter-plane links", gridLinks.toLocaleString()],
+      ["GSL attachments", gslLinks.toLocaleString()],
+      ["Ground stations", groundStationCount.toLocaleString()],
+      ["Sample step", sampleStep === 1 ? "full" : `1/${sampleStep}`],
+    ];
+
+    els.stats.innerHTML = [
+      "<table>",
+      "<tbody>",
+      stats.map(function (item) {
+        return `<tr><th scope="row">${item[0]}</th><td>${item[1]}</td></tr>`;
+      }).join(""),
+      "</tbody>",
+      "</table>",
+    ].join("");
+  }
+
+  function updateTleLink(config) {
+    els.tleLink.href = state.activeSource === "metadata fallback"
+      ? (config.rawTleUrl || config.tlePath || "#")
+      : (config.tlePath || config.rawTleUrl || "#");
+    els.tleLink.textContent = state.activeSource === "metadata fallback"
+      ? "Open source TLE data"
+      : "Open TLE data";
+  }
+
+  function resetCamera(duration) {
+    if (!state.viewer) {
+      return;
+    }
+    state.viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(12, 18, 24500000),
+      orientation: {
+        heading: 0,
+        pitch: Cesium.Math.toRadians(-90),
+        roll: 0,
+      },
+      duration,
+    });
+  }
+
+  function setStatus(message, isError) {
+    els.status.textContent = message;
+    els.status.classList.toggle("status--error", Boolean(isError));
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+}());

@@ -11,6 +11,13 @@ constellation:
 
 simulation:
   dynamic_state_algorithm: shortest_path_link_state
+  algorithm_params:
+    prediction_horizon_minutes: 5
+    segment_mode: plane_then_inplane
+    segment_count: 2
+    plane_weight: 100.0
+    sat_weight: 1.0
+    shell_weight: 1000.0
   output_dir: null # Set to a path or keep null
   end_time_hours: 24
   time_step_minutes: 10

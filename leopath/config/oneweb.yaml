@@ -1,0 +1,51 @@
+constellation:
+  name: "OneWeb-synthetic"
+  num_orbits: 18
+  num_sats_per_orbit: 36
+  phase_diff: true
+  inclination_degree: 87.9
+  eccentricity: 0.0000001
+  arg_of_perigee_degree: 0.0
+  mean_motion_rev_per_day: 13.0
+  tle_output_filename: "tles_oneweb_synth.txt"
+
+simulation:
+  dynamic_state_algorithm: shortest_path_link_state
+  algorithm_params:
+    prediction_horizon_minutes: 5
+    segment_mode: plane_then_inplane
+    segment_count: 2
+    plane_weight: 100.0
+    sat_weight: 1.0
+    shell_weight: 1000.0
+  output_dir: null # Set to a path or keep null
+  end_time_hours: 24
+  time_step_minutes: 10
+  offset_ns: 0
+
+satellite:
+  altitude_m: 1200000
+  cone_angle_degrees: 25.0
+
+earth:
+  radius_m: 6378135.0
+  isl_min_altitude_m: 80000
+
+ground_stations:
+  - name: "London"
+    latitude: 51.5074
+    longitude: -0.1278
+    elevation_m: 30.0
+  - name: "Perth"
+    latitude: -31.9505
+    longitude: 115.8605
+    elevation_m: 30.0
+
+network:
+  gsl_interfaces:
+    number_of_interfaces: 1
+    aggregate_max_bandwidth: 1.0
+
+logging:
+  is_debug: false
+  file_name: "simulation.log"

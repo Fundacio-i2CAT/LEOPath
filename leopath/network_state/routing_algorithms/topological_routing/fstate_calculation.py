@@ -3,7 +3,11 @@ from typing import Optional
 import networkx as nx
 
 from leopath import logger
-from leopath.topology.satellite.topological_network_address import TopologicalNetworkAddress
+from leopath.topology.satellite.topological_network_address import (
+    TopologicalNetworkAddress,
+    torus_topological_distance,
+    weighted_torus_progress_distance,
+)
 from leopath.topology.topology import ConstellationData, GroundStation, LEOTopology
 
 log = logger.get_logger(__name__)
@@ -61,6 +65,7 @@ def algorithm_free_one_only_over_isls_topological(
         topology_with_isls,
         ground_stations,
         ground_station_satellites_in_range,
+        constellation_data,
         time_since_epoch_ns,
         prev_fstate,
         graph_has_changed,
@@ -112,9 +117,11 @@ def calculate_fstate_topological_routing_no_gs_relay(
     topology_with_isls: LEOTopology,
     ground_stations: list[GroundStation],
     ground_station_satellites_in_range: list,
+    constellation_data: ConstellationData | None = None,
     time_since_epoch_ns: int = 0,
     prev_fstate: dict | None = None,
     graph_has_changed: bool = True,
+    algorithm_params: dict | None = None,
 ) -> dict:
     """
     Calculates forwarding state using topological routing over ISLs only (no GS relays).
@@ -137,6 +144,11 @@ def calculate_fstate_topological_routing_no_gs_relay(
         Dictionary containing forwarding state
     """
     log.debug("Calculating topological routing fstate object (no GS relay)")
+    algorithm_params = algorithm_params or {}
+    distance_mode = str(algorithm_params.get("distance_mode", "torus_weighted_lookahead"))
+
+    if constellation_data is None:
+        constellation_data = topology_with_isls.constellation_data
 
     full_graph = topology_with_isls.graph
 
@@ -162,9 +174,9 @@ def calculate_fstate_topological_routing_no_gs_relay(
     # Step 1: Initialize at t=0 - set 6GRUPA addresses and neighbor forwarding tables
     if time_since_epoch_ns == 0:
         log.debug("t=0: Setting 6GRUPA addresses to all nodes and initializing forwarding tables")
-        _set_sixgrupa_addresses_to_all_nodes(topology_with_isls)
+        _set_sixgrupa_addresses_to_all_nodes(topology_with_isls, constellation_data)
         _fill_forwarding_tables_in_every_satellite(
-            satellite_node_ids, satellite_only_subgraph, topology_with_isls
+            satellite_node_ids, satellite_only_subgraph, topology_with_isls, constellation_data
         )
         # Also assign GS addresses for initial GSL attachments
         for gs_idx, gs in enumerate(ground_stations):
@@ -174,7 +186,13 @@ def calculate_fstate_topological_routing_no_gs_relay(
                 if satellites:
                     _, curr_sat_id = satellites[0]
             if curr_sat_id is not None:
-                _perform_renumbering_for_gs(gs, None, curr_sat_id, topology_with_isls)
+                _perform_renumbering_for_gs(
+                    gs,
+                    None,
+                    curr_sat_id,
+                    topology_with_isls,
+                    constellation_data,
+                )
         graph_has_changed = True  # Force recalculation on first run
 
     # Step 2: Check if we can reuse previous state
@@ -187,42 +205,120 @@ def calculate_fstate_topological_routing_no_gs_relay(
     for gs_idx, (prev_sat_id, curr_sat_id) in gsl_changes.items():
         gs = ground_stations[gs_idx]
         log.debug(f"GSL changed for GS {gs.id}: {prev_sat_id} -> {curr_sat_id}")
-        _perform_renumbering_for_gs(gs, prev_sat_id, curr_sat_id, topology_with_isls)
+        _perform_renumbering_for_gs(
+            gs,
+            prev_sat_id,
+            curr_sat_id,
+            topology_with_isls,
+            constellation_data,
+        )
 
     # Step 4: Calculate satellite-to-GS forwarding state
     fstate: dict[tuple, tuple] = {}
-    dist_satellite_to_ground_station: dict[tuple, float] = {}
-
-    node_to_index = {node_id: index for index, node_id in enumerate(satellite_node_ids)}
+    satellite_addresses = {
+        satellite_id: _get_satellite_address(
+            topology_with_isls,
+            satellite_id,
+            constellation_data,
+        )
+        for satellite_id in satellite_node_ids
+    }
+    neighbor_candidates = {
+        satellite_id: [
+            (
+                neighbor_id,
+                interface,
+                satellite_addresses[neighbor_id],
+                float(satellite_only_subgraph.edges[satellite_id, neighbor_id].get("weight", 1.0)),
+            )
+            for neighbor_id in satellite_only_subgraph.neighbors(satellite_id)
+            if (interface := topology_with_isls.sat_neighbor_to_if.get((satellite_id, neighbor_id)))
+            is not None
+            and neighbor_id in satellite_addresses
+        ]
+        for satellite_id in satellite_node_ids
+    }
+    weight_model = None
+    if distance_mode == "torus_weighted_pivot":
+        weight_model = _build_torus_weight_model(
+            satellite_only_subgraph,
+            satellite_addresses,
+            constellation_data,
+        )
+    gs_destination_candidates = []
+    for possible_dst_sats in ground_station_satellites_in_range:
+        candidates = []
+        for dist_gs_to_sat_m, visible_sat_id in possible_dst_sats:
+            destination_address = satellite_addresses.get(visible_sat_id)
+            if destination_address is not None:
+                candidates.append((dist_gs_to_sat_m, visible_sat_id, destination_address))
+        gs_destination_candidates.append(candidates)
 
     _calculate_sat_to_gs_fstate(
         topology_with_isls,
         ground_stations,
-        ground_station_satellites_in_range,
         satellite_node_ids,
-        node_to_index,
-        satellite_only_subgraph,
-        topology_with_isls.sat_neighbor_to_if,
-        dist_satellite_to_ground_station,
+        satellite_addresses,
+        neighbor_candidates,
+        gs_destination_candidates,
         fstate,
+        constellation_data,
+        distance_mode,
+        weight_model,
     )
 
     log.debug(f"Calculated fstate with {len(fstate)} entries")
     return fstate
 
 
-def _set_sixgrupa_addresses_to_all_nodes(topology: LEOTopology):
+def _set_sixgrupa_addresses_to_all_nodes(
+    topology: LEOTopology, constellation_data: ConstellationData
+):
     """
     Set 6GRUPA addresses to all satellite nodes in the topology.
     """
     log.debug("Setting 6GRUPA addresses to all satellite nodes")
     for satellite in topology.get_satellites():
         try:
-            address = TopologicalNetworkAddress.set_address_from_orbital_parameters(satellite.id)
+            address = _get_satellite_address(topology, satellite.id, constellation_data)
             satellite.sixgrupa_addr = address
             log.debug(f"Assigned 6G-RUPA address {address} to satellite {satellite.id}")
         except Exception as e:
             log.error(f"Failed to assign 6G-RUPA address to satellite {satellite.id}: {e}")
+
+
+def _get_satellite_address(
+    topology: LEOTopology,
+    satellite_id: int,
+    constellation_data: ConstellationData,
+) -> TopologicalNetworkAddress:
+    satellite = topology.get_satellite(satellite_id)
+    if hasattr(satellite, "sixgrupa_addr") and satellite.sixgrupa_addr is not None:
+        cached_address = satellite.sixgrupa_addr
+        if (
+            cached_address.shell_id == 0
+            and cached_address.plane_id < constellation_data.n_orbits
+            and cached_address.sat_index < constellation_data.n_sats_per_orbit
+        ):
+            return cached_address
+
+    try:
+        return TopologicalNetworkAddress.set_address_from_constellation(
+            satellite_id,
+            constellation_data.n_orbits,
+            constellation_data.n_sats_per_orbit,
+        )
+    except ValueError:
+        try:
+            sorted_satellite_ids = sorted(sat.id for sat in topology.get_satellites())
+            logical_satellite_index = sorted_satellite_ids.index(satellite_id)
+            return TopologicalNetworkAddress.set_address_from_constellation(
+                logical_satellite_index,
+                constellation_data.n_orbits,
+                constellation_data.n_sats_per_orbit,
+            )
+        except (ValueError, IndexError):
+            return TopologicalNetworkAddress.set_address_from_orbital_parameters(satellite_id)
 
 
 def _detect_gsl_changes(
@@ -269,7 +365,11 @@ def _detect_gsl_changes(
 
 
 def _assign_gs_address_from_satellite(
-    gs: GroundStation, satellite_id: int, gs_subnet_index: int, topology: LEOTopology
+    gs: GroundStation,
+    satellite_id: int,
+    gs_subnet_index: int,
+    topology: LEOTopology,
+    constellation_data: ConstellationData,
 ) -> Optional[TopologicalNetworkAddress]:
     """
     Assign a 6grupa address to a ground station based on its attached satellite.
@@ -287,10 +387,7 @@ def _assign_gs_address_from_satellite(
         # Get the satellite's 6grupa address
         satellite = topology.get_satellite(satellite_id)
         if not hasattr(satellite, "sixgrupa_addr") or not satellite.sixgrupa_addr:
-            # If satellite doesn't have an address, create one
-            sat_address = TopologicalNetworkAddress.set_address_from_orbital_parameters(
-                satellite_id
-            )
+            sat_address = _get_satellite_address(topology, satellite_id, constellation_data)
             satellite.sixgrupa_addr = sat_address
         else:
             sat_address = satellite.sixgrupa_addr
@@ -316,7 +413,11 @@ def _assign_gs_address_from_satellite(
 
 
 def _perform_renumbering_for_gs(
-    gs: GroundStation, prev_sat_id: Optional[int], curr_sat_id: Optional[int], topology: LEOTopology
+    gs: GroundStation,
+    prev_sat_id: Optional[int],
+    curr_sat_id: Optional[int],
+    topology: LEOTopology,
+    constellation_data: ConstellationData | None = None,
 ):
     """
     Perform renumbering when a ground station's satellite links change.
@@ -325,13 +426,18 @@ def _perform_renumbering_for_gs(
     """
     log.debug(f"Renumbering for GS {gs.id} from satellite {prev_sat_id} to {curr_sat_id}")
 
+    if constellation_data is None:
+        constellation_data = topology.constellation_data
+
     if curr_sat_id is not None:
         # Get the satellite's 6grupa address to match coordinates
         try:
             satellite = topology.get_satellite(curr_sat_id)
             if satellite.sixgrupa_addr is None:
-                satellite.sixgrupa_addr = (
-                    TopologicalNetworkAddress.set_address_from_orbital_parameters(curr_sat_id)
+                satellite.sixgrupa_addr = _get_satellite_address(
+                    topology,
+                    curr_sat_id,
+                    constellation_data,
                 )
             sat_addr = satellite.sixgrupa_addr
         except Exception:
@@ -362,7 +468,13 @@ def _perform_renumbering_for_gs(
             subnet_index += 1
 
         # Assign new address based on the current satellite
-        gs_address = _assign_gs_address_from_satellite(gs, curr_sat_id, subnet_index, topology)
+        gs_address = _assign_gs_address_from_satellite(
+            gs,
+            curr_sat_id,
+            subnet_index,
+            topology,
+            constellation_data,
+        )
         if gs_address:
             gs.sixgrupa_addr = gs_address
             gs.previous_attached_satellite_id = curr_sat_id  # Update the previous attachment
@@ -380,6 +492,7 @@ def _fill_forwarding_tables_in_every_satellite(
     satellite_node_ids: list[int],
     satellite_only_subgraph: nx.Graph,
     topology_with_isls: LEOTopology,
+    constellation_data: ConstellationData,
 ):
     """
     Fill forwarding tables in every satellite based on neighbor 6grupa addresses.
@@ -391,10 +504,10 @@ def _fill_forwarding_tables_in_every_satellite(
                 interface = topology_with_isls.sat_neighbor_to_if.get((satellite_id, neighbor_id))
                 if interface is not None:
                     try:
-                        neighbor_address = (
-                            TopologicalNetworkAddress.set_address_from_orbital_parameters(
-                                neighbor_id
-                            )
+                        neighbor_address = _get_satellite_address(
+                            topology_with_isls,
+                            neighbor_id,
+                            constellation_data,
                         )
                         satellite.forwarding_table[neighbor_address.to_integer()] = interface
                         log.debug(
@@ -412,13 +525,14 @@ def _fill_forwarding_tables_in_every_satellite(
 def _calculate_sat_to_gs_fstate(
     topology_with_isls,
     ground_stations,
-    ground_station_satellites_in_range,
     nodelist,
-    node_to_index,
-    sat_subgraph,
-    sat_neighbor_to_if,
-    dist_satellite_to_ground_station,
+    satellite_addresses,
+    neighbor_candidates,
+    gs_destination_candidates,
     fstate,
+    constellation_data,
+    distance_mode: str,
+    weight_model: dict | None = None,
 ):
     """
     Calculate satellite-to-ground-station forwarding state using topological routing.
@@ -431,82 +545,78 @@ def _calculate_sat_to_gs_fstate(
 
     for curr_sat_id in nodelist:
         try:
-            curr_satellite = topology_with_isls.get_satellite(curr_sat_id)
+            topology_with_isls.get_satellite(curr_sat_id)
         except KeyError:
             log.error(f"Could not find satellite object {curr_sat_id}")
             continue
 
+        curr_satellite_address = satellite_addresses.get(curr_sat_id)
+        if curr_satellite_address is None:
+            log.warning(f"Satellite {curr_sat_id} has no 6grupa address assigned")
+            continue
+
         for gs_idx, dst_gs in enumerate(ground_stations):
             dst_gs_node_id = dst_gs.id
-            if gs_idx >= len(ground_station_satellites_in_range):
+            if gs_idx >= len(gs_destination_candidates):
                 continue
 
-            possible_dst_sats = ground_station_satellites_in_range[gs_idx]
+            possible_dst_sats = gs_destination_candidates[gs_idx]
             if not possible_dst_sats:
                 continue
 
             log.debug(
-                f"FSTATE: Sat {curr_sat_id} -> GS {dst_gs.id}. Visible sats: {[sat_id for _, sat_id in possible_dst_sats]}"
+                f"FSTATE: Sat {curr_sat_id} -> GS {dst_gs.id}. Visible sats: {[sat_id for _, sat_id, _ in possible_dst_sats]}"
             )
 
             # Find the best destination satellite using topological distance
-            best_dst_sat_id = None
+            best_destination_address = None
             best_total_distance = float("inf")
+            heuristic_costs = _estimate_axis_step_costs(
+                curr_satellite_address,
+                neighbor_candidates.get(curr_sat_id, []),
+            )
 
-            for dist_gs_to_sat_m, visible_sat_id in possible_dst_sats:
+            for dist_gs_to_sat_m, visible_sat_id, dest_sat_address in possible_dst_sats:
                 try:
-                    # Get 6grupa address of the destination satellite
-                    dest_sat_address = (
-                        TopologicalNetworkAddress.set_address_from_orbital_parameters(
-                            visible_sat_id
-                        )
+                    topo_distance = _routing_topological_distance(
+                        curr_satellite_address,
+                        dest_sat_address,
+                        constellation_data,
+                        distance_mode=distance_mode,
+                        plane_step_cost=heuristic_costs[0],
+                        sat_step_cost=heuristic_costs[1],
+                        weight_model=weight_model,
+                    )
+                    total_distance = topo_distance + _scaled_gsl_distance(
+                        dist_gs_to_sat_m,
+                        distance_mode,
                     )
 
-                    # Calculate topological distance from current satellite to destination satellite
-                    if hasattr(curr_satellite, "sixgrupa_addr") and curr_satellite.sixgrupa_addr:
-                        topo_distance = curr_satellite.sixgrupa_addr.topological_distance_to(
-                            dest_sat_address
-                        )
-                        total_distance = topo_distance + (
-                            dist_gs_to_sat_m / 1000000.0
-                        )  # Convert to similar scale
-
-                        if total_distance < best_total_distance:
-                            best_total_distance = total_distance
-                            best_dst_sat_id = visible_sat_id
-                    else:
-                        log.warning(f"Satellite {curr_sat_id} has no 6grupa address assigned")
-
+                    if total_distance < best_total_distance:
+                        best_total_distance = total_distance
+                        best_destination_address = dest_sat_address
                 except Exception as e:
                     log.warning(f"Failed to process destination satellite {visible_sat_id}: {e}")
                     continue
 
-            if best_dst_sat_id is None:
+            if best_destination_address is None:
                 continue
 
-            # Get destination satellite address for routing decision
             try:
-                dest_sat_address = TopologicalNetworkAddress.set_address_from_orbital_parameters(
-                    best_dst_sat_id
-                )
-
-                # Determine next hop using topological routing
                 next_hop_decision, distance_to_ground_station_m = (
                     _get_next_hop_decision_topological(
                         curr_sat_id,
-                        curr_satellite,
-                        dest_sat_address,
-                        sat_subgraph,
-                        sat_neighbor_to_if,
-                        topology_with_isls,
+                        curr_satellite_address,
+                        best_destination_address,
+                        neighbor_candidates.get(curr_sat_id, []),
                         dst_gs_node_id,
+                        constellation_data,
+                        distance_mode,
+                        weight_model,
                     )
                 )
 
                 if next_hop_decision is not None:
-                    dist_satellite_to_ground_station[(curr_sat_id, dst_gs_node_id)] = (
-                        distance_to_ground_station_m
-                    )
                     fstate[(curr_sat_id, dst_gs_node_id)] = next_hop_decision
                     log.debug(
                         f"Fstate entry: Sat {curr_sat_id} -> GS {dst_gs_node_id} via {next_hop_decision}"
@@ -521,12 +631,13 @@ def _calculate_sat_to_gs_fstate(
 
 def _get_next_hop_decision_topological(
     curr_sat_id: int,
-    curr_satellite,
+    curr_satellite_address: TopologicalNetworkAddress,
     destination_address: TopologicalNetworkAddress,
-    sat_subgraph,
-    sat_neighbor_to_if,
-    topology_with_isls,
+    neighbor_candidates: list[tuple[int, int, TopologicalNetworkAddress, float]],
     dst_gs_node_id: int,
+    constellation_data: ConstellationData,
+    distance_mode: str,
+    weight_model: dict | None = None,
 ) -> tuple:
     """
     Determine the next hop decision using topological routing.
@@ -546,12 +657,19 @@ def _get_next_hop_decision_topological(
     Returns:
         tuple: (next_hop_interface_or_decision, distance) or (None, inf) if no path
     """
-    if not hasattr(curr_satellite, "sixgrupa_addr") or not curr_satellite.sixgrupa_addr:
-        log.warning(f"Satellite {curr_sat_id} has no 6grupa address assigned")
-        return None, float("inf")
-
-    my_address = curr_satellite.sixgrupa_addr
-    my_distance_to_dest = my_address.topological_distance_to(destination_address)
+    plane_step_cost, sat_step_cost = _estimate_axis_step_costs(
+        curr_satellite_address,
+        neighbor_candidates,
+    )
+    my_distance_to_dest = _routing_topological_distance(
+        curr_satellite_address,
+        destination_address,
+        constellation_data,
+        distance_mode=distance_mode,
+        plane_step_cost=plane_step_cost,
+        sat_step_cost=sat_step_cost,
+        weight_model=weight_model,
+    )
 
     # Check if we are already at the destination satellite
     if my_distance_to_dest == 0.0:
@@ -561,32 +679,65 @@ def _get_next_hop_decision_topological(
 
     # Find the best neighbor using topological distance
     best_neighbor_id = None
-    best_distance = my_distance_to_dest
+    best_distance = float("inf")
     best_interface = None
+    best_tie_break = None
 
     # Check all neighbors
-    for neighbor_id in sat_subgraph.neighbors(curr_sat_id):
+    for neighbor_id, interface, neighbor_address, edge_weight in neighbor_candidates:
         try:
-            neighbor_address = TopologicalNetworkAddress.set_address_from_orbital_parameters(
-                neighbor_id
+            neighbor_distance_to_dest = _routing_topological_distance(
+                neighbor_address,
+                destination_address,
+                constellation_data,
+                distance_mode=distance_mode,
+                plane_step_cost=plane_step_cost,
+                sat_step_cost=sat_step_cost,
+                weight_model=weight_model,
             )
-            neighbor_distance_to_dest = neighbor_address.topological_distance_to(
-                destination_address
+            candidate_score = _neighbor_candidate_score(
+                edge_weight=edge_weight,
+                neighbor_distance_to_dest=neighbor_distance_to_dest,
+                distance_mode=distance_mode,
+            )
+            tie_break = _routing_tie_break_tuple(
+                neighbor_address,
+                destination_address,
+                constellation_data,
+            )
+            strict_progress = _routing_strict_progress_tuple(
+                neighbor_address,
+                destination_address,
             )
 
             # If this neighbor is closer to destination, consider it
-            if neighbor_distance_to_dest < best_distance:
-                interface = sat_neighbor_to_if.get((curr_sat_id, neighbor_id))
-                if interface is not None:
-                    best_distance = neighbor_distance_to_dest
+            if candidate_score < best_distance:
+                best_distance = candidate_score
+                best_neighbor_id = neighbor_id
+                best_interface = interface
+                best_tie_break = tie_break
+            elif candidate_score == best_distance:
+                if best_tie_break is None or tie_break < best_tie_break:
                     best_neighbor_id = neighbor_id
                     best_interface = interface
+                    best_tie_break = tie_break
+            elif neighbor_distance_to_dest == my_distance_to_dest:
+                my_strict_progress = _routing_strict_progress_tuple(
+                    curr_satellite_address,
+                    destination_address,
+                )
+                if strict_progress < my_strict_progress and (
+                    best_neighbor_id is None or best_tie_break is None or tie_break < best_tie_break
+                ):
+                    best_neighbor_id = neighbor_id
+                    best_interface = interface
+                    best_tie_break = tie_break
 
         except Exception:
             # Skip this neighbor if we can't get its address
             continue
 
-    if best_neighbor_id is not None:
+    if best_neighbor_id is not None and best_distance < float("inf"):
         log.debug(
             f"Topological routing: Sat {curr_sat_id} -> {best_neighbor_id} (if {best_interface}) "
             f"towards destination with distance {best_distance}"
@@ -596,3 +747,287 @@ def _get_next_hop_decision_topological(
     # No better neighbor found - this shouldn't happen in a connected graph
     log.warning(f"No better neighbor found for satellite {curr_sat_id} to reach destination")
     return None, float("inf")
+
+
+def _routing_topological_distance(
+    source_address: TopologicalNetworkAddress,
+    destination_address: TopologicalNetworkAddress,
+    constellation_data: ConstellationData,
+    distance_mode: str = "torus_weighted_lookahead",
+    plane_step_cost: float = 1.0,
+    sat_step_cost: float = 1.0,
+    weight_model: dict | None = None,
+) -> float:
+    if distance_mode == "torus_unit":
+        return torus_topological_distance(
+            source_address,
+            destination_address,
+            plane_modulus=constellation_data.n_orbits,
+            sat_modulus=constellation_data.n_sats_per_orbit,
+            plane_weight=1.0,
+            sat_weight=1.0,
+            shell_penalty=1000.0,
+        )
+    if distance_mode == "torus_unit_seam":
+        # EXPERIMENTAL / INCOMPLETE. Seam-aware hop metric: the orbital-plane
+        # axis is open (no wrap across the counter-rotating seam), so plane
+        # distance is |dp| rather than the cyclic min(|dp|, O-|dp|). Inflating
+        # the plane modulus past the index range makes torus_delta degenerate to
+        # the absolute difference.
+        # NOTE: this only changes the PRIMARY distance. The tie-break and
+        # strict-progress helpers (_routing_tie_break_tuple,
+        # _routing_strict_progress_tuple) still use cyclic % n_orbits semantics,
+        # so on the cylinder (grid_seam) they disagree with this open metric and
+        # greedy loops on inter-plane pairs. A correct seam-aware forwarding
+        # rule must make those helpers open-axis too. Kept as the starting point
+        # for the seam/exception-policy work; do not use for results as-is.
+        return torus_topological_distance(
+            source_address,
+            destination_address,
+            plane_modulus=2 * constellation_data.n_orbits,
+            sat_modulus=constellation_data.n_sats_per_orbit,
+            plane_weight=1.0,
+            sat_weight=1.0,
+            shell_penalty=1000.0,
+        )
+    if distance_mode == "torus_weighted_pivot" and weight_model is not None:
+        return _torus_weighted_pivot_distance(
+            source_address,
+            destination_address,
+            weight_model,
+            shell_penalty=1000.0,
+        )
+    return weighted_torus_progress_distance(
+        source_address,
+        destination_address,
+        plane_modulus=constellation_data.n_orbits,
+        sat_modulus=constellation_data.n_sats_per_orbit,
+        plane_step_cost=plane_step_cost,
+        sat_step_cost=sat_step_cost,
+        shell_penalty=1000.0,
+    )
+
+
+def _build_torus_weight_model(
+    satellite_only_subgraph: nx.Graph,
+    satellite_addresses: dict[int, TopologicalNetworkAddress],
+    constellation_data: ConstellationData,
+) -> dict:
+    plane_modulus = constellation_data.n_orbits
+    sat_modulus = constellation_data.n_sats_per_orbit
+    row_edge_costs = [[float("inf")] * sat_modulus for _ in range(plane_modulus)]
+    plane_edge_costs = [[float("inf")] * plane_modulus for _ in range(sat_modulus)]
+
+    for sat_a_id, sat_b_id, edge_data in satellite_only_subgraph.edges(data=True):
+        addr_a = satellite_addresses.get(sat_a_id)
+        addr_b = satellite_addresses.get(sat_b_id)
+        if addr_a is None or addr_b is None:
+            continue
+        sat_a = addr_a.get_satellite_address()
+        sat_b = addr_b.get_satellite_address()
+        if sat_a.shell_id != sat_b.shell_id:
+            continue
+        edge_weight = float(edge_data.get("weight", 1.0))
+
+        if sat_a.plane_id == sat_b.plane_id:
+            _record_forward_torus_edge(
+                row_edge_costs[sat_a.plane_id],
+                sat_a.sat_index,
+                sat_b.sat_index,
+                edge_weight,
+            )
+        elif sat_a.sat_index == sat_b.sat_index:
+            _record_forward_torus_edge(
+                plane_edge_costs[sat_a.sat_index],
+                sat_a.plane_id,
+                sat_b.plane_id,
+                edge_weight,
+            )
+
+    row_path_costs = [
+        [
+            [
+                _torus_path_cost(row_edge_costs[plane_index], source_row, destination_row)
+                for destination_row in range(sat_modulus)
+            ]
+            for source_row in range(sat_modulus)
+        ]
+        for plane_index in range(plane_modulus)
+    ]
+    plane_path_costs = [
+        [
+            [
+                _torus_path_cost(plane_edge_costs[row_index], source_plane, destination_plane)
+                for destination_plane in range(plane_modulus)
+            ]
+            for source_plane in range(plane_modulus)
+        ]
+        for row_index in range(sat_modulus)
+    ]
+
+    return {
+        "plane_modulus": plane_modulus,
+        "sat_modulus": sat_modulus,
+        "row_edge_costs": row_edge_costs,
+        "plane_edge_costs": plane_edge_costs,
+        "row_path_costs": row_path_costs,
+        "plane_path_costs": plane_path_costs,
+        "pivot_distance_cache": {},
+    }
+
+
+def _record_forward_torus_edge(
+    edge_costs: list[float],
+    index_a: int,
+    index_b: int,
+    edge_weight: float,
+) -> None:
+    modulus = len(edge_costs)
+    if modulus <= 0:
+        return
+    if (index_b - index_a) % modulus == 1:
+        edge_index = index_a
+    elif (index_a - index_b) % modulus == 1:
+        edge_index = index_b
+    else:
+        return
+    edge_costs[edge_index] = min(edge_costs[edge_index], edge_weight)
+
+
+def _torus_weighted_pivot_distance(
+    source_address: TopologicalNetworkAddress,
+    destination_address: TopologicalNetworkAddress,
+    weight_model: dict,
+    shell_penalty: float = 1000.0,
+) -> float:
+    source_sat = source_address.get_satellite_address()
+    destination_sat = destination_address.get_satellite_address()
+    if source_sat == destination_sat:
+        return 0.0
+    if source_sat.shell_id != destination_sat.shell_id:
+        shell_diff = abs(source_sat.shell_id - destination_sat.shell_id)
+        return shell_penalty + shell_diff * shell_penalty
+
+    cache_key = (
+        source_sat.plane_id,
+        source_sat.sat_index,
+        destination_sat.plane_id,
+        destination_sat.sat_index,
+    )
+    distance_cache = weight_model["pivot_distance_cache"]
+    cached_distance = distance_cache.get(cache_key)
+    if cached_distance is not None:
+        return cached_distance
+
+    row_path_costs = weight_model["row_path_costs"]
+    plane_path_costs = weight_model["plane_path_costs"]
+    sat_modulus = int(weight_model["sat_modulus"])
+    best_distance = float("inf")
+
+    for pivot_row in range(sat_modulus):
+        source_row_cost = row_path_costs[source_sat.plane_id][source_sat.sat_index][pivot_row]
+        plane_cost = plane_path_costs[pivot_row][source_sat.plane_id][destination_sat.plane_id]
+        destination_row_cost = row_path_costs[destination_sat.plane_id][pivot_row][
+            destination_sat.sat_index
+        ]
+        best_distance = min(
+            best_distance,
+            source_row_cost + plane_cost + destination_row_cost,
+        )
+
+    distance_cache[cache_key] = best_distance
+    return best_distance
+
+
+def _torus_path_cost(edge_costs: list[float], start_index: int, end_index: int) -> float:
+    modulus = len(edge_costs)
+    if modulus <= 0:
+        return float("inf")
+    if start_index == end_index:
+        return 0.0
+
+    forward_steps = (end_index - start_index) % modulus
+    backward_steps = (start_index - end_index) % modulus
+    forward_cost = _sum_torus_edges(edge_costs, start_index, 1, forward_steps)
+    backward_cost = _sum_torus_edges(edge_costs, start_index - 1, -1, backward_steps)
+    return min(forward_cost, backward_cost)
+
+
+def _sum_torus_edges(
+    edge_costs: list[float],
+    start_edge_index: int,
+    direction: int,
+    steps: int,
+) -> float:
+    total = 0.0
+    modulus = len(edge_costs)
+    for step in range(steps):
+        edge_cost = edge_costs[(start_edge_index + direction * step) % modulus]
+        if edge_cost == float("inf"):
+            return float("inf")
+        total += edge_cost
+    return total
+
+
+def _scaled_gsl_distance(distance_m: float, distance_mode: str) -> float:
+    if distance_mode in {"torus_weighted", "torus_weighted_lookahead", "torus_weighted_pivot"}:
+        return float(distance_m)
+    return float(distance_m) / 1000000.0
+
+
+def _estimate_axis_step_costs(
+    current_address: TopologicalNetworkAddress,
+    neighbor_candidates: list[tuple[int, int, TopologicalNetworkAddress, float]],
+) -> tuple[float, float]:
+    plane_costs = []
+    sat_costs = []
+    for _neighbor_id, _interface, neighbor_address, edge_weight in neighbor_candidates:
+        if edge_weight <= 0.0:
+            continue
+        same_plane = neighbor_address.plane_id == current_address.plane_id
+        same_sat = neighbor_address.sat_index == current_address.sat_index
+        if not same_plane and same_sat:
+            plane_costs.append(float(edge_weight))
+        elif same_plane and not same_sat:
+            sat_costs.append(float(edge_weight))
+    plane_step_cost = min(plane_costs) if plane_costs else 1.0
+    sat_step_cost = min(sat_costs) if sat_costs else 1.0
+    return (plane_step_cost, sat_step_cost)
+
+
+def _neighbor_candidate_score(
+    edge_weight: float,
+    neighbor_distance_to_dest: float,
+    distance_mode: str,
+) -> float:
+    if distance_mode in {"torus_unit", "torus_weighted"}:
+        return neighbor_distance_to_dest
+    return edge_weight + neighbor_distance_to_dest
+
+
+def _routing_tie_break_tuple(
+    source_address: TopologicalNetworkAddress,
+    destination_address: TopologicalNetworkAddress,
+    constellation_data: ConstellationData,
+) -> tuple[int, int, int]:
+    source_sat = source_address.get_satellite_address()
+    destination_sat = destination_address.get_satellite_address()
+    plane_forward = (destination_sat.plane_id - source_sat.plane_id) % constellation_data.n_orbits
+    sat_forward = (
+        destination_sat.sat_index - source_sat.sat_index
+    ) % constellation_data.n_sats_per_orbit
+    same_plane_priority = 0 if source_sat.plane_id == destination_sat.plane_id else 1
+    return (same_plane_priority, sat_forward, plane_forward)
+
+
+def _routing_strict_progress_tuple(
+    source_address: TopologicalNetworkAddress,
+    destination_address: TopologicalNetworkAddress,
+) -> tuple[int, int, int]:
+    source_sat = source_address.get_satellite_address()
+    destination_sat = destination_address.get_satellite_address()
+    return (
+        abs(source_sat.plane_id - destination_sat.plane_id),
+        abs(source_sat.sat_index - destination_sat.sat_index),
+        abs(source_sat.shell_id - destination_sat.shell_id),
+    )

@@ -6,6 +6,7 @@ from leopath.topology.satellite.topological_network_address import (
     MAX_SATS_PER_PLANE,
     MAX_SHELLS,
     TopologicalNetworkAddress,
+    torus_topological_distance,
 )
 
 
@@ -181,3 +182,28 @@ class TestTopologicalNetworkAddress(unittest.TestCase):
         gs_addr = TopologicalNetworkAddress(shell_id=2, plane_id=20, sat_index=15, subnet_index=7)
         self.assertEqual(str(sat_addr), "TopoAddr(sh:1, o:10, s:5, x:Sat)")
         self.assertEqual(str(gs_addr), "TopoAddr(sh:2, o:20, s:15, x:GS[7])")
+
+    def test_set_address_from_constellation_supports_starlink_plane_size(self):
+        addr = TopologicalNetworkAddress.set_address_from_constellation(
+            satellite_id=1583,
+            n_orbits=22,
+            n_sats_per_orbit=72,
+        )
+
+        self.assertEqual(addr.plane_id, 21)
+        self.assertEqual(addr.sat_index, 71)
+
+    def test_torus_distance_uses_actual_constellation_modulus(self):
+        left = TopologicalNetworkAddress(shell_id=0, plane_id=0, sat_index=0, subnet_index=0)
+        right = TopologicalNetworkAddress(shell_id=0, plane_id=21, sat_index=71, subnet_index=0)
+
+        distance = torus_topological_distance(
+            left,
+            right,
+            plane_modulus=22,
+            sat_modulus=72,
+            plane_weight=1.0,
+            sat_weight=1.0,
+        )
+
+        self.assertEqual(distance, 2.0)

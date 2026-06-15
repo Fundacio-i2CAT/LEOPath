@@ -55,6 +55,7 @@ omit = [
 [tool.pytest.ini_options]
 addopts = "--cov-report xml:cov.xml --cov leopath"
 testpaths = ["tests"]
+pythonpath = ["."]
 log_cli = true
 log_level = "INFO"
 log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"

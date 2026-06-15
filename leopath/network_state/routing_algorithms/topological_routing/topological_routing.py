@@ -1,11 +1,10 @@
-from astropy import units as astro_units
-from astropy.time import Time
-
-from leopath.network_state.gsl_attachment.gsl_attachment_factory import GSLAttachmentFactory
 from leopath.network_state.routing_algorithms.routing_algorithm import RoutingAlgorithm
 from leopath.topology.topology import ConstellationData, GroundStation, LEOTopology
 
-from .algorithm_topological_routing import algorithm_topological_routing
+from .algorithm_topological_routing import (
+    _calculate_bandwidth_state,
+    algorithm_topological_routing,
+)
 
 
 class TopologicalRoutingAlgorithm(RoutingAlgorithm):
@@ -19,6 +18,10 @@ class TopologicalRoutingAlgorithm(RoutingAlgorithm):
     - Supports both direct GSL connections and multi-hop ISL paths
     """
 
+    def __init__(self) -> None:
+        self._cached_bandwidth_signature: tuple | None = None
+        self._cached_bandwidth_state: dict | None = None
+
     def compute_state(
         self,
         time_since_epoch_ns: int,
@@ -27,6 +30,7 @@ class TopologicalRoutingAlgorithm(RoutingAlgorithm):
         topology_with_isls: LEOTopology,
         ground_station_satellites_in_range: list,
         list_gsl_interfaces_info: list,
+        algorithm_params: dict | None = None,
     ) -> dict:
         """
         Calculates bandwidth and forwarding state for the current network state using topological routing.
@@ -42,19 +46,29 @@ class TopologicalRoutingAlgorithm(RoutingAlgorithm):
         Returns:
             Dictionary containing the new 'fstate' and 'bandwidth' state objects
         """
-        # Get the GSL attachment strategy (default to nearest satellite, same as shortest path)
-        gsl_strategy = GSLAttachmentFactory.get_strategy("nearest_satellite")
-
-        # Create a current_time object to match the pattern used in generate_network_state.py
-        epoch = Time("2000-01-01 00:00:00", scale="tdb")
-        current_time = epoch + time_since_epoch_ns * astro_units.ns
+        bandwidth_signature = tuple(
+            (
+                node_info.get("id", index),
+                node_info.get("aggregate_max_bandwidth", 0.0),
+            )
+            for index, node_info in enumerate(list_gsl_interfaces_info)
+        )
+        if bandwidth_signature != self._cached_bandwidth_signature:
+            self._cached_bandwidth_state = _calculate_bandwidth_state(
+                constellation_data,
+                ground_stations,
+                list_gsl_interfaces_info,
+            )
+            self._cached_bandwidth_signature = bandwidth_signature
 
         return algorithm_topological_routing(
             time_since_epoch_ns,
             constellation_data,
             ground_stations,
             topology_with_isls,
-            gsl_strategy,
-            current_time,
-            list_gsl_interfaces_info,
+            ground_station_satellites_in_range,
+            self._cached_bandwidth_state or {},
+            prev_fstate=None,
+            graph_has_changed=True,
+            algorithm_params=algorithm_params or {},
         )

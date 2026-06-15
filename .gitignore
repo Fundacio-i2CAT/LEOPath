@@ -15,6 +15,17 @@ simulation_output/
 tle_output/
 visualisation_output/
 output/
+site/
+
+# Evaluation outputs live in the companion data repository:
+# /home/sergio/phd/ntn-paper-eval-data
+paper_eval_outputs/
+paper_eval_plots/
+quick_eval_outputs/
+quick_eval_outputs_5min/
+quick_eval_plots/
+quick_eval_plots_5min/
+quick_eval_smoke/
 
 # Scattered output files (should be organized)
 simulation_*.log
@@ -22,6 +33,7 @@ ether_simple.txt
 *.txt.tmp
 visualisation_output
 *.tmp
+!tles_starlink_550_sgp.txt.tmp
 output/
 ether_simple_tles.txt
 

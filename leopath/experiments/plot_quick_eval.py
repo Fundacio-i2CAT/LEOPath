@@ -1,12 +1,38 @@
 import argparse
 import csv
+import math
 from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt  # noqa: E402
+
+ALGORITHM_COLORS = {
+    "shortest_path_link_state": "#4c72b0",
+    "topological_routing": "#55a868",
+    "predictive_link_state": "#c44e52",
+    "explicit_path_routing": "#8172b3",
+}
+
+
+def apply_poster_style() -> None:
+    # Poster-friendly defaults: thicker lines, larger text, lighter grid.
+    plt.rcParams.update(
+        {
+            "figure.dpi": 150,
+            "savefig.dpi": 300,
+            "font.size": 13,
+            "axes.titlesize": 15,
+            "axes.labelsize": 13,
+            "xtick.labelsize": 12,
+            "ytick.labelsize": 12,
+            "legend.fontsize": 11,
+            "lines.linewidth": 3.0,
+            "lines.markersize": 5.0,
+        }
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -69,8 +95,25 @@ def collect_runs(input_dir: Path) -> dict:
     return runs
 
 
+def algorithm_color(label: str):
+    return ALGORITHM_COLORS.get(label)
+
+
+def stretch_series(rows: list[dict], metric_suffix: str, stat: str) -> list[float]:
+    value_col = f"stretch_{metric_suffix}_{stat}"
+    count_col = f"stretch_{metric_suffix}_count"
+    series = []
+    for row in rows:
+        value = row[value_col]
+        if row.get(count_col, 0.0) <= 0.0:
+            series.append(math.nan)
+        else:
+            series.append(value)
+    return series
+
+
 def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str, log_scale: bool) -> None:
-    fig, ax = plt.subplots(figsize=(8, 4.5))
+    fig, ax = plt.subplots(figsize=(9.2, 5.2))
     for algo, data in runs.items():
         rows = data["timestep"]
         if not rows:
@@ -85,23 +128,31 @@ def plot_fstate_timeseries(output_dir: Path, runs: dict, isl: str, log_scale: bo
         times = time_minutes(rows)
         mean = [row[mean_key] for row in rows]
         p95 = [row[p95_key] for row in rows]
-        ax.plot(times, mean, label=f"{algo} mean")
-        ax.plot(times, p95, linestyle="--", label=f"{algo} p95")
-    ax.set_title(f"Forwarding State Size ({isl})")
+        (mean_line,) = ax.plot(times, mean, label=algo, color=algorithm_color(algo))
+        ax.plot(
+            times,
+            p95,
+            linestyle="--",
+            color=mean_line.get_color(),
+            linewidth=1.8,
+            alpha=0.45,
+        )
+    ax.set_title(f"Forwarding Table Entries ({isl})")
     ax.set_xlabel("Time (minutes)")
-    ax.set_ylabel("State units")
+    ax.set_ylabel("FIB entries (proxy)")
     if log_scale:
         ax.set_yscale("log")
-    ax.grid(True, alpha=0.3)
-    ax.legend(ncol=2, fontsize=8)
+    ax.grid(True, alpha=0.18, linewidth=0.8)
+    ax.legend(ncol=2, frameon=False)
     fig.tight_layout()
-    fig.savefig(output_dir / f"fstate_timeseries_{isl}.png", dpi=150)
+    fig.savefig(output_dir / f"fstate_timeseries_{isl}.png")
     plt.close(fig)
 
 
 def plot_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
-    fig, axes = plt.subplots(3, 1, figsize=(8, 9), sharex=True)
+    fig, axes = plt.subplots(4, 1, figsize=(9.2, 12.2), sharex=True)
     churn_specs = [
+        ("gs_renumber_rate", "GS renumbering rate"),
         ("gs_handover_rate", "GS handover rate"),
         ("sat_gs_churn", "Sat→GS next-hop churn"),
         ("gs_gs_churn", "GS→GS next-hop churn"),
@@ -111,20 +162,20 @@ def plot_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
             rows = data["delta"]
             times = time_minutes(rows)
             series = [row[metric] for row in rows]
-            ax.plot(times, series, label=algo)
+            ax.plot(times, series, label=algo, linewidth=3.0, color=algorithm_color(algo))
         ax.set_title(title)
-        ax.set_ylabel("Fraction")
-        ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=8)
+        ax.set_ylabel("Rate")
+        ax.grid(True, alpha=0.18, linewidth=0.8)
+        ax.legend(frameon=False)
     axes[-1].set_xlabel("Time (minutes)")
     fig.suptitle(f"Routing Churn ({isl})", y=0.99)
     fig.tight_layout()
-    fig.savefig(output_dir / f"churn_timeseries_{isl}.png", dpi=150)
+    fig.savefig(output_dir / f"churn_timeseries_{isl}.png")
     plt.close(fig)
 
 
 def plot_churn_core_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
-    fig, axes = plt.subplots(2, 1, figsize=(8, 6.2), sharex=True)
+    fig, axes = plt.subplots(2, 1, figsize=(9.2, 7.0), sharex=True)
     churn_specs = [
         ("sat_gs_churn", "Sat→GS next-hop churn"),
         ("gs_gs_churn", "GS→GS next-hop churn"),
@@ -136,20 +187,20 @@ def plot_churn_core_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
                 continue
             times = time_minutes(rows)
             series = [row[metric] for row in rows]
-            ax.plot(times, series, label=algo)
+            ax.plot(times, series, label=algo, linewidth=3.0, color=algorithm_color(algo))
         ax.set_title(title)
-        ax.set_ylabel("Fraction")
-        ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=8)
+        ax.set_ylabel("Rate")
+        ax.grid(True, alpha=0.18, linewidth=0.8)
+        ax.legend(frameon=False)
     axes[-1].set_xlabel("Time (minutes)")
     fig.suptitle(f"Routing Churn (core, {isl})", y=0.99)
     fig.tight_layout()
-    fig.savefig(output_dir / f"churn_core_timeseries_{isl}.png", dpi=150)
+    fig.savefig(output_dir / f"churn_core_timeseries_{isl}.png")
     plt.close(fig)
 
 
 def plot_sat_gs_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
-    fig, ax = plt.subplots(figsize=(8, 4.6))
+    fig, ax = plt.subplots(figsize=(9.2, 5.2))
     metric = "sat_gs_churn"
     for algo, data in runs.items():
         rows = data["delta"]
@@ -157,41 +208,68 @@ def plot_sat_gs_churn_timeseries(output_dir: Path, runs: dict, isl: str) -> None
             continue
         times = time_minutes(rows)
         series = [row[metric] for row in rows]
-        ax.plot(times, series, label=algo)
+        ax.plot(times, series, label=algo, linewidth=3.0, color=algorithm_color(algo))
     ax.set_title(f"Sat→GS Next-hop Churn ({isl})")
     ax.set_xlabel("Time (minutes)")
-    ax.set_ylabel("Fraction")
-    ax.grid(True, alpha=0.3)
-    ax.legend(ncol=2, fontsize=8)
+    ax.set_ylabel("Rate")
+    ax.grid(True, alpha=0.18, linewidth=0.8)
+    ax.legend(ncol=2, frameon=False)
     fig.tight_layout()
-    fig.savefig(output_dir / f"churn_sat_gs_timeseries_{isl}.png", dpi=150)
+    fig.savefig(output_dir / f"churn_sat_gs_timeseries_{isl}.png")
     plt.close(fig)
 
 
 def plot_stretch_timeseries(output_dir: Path, runs: dict, isl: str, metric: str) -> None:
-    fig, ax = plt.subplots(figsize=(8, 4.5))
+    fig, ax = plt.subplots(figsize=(9.2, 5.2))
     metric_suffix = "dist" if metric == "distance" else metric
-    mean_col = f"stretch_{metric_suffix}_mean"
-    p95_col = f"stretch_{metric_suffix}_p95"
     for algo, data in runs.items():
         rows = data["timestep"]
         times = time_minutes(rows)
-        mean = [row[mean_col] for row in rows]
-        p95 = [row[p95_col] for row in rows]
-        ax.plot(times, mean, label=f"{algo} mean")
-        ax.plot(times, p95, linestyle="--", label=f"{algo} p95")
+        mean = stretch_series(rows, metric_suffix, "mean")
+        p95 = stretch_series(rows, metric_suffix, "p95")
+        (mean_line,) = ax.plot(times, mean, label=algo, color=algorithm_color(algo))
+        # Keep p95 for tail behavior, but de-emphasize it to reduce clutter.
+        ax.plot(
+            times,
+            p95,
+            linestyle="--",
+            color=mean_line.get_color(),
+            linewidth=1.8,
+            alpha=0.45,
+        )
     ax.set_title(f"Path Stretch ({isl}, {metric})")
     ax.set_xlabel("Time (minutes)")
     ax.set_ylabel("Stretch")
-    ax.grid(True, alpha=0.3)
-    ax.legend(ncol=2, fontsize=8)
+    ax.grid(True, alpha=0.18, linewidth=0.8)
+    ax.legend(ncol=2, frameon=False)
     fig.tight_layout()
-    fig.savefig(output_dir / f"stretch_{metric}_timeseries_{isl}.png", dpi=150)
+    fig.savefig(output_dir / f"stretch_{metric}_timeseries_{isl}.png")
+    plt.close(fig)
+
+
+def plot_compute_timeseries(output_dir: Path, runs: dict, isl: str) -> None:
+    fig, ax = plt.subplots(figsize=(9.2, 5.2))
+    for algo, data in runs.items():
+        rows = data["timestep"]
+        if not rows:
+            continue
+        times = time_minutes(rows)
+        series = [row["compute_time_ms"] for row in rows]
+        ax.plot(times, series, label=algo, color=algorithm_color(algo))
+    ax.set_title(f"Compute Time ({isl})")
+    ax.set_xlabel("Time (minutes)")
+    ax.set_ylabel("Compute time (ms)")
+    ax.set_yscale("log")
+    ax.grid(True, alpha=0.18, linewidth=0.8)
+    ax.legend(ncol=2, frameon=False)
+    fig.tight_layout()
+    fig.savefig(output_dir / f"compute_timeseries_{isl}.png")
     plt.close(fig)
 
 
 def main() -> None:
     args = parse_args()
+    apply_poster_style()
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -206,6 +284,7 @@ def main() -> None:
         plot_churn_core_timeseries(output_dir, runs, isl)
         plot_sat_gs_churn_timeseries(output_dir, runs, isl)
         plot_stretch_timeseries(output_dir, runs, isl, args.stretch_metric)
+        plot_compute_timeseries(output_dir, runs, isl)
 
 
 if __name__ == "__main__":
