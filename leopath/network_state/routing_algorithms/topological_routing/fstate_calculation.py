@@ -768,28 +768,6 @@ def _routing_topological_distance(
             sat_weight=1.0,
             shell_penalty=1000.0,
         )
-    if distance_mode == "torus_unit_seam":
-        # EXPERIMENTAL / INCOMPLETE. Seam-aware hop metric: the orbital-plane
-        # axis is open (no wrap across the counter-rotating seam), so plane
-        # distance is |dp| rather than the cyclic min(|dp|, O-|dp|). Inflating
-        # the plane modulus past the index range makes torus_delta degenerate to
-        # the absolute difference.
-        # NOTE: this only changes the PRIMARY distance. The tie-break and
-        # strict-progress helpers (_routing_tie_break_tuple,
-        # _routing_strict_progress_tuple) still use cyclic % n_orbits semantics,
-        # so on the cylinder (grid_seam) they disagree with this open metric and
-        # greedy loops on inter-plane pairs. A correct seam-aware forwarding
-        # rule must make those helpers open-axis too. Kept as the starting point
-        # for the seam/exception-policy work; do not use for results as-is.
-        return torus_topological_distance(
-            source_address,
-            destination_address,
-            plane_modulus=2 * constellation_data.n_orbits,
-            sat_modulus=constellation_data.n_sats_per_orbit,
-            plane_weight=1.0,
-            sat_weight=1.0,
-            shell_penalty=1000.0,
-        )
     if distance_mode == "torus_weighted_pivot" and weight_model is not None:
         return _torus_weighted_pivot_distance(
             source_address,

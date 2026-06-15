@@ -3,9 +3,9 @@
 # grid matrix at 10s and 5min sampling to compare against the 1-min baseline
 # already present in eval-data-staging/topological-pivot-runs-6h/.
 set -euo pipefail
-cd /home/sergio/phd/LEOPath
+cd "$(cd "$(dirname "$0")/.." && pwd)"
 
-OUT=/home/sergio/phd/eval-data-staging/sampling-sweep-6h
+OUT=${OUT:-paper_eval_outputs/sampling-sweep-6h}
 PY=.venv/bin/python
 GS=leopath/config/ground_stations_dense.yaml
 

@@ -54,7 +54,7 @@
       "name": "Starlink-550",
       "label": "Starlink-550, 22 x 72",
       "tlePath": "data/tles_starlink_550_sgp.txt",
-      "rawTleUrl": "https://raw.githubusercontent.com/Fundacio-i2CAT/LEOPath/main/tles_starlink_550_sgp.txt.tmp",
+      "rawTleUrl": "https://raw.githubusercontent.com/Fundacio-i2CAT/LEOPath/main/tles_starlink_550_sgp.txt",
       "orbits": 22,
       "satsPerOrbit": 72,
       "altitudeKm": 550,

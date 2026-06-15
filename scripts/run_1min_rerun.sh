@@ -5,9 +5,9 @@
 # and report zeros for those columns, which is not comparable to the fresh
 # 10s/5min runs.
 set -euo pipefail
-cd /home/sergio/phd/LEOPath
+cd "$(cd "$(dirname "$0")/.." && pwd)"
 
-OUT=/home/sergio/phd/eval-data-staging/sampling-sweep-6h
+OUT=${OUT:-paper_eval_outputs/sampling-sweep-6h}
 PY=.venv/bin/python
 GS=leopath/config/ground_stations_dense.yaml
 

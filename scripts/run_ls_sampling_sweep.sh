@@ -5,9 +5,9 @@
 # shortest-path over 1584 sats x 2160 steps is prohibitive); the trend across the
 # three lighter constellations plus all-four at 5min/1min carries the argument.
 set -euo pipefail
-cd /home/sergio/phd/LEOPath
+cd "$(cd "$(dirname "$0")/.." && pwd)"
 
-OUT=/home/sergio/phd/eval-data-staging/sampling-sweep-6h
+OUT=${OUT:-paper_eval_outputs/sampling-sweep-6h}
 PY=.venv/bin/python
 GS=leopath/config/ground_stations_dense.yaml
 

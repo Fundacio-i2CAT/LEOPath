@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-ROOT_DIR=$(dirname "$0")
+ROOT_DIR=$(cd "$(dirname "$0")/.." && pwd)
 CONFIG_PATH="$ROOT_DIR/leopath/config/starlink.yaml"
 GS_CONFIG="$ROOT_DIR/leopath/config/ground_stations_dense.yaml"
 OUTPUT_BASE=${1:-"$ROOT_DIR/quick_eval_outputs_5min"}

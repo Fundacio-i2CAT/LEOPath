@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR=$(cd "$(dirname "$0")" && pwd)
+ROOT_DIR=$(cd "$(dirname "$0")/.." && pwd)
 CONTAINER_ROOT="/app/output"
 
 EVAL_USE_DOCKER=${EVAL_USE_DOCKER:-0}

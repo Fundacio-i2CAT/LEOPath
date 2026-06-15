@@ -53,7 +53,7 @@ SHELL_BITS = (MAX_SHELLS - 1).bit_length() if MAX_SHELLS > 1 else 1  # e.g., 4 b
 PLANE_BITS = (MAX_PLANES - 1).bit_length() if MAX_PLANES > 1 else 1  # e.g., 7 bits
 SAT_IDX_BITS = (
     (MAX_SATS_PER_PLANE - 1).bit_length() if MAX_SATS_PER_PLANE > 1 else 1
-)  # e.g., 6 bits
+)  # e.g., 7 bits
 # Bits for subnet_index (0 to MAX_GS_PER_SAT_SUBNET inclusive)
 SUBNET_IDX_BITS = (
     (MAX_ENDPOINTS_PER_SAT - 1).bit_length() if MAX_ENDPOINTS_PER_SAT > 1 else 1
