@@ -8,6 +8,7 @@
     activeRecords: [],
     activeSource: "",
     gslCache: null,
+    routeCache: null,
     loading: false,
   };
 
@@ -29,6 +30,7 @@
       resetCamera(0);
       state.metadata = await fetchJson("constellations.json");
       populateConstellations(state.metadata.constellations || []);
+      populateRouteSelects(state.metadata.groundStations || []);
       applyDefaultClockSpeed();
       await loadSelectedConstellation();
     } catch (error) {
@@ -40,6 +42,8 @@
     els.container = document.getElementById("cesiumContainer");
     els.select = document.getElementById("constellationSelect");
     els.islTopology = document.getElementById("islTopology");
+    els.routeSource = document.getElementById("routeSource");
+    els.routeTarget = document.getElementById("routeTarget");
     els.showGround = document.getElementById("showGround");
     els.showGsl = document.getElementById("showGsl");
     els.showGslLabel = document.getElementById("showGslLabel");
@@ -59,6 +63,8 @@
   function bindEvents() {
     els.select.addEventListener("change", loadSelectedConstellation);
     els.islTopology.addEventListener("change", reloadActiveConstellation);
+    els.routeSource.addEventListener("change", reloadActiveConstellation);
+    els.routeTarget.addEventListener("change", reloadActiveConstellation);
     els.showGround.addEventListener("change", function () {
       syncGslControl();
       reloadActiveConstellation();
@@ -150,6 +156,20 @@
       option.value = config.id;
       option.textContent = config.label || config.name;
       els.select.appendChild(option);
+    });
+  }
+
+  function populateRouteSelects(groundStations) {
+    [els.routeSource, els.routeTarget].forEach(function (select) {
+      while (select.options.length > 1) {
+        select.remove(1);
+      }
+      groundStations.forEach(function (station) {
+        const option = document.createElement("option");
+        option.value = station.name;
+        option.textContent = station.name;
+        select.appendChild(option);
+      });
     });
   }
 
@@ -251,6 +271,8 @@
       }
     }
 
+    const routeHops = addRoute(records, config, groundStations);
+
     updateStats(
       config,
       records.length,
@@ -259,7 +281,8 @@
       gridLinks,
       gslLinks,
       sampleStep,
-      groundStations.length
+      groundStations.length,
+      routeHops
     );
     updateTleLink(config);
     resetCamera(0.8);
@@ -267,6 +290,7 @@
 
   function clearScene() {
     state.viewer.entities.removeAll();
+    state.routeCache = null;
     els.stats.innerHTML = "";
   }
 
@@ -439,6 +463,141 @@
 
   function countVisibleGslAttachments() {
     return calculateGslAttachments(state.viewer.clock.currentTime).filter(Boolean).length;
+  }
+
+  function addRoute(records, config, groundStations) {
+    const srcName = els.routeSource.value;
+    const dstName = els.routeTarget.value;
+    if (!srcName || !dstName || srcName === dstName) {
+      return null;
+    }
+
+    const orbits = Number(config.orbits);
+    const satsPerOrbit = Number(config.satsPerOrbit);
+    if (!orbits || !satsPerOrbit) {
+      return null;
+    }
+
+    const srcGsIndex = groundStations.findIndex(function (g) { return g.name === srcName; });
+    const dstGsIndex = groundStations.findIndex(function (g) { return g.name === dstName; });
+    if (srcGsIndex < 0 || dstGsIndex < 0) {
+      return null;
+    }
+
+    const topology = els.islTopology.value;
+    const material = Cesium.Color.fromCssColorString("#ffd400").withAlpha(0.95);
+
+    state.routeCache = { key: null, chain: null };
+
+    function refreshChain(time) {
+      const key = Math.floor(Cesium.JulianDate.toDate(time).getTime() / 60000);
+      if (state.routeCache.key === key) {
+        return state.routeCache.chain;
+      }
+      state.routeCache.key = key;
+      state.routeCache.chain = computeRouteChain(
+        srcGsIndex, dstGsIndex, records, orbits, satsPerOrbit, topology, time
+      );
+      return state.routeCache.chain;
+    }
+
+    state.viewer.entities.add({
+      id: "topological-route",
+      name: `Topological route: ${srcName} → ${dstName}`,
+      polyline: {
+        positions: new Cesium.CallbackProperty(function (time) {
+          const chain = refreshChain(time);
+          if (!chain) {
+            return [];
+          }
+          const points = [chain.srcGround];
+          chain.records.forEach(function (record) {
+            const position = positionForRecord(record, time);
+            if (position) {
+              points.push(position);
+            }
+          });
+          points.push(chain.dstGround);
+          return points.length >= 2 ? points : [];
+        }, false),
+        width: 4,
+        arcType: Cesium.ArcType.NONE,
+        material,
+      },
+    });
+
+    const initialChain = refreshChain(state.viewer.clock.currentTime);
+    return initialChain ? initialChain.records.length - 1 : null;
+  }
+
+  function computeRouteChain(srcGsIndex, dstGsIndex, records, orbits, satsPerOrbit, topology, time) {
+    const srcAttachment = getGslAttachment(srcGsIndex, time);
+    const dstAttachment = getGslAttachment(dstGsIndex, time);
+    if (!srcAttachment || !dstAttachment || !state.gslCache) {
+      return null;
+    }
+
+    const hops = greedyTorusPath(
+      srcAttachment.satellite, dstAttachment.satellite, records, orbits, satsPerOrbit, topology
+    );
+    if (!hops) {
+      return null;
+    }
+
+    return {
+      srcGround: state.gslCache.groundStations[srcGsIndex].groundPosition,
+      dstGround: state.gslCache.groundStations[dstGsIndex].groundPosition,
+      records: hops,
+    };
+  }
+
+  function greedyTorusPath(srcRecord, dstRecord, records, orbits, satsPerOrbit, topology) {
+    const maxHops = orbits + satsPerOrbit + 5;
+    const path = [srcRecord];
+    let current = srcRecord;
+    let guard = 0;
+
+    const distanceTo = function (plane, slot) {
+      let dp = Math.abs(plane - dstRecord.plane);
+      dp = Math.min(dp, orbits - dp);
+      let ds = Math.abs(slot - dstRecord.slot);
+      ds = Math.min(ds, satsPerOrbit - ds);
+      return dp + ds;
+    };
+
+    while ((current.plane !== dstRecord.plane || current.slot !== dstRecord.slot) && guard < maxHops) {
+      guard += 1;
+      const candidates = [
+        [current.plane, (current.slot + 1) % satsPerOrbit],
+        [current.plane, (current.slot - 1 + satsPerOrbit) % satsPerOrbit],
+      ];
+      if (topology === "grid") {
+        candidates.push([(current.plane + 1) % orbits, current.slot]);
+        candidates.push([(current.plane - 1 + orbits) % orbits, current.slot]);
+      }
+
+      let best = null;
+      let bestDistance = distanceTo(current.plane, current.slot);
+      candidates.forEach(function (candidate) {
+        const distance = distanceTo(candidate[0], candidate[1]);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = candidate;
+        }
+      });
+
+      if (!best) {
+        break;
+      }
+      const next = records[best[0] * satsPerOrbit + best[1]];
+      if (!next) {
+        break;
+      }
+      path.push(next);
+      current = next;
+    }
+
+    return path;
   }
 
   function createGslCache(config, records, groundStations) {
@@ -710,7 +869,8 @@
     gridLinks,
     gslLinks,
     sampleStep,
-    groundStationCount
+    groundStationCount,
+    routeHops
   ) {
     const stats = [
       ["Satellites", totalSatellites.toLocaleString()],
@@ -725,6 +885,10 @@
       ["Ground stations", groundStationCount.toLocaleString()],
       ["Sample step", sampleStep === 1 ? "full" : `1/${sampleStep}`],
     ];
+
+    if (routeHops !== null && routeHops !== undefined) {
+      stats.push(["Route hops (ISL)", routeHops.toLocaleString()]);
+    }
 
     els.stats.innerHTML = [
       "<table>",
