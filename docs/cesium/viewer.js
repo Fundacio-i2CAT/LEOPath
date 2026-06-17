@@ -9,6 +9,7 @@
     activeSource: "",
     gslCache: null,
     routeCache: null,
+    baseStatsRows: [],
     loading: false,
   };
 
@@ -44,6 +45,7 @@
     els.islTopology = document.getElementById("islTopology");
     els.routeSource = document.getElementById("routeSource");
     els.routeTarget = document.getElementById("routeTarget");
+    els.showLinkStateRoute = document.getElementById("showLinkStateRoute");
     els.showGround = document.getElementById("showGround");
     els.showGsl = document.getElementById("showGsl");
     els.showGslLabel = document.getElementById("showGslLabel");
@@ -63,8 +65,9 @@
   function bindEvents() {
     els.select.addEventListener("change", loadSelectedConstellation);
     els.islTopology.addEventListener("change", reloadActiveConstellation);
-    els.routeSource.addEventListener("change", reloadActiveConstellation);
-    els.routeTarget.addEventListener("change", reloadActiveConstellation);
+    els.routeSource.addEventListener("change", updateRoute);
+    els.routeTarget.addEventListener("change", updateRoute);
+    els.showLinkStateRoute.addEventListener("change", updateRoute);
     els.showGround.addEventListener("change", function () {
       syncGslControl();
       reloadActiveConstellation();
@@ -271,8 +274,6 @@
       }
     }
 
-    const routeHops = addRoute(records, config, groundStations);
-
     updateStats(
       config,
       records.length,
@@ -282,8 +283,9 @@
       gslLinks,
       sampleStep,
       groundStations.length,
-      routeHops
+      []
     );
+    refreshRouteForMode(records, config, groundStations);
     updateTleLink(config);
     resetCamera(0.8);
   }
@@ -465,28 +467,99 @@
     return calculateGslAttachments(state.viewer.clock.currentTime).filter(Boolean).length;
   }
 
+  function MinHeap() {
+    const nodes = [];
+    const keys = [];
+    return {
+      size: function () { return nodes.length; },
+      push: function (node, key) {
+        nodes.push(node);
+        keys.push(key);
+        let i = nodes.length - 1;
+        while (i > 0) {
+          const parent = (i - 1) >> 1;
+          if (keys[parent] <= keys[i]) {
+            break;
+          }
+          [keys[parent], keys[i]] = [keys[i], keys[parent]];
+          [nodes[parent], nodes[i]] = [nodes[i], nodes[parent]];
+          i = parent;
+        }
+      },
+      pop: function () {
+        const top = nodes[0];
+        const lastNode = nodes.pop();
+        const lastKey = keys.pop();
+        if (nodes.length > 0) {
+          nodes[0] = lastNode;
+          keys[0] = lastKey;
+          let i = 0;
+          const length = nodes.length;
+          for (;;) {
+            const left = 2 * i + 1;
+            const right = 2 * i + 2;
+            let smallest = i;
+            if (left < length && keys[left] < keys[smallest]) { smallest = left; }
+            if (right < length && keys[right] < keys[smallest]) { smallest = right; }
+            if (smallest === i) {
+              break;
+            }
+            [keys[smallest], keys[i]] = [keys[i], keys[smallest]];
+            [nodes[smallest], nodes[i]] = [nodes[i], nodes[smallest]];
+            i = smallest;
+          }
+        }
+        return top;
+      },
+    };
+  }
+
+  const ROUTE_IDS = ["topological-route", "linkstate-route"];
+
+  function clearRouteEntities() {
+    ROUTE_IDS.forEach(function (id) { state.viewer.entities.removeById(id); });
+    state.routeCache = null;
+  }
+
+  function updateRoute() {
+    if (!state.viewer || !state.activeConfig || state.loading) {
+      return;
+    }
+    clearRouteEntities();
+    refreshRouteForMode(state.activeRecords, state.activeConfig, getGroundStations(state.activeConfig));
+  }
+
+  function refreshRouteForMode(records, config, groundStations) {
+    renderStatsTable(addRoute(records, config, groundStations));
+  }
+
   function addRoute(records, config, groundStations) {
+    clearRouteEntities();
+
     const srcName = els.routeSource.value;
     const dstName = els.routeTarget.value;
     if (!srcName || !dstName || srcName === dstName) {
-      return null;
+      return [];
     }
 
     const orbits = Number(config.orbits);
     const satsPerOrbit = Number(config.satsPerOrbit);
     if (!orbits || !satsPerOrbit) {
-      return null;
+      return [];
+    }
+
+    const topology = els.islTopology.value;
+    if (topology !== "ring" && topology !== "grid") {
+      return [];
     }
 
     const srcGsIndex = groundStations.findIndex(function (g) { return g.name === srcName; });
     const dstGsIndex = groundStations.findIndex(function (g) { return g.name === dstName; });
     if (srcGsIndex < 0 || dstGsIndex < 0) {
-      return null;
+      return [];
     }
 
-    const topology = els.islTopology.value;
-    const material = Cesium.Color.fromCssColorString("#ffd400").withAlpha(0.95);
-
+    const showLinkState = els.showLinkStateRoute.checked;
     state.routeCache = { key: null, chain: null };
 
     function refreshChain(time) {
@@ -496,76 +569,293 @@
       }
       state.routeCache.key = key;
       state.routeCache.chain = computeRouteChain(
-        srcGsIndex, dstGsIndex, records, orbits, satsPerOrbit, topology, time
+        srcGsIndex, dstGsIndex, records, orbits, satsPerOrbit, topology, showLinkState, time
       );
       return state.routeCache.chain;
     }
 
+    function routePositions(time, kind, lift) {
+      const chain = refreshChain(time);
+      if (!chain || !chain[kind]) {
+        return [];
+      }
+      const raw = [chain.srcGround];
+      chain[kind].forEach(function (record) {
+        const position = positionForRecord(record, time);
+        if (position) {
+          raw.push(position);
+        }
+      });
+      raw.push(chain.dstGround);
+      if (raw.length < 2) {
+        return [];
+      }
+      const lifted = (!lift || lift === 1)
+        ? raw
+        : raw.map(function (p) {
+            // Radial lift to separate overlapping lines without z-fighting (tiny).
+            return Cesium.Cartesian3.multiplyByScalar(p, lift, new Cesium.Cartesian3());
+          });
+      return cullOccludedPoints(lifted);
+    }
+
+    // Both lines opaque so the globe (depthTestAgainstTerrain) occludes them and
+    // they don't bleed through the far side. Link-state is lifted a hair radially
+    // so that, when it coincides with topological (stretch = 1), it shows as a
+    // green rim hugging the yellow line instead of z-fighting it.
+    if (showLinkState) {
+      state.viewer.entities.add({
+        id: "linkstate-route",
+        name: `Shortest-path route (link-state): ${srcName} → ${dstName}`,
+        polyline: {
+          positions: new Cesium.CallbackProperty(function (time) {
+            return routePositions(time, "ls", 1.0);
+          }, false),
+          width: 7,
+          arcType: Cesium.ArcType.NONE,
+          material: Cesium.Color.fromCssColorString("#2bff88").withAlpha(1.0),
+        },
+      });
+    }
+
     state.viewer.entities.add({
       id: "topological-route",
-      name: `Topological route: ${srcName} → ${dstName}`,
+      name: `Topological forwarding: ${srcName} → ${dstName}`,
       polyline: {
         positions: new Cesium.CallbackProperty(function (time) {
-          const chain = refreshChain(time);
-          if (!chain) {
-            return [];
-          }
-          const points = [chain.srcGround];
-          chain.records.forEach(function (record) {
-            const position = positionForRecord(record, time);
-            if (position) {
-              points.push(position);
-            }
-          });
-          points.push(chain.dstGround);
-          return points.length >= 2 ? points : [];
+          return routePositions(time, "topo", 1.0010);
         }, false),
-        width: 4,
+        width: 3,
         arcType: Cesium.ArcType.NONE,
-        material,
+        material: Cesium.Color.fromCssColorString("#ffd400").withAlpha(1.0),
       },
     });
 
     const initialChain = refreshChain(state.viewer.clock.currentTime);
-    return initialChain ? initialChain.records.length - 1 : null;
+    if (!initialChain) {
+      return [["Route", "unreachable — try +Grid"]];
+    }
+    return routeStatRows(initialChain, state.viewer.clock.currentTime);
   }
 
-  function computeRouteChain(srcGsIndex, dstGsIndex, records, orbits, satsPerOrbit, topology, time) {
+  function routeStatRows(chain, time) {
+    if (!chain) {
+      return [];
+    }
+    const rows = [
+      ["Topo route hops", (chain.topo.length - 1).toLocaleString()],
+      ["Topo path", `${Math.round(pathPhysicalKm(chain.topo, time)).toLocaleString()} km`],
+    ];
+    if (chain.ls) {
+      rows.push(["LS route hops", (chain.ls.length - 1).toLocaleString()]);
+      rows.push(["LS path", `${Math.round(pathPhysicalKm(chain.ls, time)).toLocaleString()} km`]);
+    }
+    return rows;
+  }
+
+  function pathPhysicalKm(records, time) {
+    let total = 0;
+    for (let i = 0; i < records.length - 1; i += 1) {
+      const a = positionForRecord(records[i], time);
+      const b = positionForRecord(records[i + 1], time);
+      if (a && b) {
+        total += Cesium.Cartesian3.distance(a, b);
+      }
+    }
+    return total / 1000;
+  }
+
+  function computeRouteChain(srcGsIndex, dstGsIndex, records, orbits, satsPerOrbit, topology, showLinkState, time) {
     const srcAttachment = getGslAttachment(srcGsIndex, time);
-    const dstAttachment = getGslAttachment(dstGsIndex, time);
-    if (!srcAttachment || !dstAttachment || !state.gslCache) {
+    if (!srcAttachment || !state.gslCache) {
+      return null;
+    }
+    // Multi-egress: the destination GS is reachable via ANY satellite currently
+    // overhead, so delivery happens at the first/nearest visible egress, matching
+    // the real algorithm (and why topological forwarding ties shortest-path).
+    const dstVisible = visibleSatSet(dstGsIndex, records, time);
+    if (dstVisible.size === 0) {
       return null;
     }
 
-    const hops = greedyTorusPath(
-      srcAttachment.satellite, dstAttachment.satellite, records, orbits, satsPerOrbit, topology
+    const topo = greedyTorusPath(
+      srcAttachment.satellite, dstVisible, records, orbits, satsPerOrbit, topology
     );
-    if (!hops) {
+    if (!topo) {
       return null;
+    }
+
+    let ls = null;
+    if (showLinkState) {
+      ls = linkStatePath(
+        srcAttachment.satellite, dstVisible, records, orbits, satsPerOrbit, topology, time
+      );
     }
 
     return {
       srcGround: state.gslCache.groundStations[srcGsIndex].groundPosition,
       dstGround: state.gslCache.groundStations[dstGsIndex].groundPosition,
-      records: hops,
+      topo,
+      ls,
     };
   }
 
-  function greedyTorusPath(srcRecord, dstRecord, records, orbits, satsPerOrbit, topology) {
+  function visibleSatSet(gsIndex, records, time) {
+    const set = new Set();
+    if (!state.gslCache) {
+      return set;
+    }
+    const station = state.gslCache.groundStations[gsIndex];
+    const maxDistanceM = maxGslDistanceM(state.activeConfig);
+    for (let i = 0; i < records.length; i += 1) {
+      const position = positionForRecord(records[i], time);
+      if (!position) {
+        continue;
+      }
+      const vector = Cesium.Cartesian3.subtract(position, station.groundPosition, new Cesium.Cartesian3());
+      if (Cesium.Cartesian3.dot(vector, station.normal) <= 0) {
+        continue;
+      }
+      if (Cesium.Cartesian3.magnitude(vector) <= maxDistanceM) {
+        set.add(records[i].index);
+      }
+    }
+    return set;
+  }
+
+  function cullOccludedPoints(points) {
+    // Keep only the longest contiguous run of points visible from the camera, so
+    // the route line stops at the Earth's limb instead of drawing through the
+    // globe (Cesium does not reliably occlude space polylines behind the globe).
+    if (points.length < 2) {
+      return [];
+    }
+    const occluder = new Cesium.EllipsoidalOccluder(Cesium.Ellipsoid.WGS84, state.viewer.camera.positionWC);
+    let bestStart = 0;
+    let bestLen = 0;
+    let curStart = 0;
+    let curLen = 0;
+    for (let i = 0; i < points.length; i += 1) {
+      if (occluder.isPointVisible(points[i])) {
+        if (curLen === 0) {
+          curStart = i;
+        }
+        curLen += 1;
+        if (curLen > bestLen) {
+          bestLen = curLen;
+          bestStart = curStart;
+        }
+      } else {
+        curLen = 0;
+      }
+    }
+    return bestLen >= 2 ? points.slice(bestStart, bestStart + bestLen) : [];
+  }
+
+  function minTorusDistanceToSet(plane, slot, dstSet, orbits, satsPerOrbit) {
+    let best = Infinity;
+    dstSet.forEach(function (index) {
+      const dp0 = Math.abs(plane - Math.floor(index / satsPerOrbit));
+      const dp = Math.min(dp0, orbits - dp0);
+      const ds0 = Math.abs(slot - (index % satsPerOrbit));
+      const ds = Math.min(ds0, satsPerOrbit - ds0);
+      if (dp + ds < best) {
+        best = dp + ds;
+      }
+    });
+    return best;
+  }
+
+  function neighborIndices(index, orbits, satsPerOrbit, topology) {
+    const plane = Math.floor(index / satsPerOrbit);
+    const slot = index % satsPerOrbit;
+    const neighbors = [
+      plane * satsPerOrbit + (slot + 1) % satsPerOrbit,
+      plane * satsPerOrbit + (slot - 1 + satsPerOrbit) % satsPerOrbit,
+    ];
+    if (topology === "grid") {
+      neighbors.push(((plane + 1) % orbits) * satsPerOrbit + slot);
+      neighbors.push(((plane - 1 + orbits) % orbits) * satsPerOrbit + slot);
+    }
+    return neighbors;
+  }
+
+  function linkStatePath(srcRecord, dstSet, records, orbits, satsPerOrbit, topology, time) {
+    const n = records.length;
+    const srcIndex = srcRecord.plane * satsPerOrbit + srcRecord.slot;
+
+    const positions = new Array(n);
+    for (let i = 0; i < n; i += 1) {
+      positions[i] = positionForRecord(records[i], time) || null;
+    }
+    if (!positions[srcIndex]) {
+      return null;
+    }
+
+    const dist = new Float64Array(n).fill(Infinity);
+    const prev = new Int32Array(n).fill(-1);
+    const visited = new Uint8Array(n);
+    dist[srcIndex] = 0;
+
+    const heap = new MinHeap();
+    heap.push(srcIndex, 0);
+    let reached = -1;
+
+    while (heap.size() > 0) {
+      const u = heap.pop();
+      if (visited[u]) {
+        continue;
+      }
+      visited[u] = 1;
+      if (dstSet.has(u)) {
+        reached = u;
+        break;
+      }
+      const pu = positions[u];
+      if (!pu) {
+        continue;
+      }
+      const neighbors = neighborIndices(u, orbits, satsPerOrbit, topology);
+      for (let k = 0; k < neighbors.length; k += 1) {
+        const v = neighbors[k];
+        const pv = positions[v];
+        if (!pv || visited[v]) {
+          continue;
+        }
+        const candidate = dist[u] + Cesium.Cartesian3.distance(pu, pv);
+        if (candidate < dist[v]) {
+          dist[v] = candidate;
+          prev[v] = u;
+          heap.push(v, candidate);
+        }
+      }
+    }
+
+    if (reached === -1) {
+      return null;
+    }
+
+    const path = [];
+    let cursor = reached;
+    while (cursor !== -1) {
+      path.push(records[cursor]);
+      cursor = prev[cursor];
+    }
+    path.reverse();
+    return path;
+  }
+
+  function greedyTorusPath(srcRecord, dstSet, records, orbits, satsPerOrbit, topology) {
     const maxHops = orbits + satsPerOrbit + 5;
     const path = [srcRecord];
     let current = srcRecord;
     let guard = 0;
 
-    const distanceTo = function (plane, slot) {
-      let dp = Math.abs(plane - dstRecord.plane);
-      dp = Math.min(dp, orbits - dp);
-      let ds = Math.abs(slot - dstRecord.slot);
-      ds = Math.min(ds, satsPerOrbit - ds);
-      return dp + ds;
+    const inEgress = function (record) {
+      return dstSet.has(record.plane * satsPerOrbit + record.slot);
     };
 
-    while ((current.plane !== dstRecord.plane || current.slot !== dstRecord.slot) && guard < maxHops) {
+    while (!inEgress(current) && guard < maxHops) {
       guard += 1;
       const candidates = [
         [current.plane, (current.slot + 1) % satsPerOrbit],
@@ -577,9 +867,9 @@
       }
 
       let best = null;
-      let bestDistance = distanceTo(current.plane, current.slot);
+      let bestDistance = minTorusDistanceToSet(current.plane, current.slot, dstSet, orbits, satsPerOrbit);
       candidates.forEach(function (candidate) {
-        const distance = distanceTo(candidate[0], candidate[1]);
+        const distance = minTorusDistanceToSet(candidate[0], candidate[1], dstSet, orbits, satsPerOrbit);
         if (distance < bestDistance) {
           bestDistance = distance;
           best = candidate;
@@ -597,7 +887,9 @@
       current = next;
     }
 
-    return path;
+    // Only a path that actually reaches a destination egress is valid. In Ring
+    // (intra-plane only) cross-plane pairs are genuinely unreachable -> no route.
+    return inEgress(current) ? path : null;
   }
 
   function createGslCache(config, records, groundStations) {
@@ -870,9 +1162,9 @@
     gslLinks,
     sampleStep,
     groundStationCount,
-    routeHops
+    routeRows
   ) {
-    const stats = [
+    state.baseStatsRows = [
       ["Satellites", totalSatellites.toLocaleString()],
       ["Rendered", renderedSatellites.toLocaleString()],
       ["Orbits", Number(config.orbits).toLocaleString()],
@@ -886,8 +1178,13 @@
       ["Sample step", sampleStep === 1 ? "full" : `1/${sampleStep}`],
     ];
 
-    if (routeHops !== null && routeHops !== undefined) {
-      stats.push(["Route hops (ISL)", routeHops.toLocaleString()]);
+    renderStatsTable(routeRows);
+  }
+
+  function renderStatsTable(routeRows) {
+    const stats = (state.baseStatsRows || []).slice();
+    if (Array.isArray(routeRows) && routeRows.length > 0) {
+      routeRows.forEach(function (row) { stats.push(row); });
     }
 
     els.stats.innerHTML = [

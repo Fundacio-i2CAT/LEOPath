@@ -25,6 +25,21 @@ Open the standalone viewer:
 - Toggle ground-station markers, nearest-visible GSL attachments, and all-satellite rendering for sampled dense views.
 - Use the clock-speed slider or Cesium timeline to inspect orbital motion.
 
+## Route Overlay
+
+Pick a source and destination ground station to draw a route between them:
+
+- **Topological forwarding** (yellow) forwards greedily on the satellites' orbital coordinates, the same policy evaluated in the paper.
+- **Shortest-path route (link-state)** (green, optional checkbox) is Dijkstra over the inter-satellite-link graph weighted by physical distance.
+
+A ground station is reachable through *any* satellite currently overhead, so delivery happens at the first such satellite (multi-homing). When the two lines coincide, topological forwarding is taking a shortest path; the green line is drawn slightly wider so it shows as a rim around the yellow one.
+
+Reachability depends on the ISL topology. With `Ring` (intra-plane links only), two ground stations connect only when an orbital plane currently passes over both; otherwise the panel reports the route as *unreachable — try +Grid*. With `+Grid` (inter-plane links added) the network is connected, so routes are essentially always available and topological forwarding ties the shortest path.
+
+> Path **quality** (how close topological is to shortest-path) and **reachability** (whether a path exists at all) are separate. The reported path stretch is measured only over reachable pairs; `Ring` gaps are a coverage limitation, not a stretch result.
+
+Route lines are clipped at the Earth's limb, so the half on the far side is hidden behind the globe rather than drawn through it.
+
 ## Local Build
 
 Build the docs plus Cesium assets:
