@@ -678,8 +678,8 @@
       return null;
     }
 
-    const topo = greedyTorusPath(
-      srcAttachment.satellite, dstVisible, records, orbits, satsPerOrbit, topology
+    const topo = pivotWeightedPath(
+      srcAttachment.satellite, dstVisible, records, orbits, satsPerOrbit, topology, time
     );
     if (!topo) {
       return null;
@@ -750,20 +750,6 @@
       }
     }
     return bestLen >= 2 ? points.slice(bestStart, bestStart + bestLen) : [];
-  }
-
-  function minTorusDistanceToSet(plane, slot, dstSet, orbits, satsPerOrbit) {
-    let best = Infinity;
-    dstSet.forEach(function (index) {
-      const dp0 = Math.abs(plane - Math.floor(index / satsPerOrbit));
-      const dp = Math.min(dp0, orbits - dp0);
-      const ds0 = Math.abs(slot - (index % satsPerOrbit));
-      const ds = Math.min(ds0, satsPerOrbit - ds0);
-      if (dp + ds < best) {
-        best = dp + ds;
-      }
-    });
-    return best;
   }
 
   function neighborIndices(index, orbits, satsPerOrbit, topology) {
@@ -845,7 +831,171 @@
     return path;
   }
 
-  function greedyTorusPath(srcRecord, dstSet, records, orbits, satsPerOrbit, topology) {
+  // Port of leopath/network_state/routing_algorithms/topological_routing/
+  // fstate_calculation.py's torus_weighted_pivot distance + greedy next-hop
+  // selection (the actual algorithm reported in the paper), so the demo route
+  // matches the real per-satellite forwarding decisions instead of a plain
+  // hop-count heuristic.
+  function buildPivotWeightModel(records, orbits, satsPerOrbit, topology, positions) {
+    const rowEdgeCosts = [];
+    for (let p = 0; p < orbits; p += 1) {
+      rowEdgeCosts.push(new Array(satsPerOrbit).fill(Infinity));
+    }
+    const planeEdgeCosts = [];
+    for (let s = 0; s < satsPerOrbit; s += 1) {
+      planeEdgeCosts.push(new Array(orbits).fill(Infinity));
+    }
+
+    for (let plane = 0; plane < orbits; plane += 1) {
+      for (let slot = 0; slot < satsPerOrbit; slot += 1) {
+        const index = plane * satsPerOrbit + slot;
+        const pos = positions[index];
+        if (!pos) {
+          continue;
+        }
+        const nextSlot = (slot + 1) % satsPerOrbit;
+        const rowNeighborIndex = plane * satsPerOrbit + nextSlot;
+        const rowNeighborPos = positions[rowNeighborIndex];
+        if (rowNeighborPos) {
+          const weight = Cesium.Cartesian3.distance(pos, rowNeighborPos);
+          rowEdgeCosts[plane][slot] = Math.min(rowEdgeCosts[plane][slot], weight);
+        }
+        if (topology === "grid") {
+          const nextPlane = (plane + 1) % orbits;
+          const planeNeighborIndex = nextPlane * satsPerOrbit + slot;
+          const planeNeighborPos = positions[planeNeighborIndex];
+          if (planeNeighborPos) {
+            const weight = Cesium.Cartesian3.distance(pos, planeNeighborPos);
+            planeEdgeCosts[slot][plane] = Math.min(planeEdgeCosts[slot][plane], weight);
+          }
+        }
+      }
+    }
+
+    function pathCost(edgeCosts, start, end) {
+      const modulus = edgeCosts.length;
+      if (start === end) {
+        return 0.0;
+      }
+      const forwardSteps = ((end - start) % modulus + modulus) % modulus;
+      const backwardSteps = ((start - end) % modulus + modulus) % modulus;
+      let forwardCost = 0.0;
+      for (let step = 0; step < forwardSteps; step += 1) {
+        const cost = edgeCosts[(start + step) % modulus];
+        if (!Number.isFinite(cost)) {
+          forwardCost = Infinity;
+          break;
+        }
+        forwardCost += cost;
+      }
+      let backwardCost = 0.0;
+      for (let step = 0; step < backwardSteps; step += 1) {
+        const cost = edgeCosts[(start - 1 - step + modulus * 2) % modulus];
+        if (!Number.isFinite(cost)) {
+          backwardCost = Infinity;
+          break;
+        }
+        backwardCost += cost;
+      }
+      return Math.min(forwardCost, backwardCost);
+    }
+
+    const rowPathCosts = [];
+    for (let plane = 0; plane < orbits; plane += 1) {
+      const rows = [];
+      for (let src = 0; src < satsPerOrbit; src += 1) {
+        const row = [];
+        for (let dst = 0; dst < satsPerOrbit; dst += 1) {
+          row.push(pathCost(rowEdgeCosts[plane], src, dst));
+        }
+        rows.push(row);
+      }
+      rowPathCosts.push(rows);
+    }
+
+    const planePathCosts = [];
+    for (let slot = 0; slot < satsPerOrbit; slot += 1) {
+      const rows = [];
+      for (let src = 0; src < orbits; src += 1) {
+        const row = [];
+        for (let dst = 0; dst < orbits; dst += 1) {
+          row.push(pathCost(planeEdgeCosts[slot], src, dst));
+        }
+        rows.push(row);
+      }
+      planePathCosts.push(rows);
+    }
+
+    return { orbits, satsPerOrbit, rowPathCosts, planePathCosts };
+  }
+
+  function pivotDistance(weightModel, srcPlane, srcSlot, dstPlane, dstSlot) {
+    if (srcPlane === dstPlane && srcSlot === dstSlot) {
+      return 0.0;
+    }
+    const { satsPerOrbit, rowPathCosts, planePathCosts } = weightModel;
+    let best = Infinity;
+    for (let pivotRow = 0; pivotRow < satsPerOrbit; pivotRow += 1) {
+      const sourceRowCost = rowPathCosts[srcPlane][srcSlot][pivotRow];
+      const planeCost = planePathCosts[pivotRow][srcPlane][dstPlane];
+      const destinationRowCost = rowPathCosts[dstPlane][pivotRow][dstSlot];
+      const total = sourceRowCost + planeCost + destinationRowCost;
+      if (total < best) {
+        best = total;
+      }
+    }
+    return best;
+  }
+
+  function tieBreakTuple(srcPlane, srcSlot, dstPlane, dstSlot, orbits, satsPerOrbit) {
+    const planeForward = ((dstPlane - srcPlane) % orbits + orbits) % orbits;
+    const satForward = ((dstSlot - srcSlot) % satsPerOrbit + satsPerOrbit) % satsPerOrbit;
+    const samePlanePriority = srcPlane === dstPlane ? 0 : 1;
+    return [samePlanePriority, satForward, planeForward];
+  }
+
+  function tieBreakLess(a, b) {
+    for (let i = 0; i < a.length; i += 1) {
+      if (a[i] !== b[i]) {
+        return a[i] < b[i];
+      }
+    }
+    return false;
+  }
+
+  function pivotWeightedPath(srcRecord, dstSet, records, orbits, satsPerOrbit, topology, time) {
+    const n = records.length;
+    const positions = new Array(n);
+    for (let i = 0; i < n; i += 1) {
+      positions[i] = positionForRecord(records[i], time) || null;
+    }
+    if (!positions[srcRecord.plane * satsPerOrbit + srcRecord.slot]) {
+      return null;
+    }
+
+    const weightModel = buildPivotWeightModel(records, orbits, satsPerOrbit, topology, positions);
+
+    // Multi-egress: pick the single destination satellite (among those
+    // currently visible to the destination GS) that minimizes the pivot
+    // distance estimate from the source, mirroring the real algorithm's
+    // per-source target selection.
+    let targetPlane = null;
+    let targetSlot = null;
+    let bestTargetDistance = Infinity;
+    dstSet.forEach(function (index) {
+      const plane = Math.floor(index / satsPerOrbit);
+      const slot = index % satsPerOrbit;
+      const distance = pivotDistance(weightModel, srcRecord.plane, srcRecord.slot, plane, slot);
+      if (distance < bestTargetDistance) {
+        bestTargetDistance = distance;
+        targetPlane = plane;
+        targetSlot = slot;
+      }
+    });
+    if (targetPlane === null) {
+      return null;
+    }
+
     const maxHops = orbits + satsPerOrbit + 5;
     const path = [srcRecord];
     let current = srcRecord;
@@ -866,20 +1016,36 @@
         candidates.push([(current.plane - 1 + orbits) % orbits, current.slot]);
       }
 
-      let best = null;
-      let bestDistance = minTorusDistanceToSet(current.plane, current.slot, dstSet, orbits, satsPerOrbit);
+      const currentPos = positions[current.plane * satsPerOrbit + current.slot];
+      let bestCandidate = null;
+      let bestScore = Infinity;
+      let bestTie = null;
+
       candidates.forEach(function (candidate) {
-        const distance = minTorusDistanceToSet(candidate[0], candidate[1], dstSet, orbits, satsPerOrbit);
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          best = candidate;
+        const [candPlane, candSlot] = candidate;
+        const candIndex = candPlane * satsPerOrbit + candSlot;
+        const candPos = positions[candIndex];
+        if (!candPos) {
+          return;
+        }
+        const edgeWeight = Cesium.Cartesian3.distance(currentPos, candPos);
+        const distanceToTarget = pivotDistance(weightModel, candPlane, candSlot, targetPlane, targetSlot);
+        // torus_weighted_pivot scoring: real ISL edge cost + pivot estimate
+        // to target (matches _neighbor_candidate_score's non-unit branch).
+        const score = edgeWeight + distanceToTarget;
+        const tie = tieBreakTuple(candPlane, candSlot, targetPlane, targetSlot, orbits, satsPerOrbit);
+
+        if (score < bestScore || (score === bestScore && (!bestTie || tieBreakLess(tie, bestTie)))) {
+          bestScore = score;
+          bestCandidate = candidate;
+          bestTie = tie;
         }
       });
 
-      if (!best) {
+      if (!bestCandidate) {
         break;
       }
-      const next = records[best[0] * satsPerOrbit + best[1]];
+      const next = records[bestCandidate[0] * satsPerOrbit + bestCandidate[1]];
       if (!next) {
         break;
       }
