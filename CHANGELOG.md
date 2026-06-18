@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-06-18
+### Fixed
+- Bump package version to match the v0.1.4 re-release (v0.1.3 was already
+  published to PyPI and rejects re-upload of an identical version string).
+### Notes
+- Re-release of v0.1.3 to trigger Zenodo archiving (org GitHub-app access
+  was pending at v0.1.3 time). No functional content changes.
+
 ## [0.1.3] - 2026-06-17
 ### Added
 - DRA-style hop-only logical-coordinate routing baseline (`dra_routing`).
