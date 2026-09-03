@@ -29,7 +29,7 @@ The short version: use LEOPath when you want to compare routing strategies under
 
 - Dynamic LEO topology generation from configurable constellation parameters and SGP4/TLE data.
 - Inter-satellite links (ISLs), ground-to-satellite links (GSLs), and nearest-satellite attachment models.
-- Pluggable routing algorithms for link-state, topological, predictive, and explicit-path approaches.
+- Pluggable routing algorithms covering link-state, topological, DRA, and explicit-path approaches.
 - Evaluation harness for stretch, churn, forwarding-state size, and compute-time metrics.
 - Browser-based CesiumJS visualization for inspecting constellations, ISLs, GSLs, and orbital motion.
 - Docker-first workflow for reproducible runs, plus editable local Python installs for development.
@@ -90,9 +90,9 @@ leopath --config leopath/config/ether_simple.yaml
 LEOPath currently includes:
 
 - `shortest_path_link_state`: Dijkstra baseline over each dynamic topology snapshot.
-- `topological_routing`: 6G-RUPA-inspired forwarding using structured satellite addresses.
-- `predictive_link_state`: link-state computed on a predicted future topology snapshot.
-- `explicit_path_routing`: centrally planned explicit-path routing with pinned satellite paths.
+- `topological_routing`: 6G-RUPA-inspired forwarding using structured satellite addresses. The `distance_mode` parameter picks the metric, from plain hop count on the logical torus up to the pivot-weighted estimator that accounts for how much longer inter-plane ISLs get near the equator.
+- `dra_routing`: the DRA family of Ekici, Akyildiz and Bender, pinned to hop-count distance on logical (plane, slot) coordinates. Same forwarding machinery as `topological_routing`, so a run against it isolates the effect of the distance function and nothing else.
+- `explicit_path_routing`: centrally planned explicit-path routing with pinned satellite paths, replanned every `segment_refresh_interval_steps` snapshots.
 
 New routing algorithms can be added under `leopath/network_state/routing_algorithms/` and registered in the routing algorithm factory.
 

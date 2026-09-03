@@ -30,17 +30,17 @@ ISL_SCENARIOS="ring grid" \
 - **Duration**: 6–24 hours simulated time per run.
 - **Time step**: 5–10 minutes.
 - **ISL scenarios**: `ring` and `grid` for each constellation.
-- **Algorithms**: topological, link-state baseline, predictive link-state.
+- **Algorithms**: topological, link-state baseline, DRA, explicit-path.
 
 ## Suggested parameter sweep
 
-- **Predictive link-state**: `prediction_horizon_minutes` in {0, 5, 10}.
-- **Explicit-path routing**: `segment_count` in {2, 3}; optionally sweep refresh cadence for alternative controller update policies.
+- **Topological routing**: `distance_mode` in {`torus_unit`, `torus_weighted_lookahead`, `torus_weighted_pivot`}. Sweeping this against a fixed `dra_routing` run separates the effect of the distance metric from everything else.
+- **Explicit-path routing**: `segment_refresh_interval_steps` in {1, 3} to compare controller update policies, and `explicit_final_egress_mode` in {`strict`, `dynamic`} to compare drop-on-stale-egress against local repair.
 
 ## Design notes
 
-- Predictive link-state runs compute paths over a future topology snapshot, so keep the horizon within 1–2 time steps.
-- `explicit_path_routing` should be presented as the paper's explicit-path family example implementation, with SRv6-like local protection semantics rather than transit shortest-path fallback.
+- `dra_routing` overrides `distance_mode` internally, so passing one has no effect. Use `topological_routing` with `distance_mode: torus_unit` if you want the hop-only metric under a name you control.
+- Present `explicit_path_routing` as the paper's family-level explicit-path example, with SRv6-like local protection rather than transit shortest-path fallback.
 
 ## Constellation set
 
@@ -60,10 +60,12 @@ paper_eval_outputs/
     topological_routing/
       ring/
       grid/
-    predictive_link_state/
+    dra_routing/
       ring/
-        horizon_0m/
-        horizon_5m/
+      grid/
+    explicit_path_routing/
+      ring/
+      grid/
 ```
 
 ## Aggregate results
@@ -91,5 +93,5 @@ Includes compute time per step when available.
 
 ## Notes
 
-- For predictive link-state, use the same time step as other algorithms for fair churn comparison.
+- Use the same time step across every algorithm in a matrix, otherwise churn numbers are not comparable: a tighter sampling interval mechanically raises the link-state update rate while leaving topological forwarding untouched.
 - Keep ground stations fixed across runs for comparability.

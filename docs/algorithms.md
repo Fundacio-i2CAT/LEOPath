@@ -1,66 +1,60 @@
 # Routing Algorithms
 
-LEOPath exposes routing algorithms via a pluggable interface. Each algorithm computes forwarding state for GS-to-GS traffic by routing through the satellite network.
+LEOPath exposes routing algorithms through a pluggable interface. Each one computes forwarding state for ground-station-to-ground-station traffic across the satellite network, and every algorithm sees the same topology snapshots, so runs are directly comparable.
 
 ## Implemented algorithms
 
-- `shortest_path_link_state`: Baseline Dijkstra over the dynamic ISL graph.
-- `topological_routing`: 6G-RUPA-inspired addressing with neighbor-based forwarding.
-- `predictive_link_state`: Link-state computed on a predicted future topology snapshot.
-- `explicit_path_routing`: Protocol-agnostic centrally planned explicit-path proxy with pinned satellite paths.
+- `shortest_path_link_state`: Dijkstra over the dynamic ISL graph, recomputed from scratch at every snapshot.
+- `topological_routing`: 6G-RUPA addressing with neighbor-based forwarding, where the forwarding decision comes from the distance between the current node's address and the destination's.
+- `dra_routing`: the DRA family of Ekici, Akyildiz and Bender, restricted to hop-count distance on logical (plane, slot) coordinates.
+- `explicit_path_routing`: a protocol-agnostic proxy for centrally planned explicit paths, with the path pinned across one or more snapshots.
+
+`dra_routing` and `topological_routing` share the same forwarding machinery and differ only in the distance function, which is deliberate: a run of one against the other isolates the contribution of the distance metric with everything else held fixed. `dra_routing` overrides any `distance_mode` you pass so a run cannot quietly turn into the weighted variant.
 
 ## Assumptions and limitations
 
-- All algorithms currently assume GS attachments use the nearest satellite.
-- Predictive link-state uses deterministic orbital motion but does not model ISL failures unless injected.
-- `explicit_path_routing` plans on the current snapshot only in the current implementation; predictive planning is intentionally deferred.
-- Topological routing assumes stable plane/satellite indexing for address construction.
+- Every algorithm attaches ground stations to the nearest visible satellite.
+- `explicit_path_routing` plans on the current snapshot. Planning against a predicted future snapshot is deliberately left out.
+- Topological addressing assumes plane and satellite indices stay stable, which is what makes the address meaningful as a location.
+- ISL failures are not modelled unless you inject them.
 
 ## Design considerations
 
 ### Shortest-path link-state
 
-- Uses full topology knowledge at each snapshot.
-- Provides a lower bound for stretch and path length.
-- Serves as the baseline for churn and memory comparisons.
+Full topology knowledge at every snapshot, so it gives the lower bound on stretch and path length that everything else is measured against. It also sets the ceiling on forwarding state, since each satellite ends up holding an entry per destination.
 
 ### Topological routing
 
-- Relies on structured addressing (plane and satellite indices) rather than full topology state.
-- Local decisions are based on topological distance to destination address.
-- Prioritizes low state and stability over strict path optimality.
+Structured addressing replaces full topology state. A satellite decides the next hop from the topological distance between its neighbors' addresses and the destination address, which means state scales with node degree rather than constellation size. The trade the design makes is low, stable state against strict path optimality; whether it actually costs any optimality depends on the distance metric.
 
-### Predictive link-state
+The `distance_mode` parameter selects that metric:
 
-- Uses the same Dijkstra baseline but evaluates paths on a topology snapshot at `t + horizon`.
-- Works best with deterministic movement and regular update cadence (fixed time step).
-- Useful as a proxy for operator-controlled precomputation without requiring proprietary details.
-- Current paper plots should treat this as an exploratory variant unless the stretch baseline is validated against the same snapshot semantics.
+- `torus_unit`: hop count on the logical torus. Every edge costs 1, so the estimator is blind to how much physically longer an inter-plane ISL is near the equator than near the poles. This is what `dra_routing` pins.
+- `torus_weighted_lookahead` (the default): weighted progress with a one-hop lookahead.
+- `torus_weighted_pivot`: builds a per-snapshot weight model from the measured edge lengths, then estimates distance through row and column pivots. This is the mode the Computer Networks paper evaluates.
 
 Parameter notes:
 
-- `prediction_horizon_minutes`: larger values may reduce churn but increase stretch if topology changes quickly.
+- `plane_weight`, `sat_weight`, `shell_weight`: relative costs used by the weighted modes.
 
 ### Explicit-path routing
 
-- Uses centrally computed or ingress-computed strict satellite paths per source-satellite / destination-GS pair.
-- Models a strict SRv6-like adjacency-header proxy: the packet carries the remaining hop list, while transit satellites only need a local neighbor/interface map.
-- For forwarding-state accounting, all satellites count their local neighbor/interface entries, while only satellites that currently have attached ground stations count destination-to-segment ingress bindings.
-- Failover semantics follow an SRv6-style local protection model, not a transit shortest-path fallback model.
-- If the active adjacency is unavailable, the intended behavior is to use only a precomputed local backup adjacency for that hop; otherwise the packet is dropped and later packets require ingress/controller replanning.
-- If the planned egress satellite can no longer reach the destination ground station, the packet is dropped rather than locally re-routed through a full topology lookup.
-- Exposes full route plans for evaluation, including adjacency SID lists and strict-header byte counts.
-- Serves as a paper-facing family-level explicit-path example implementation, not a full SRv6 control-plane model.
+Strict satellite paths are computed per source-satellite / destination-GS pair, either centrally or at the ingress. The packet carries the remaining hop list as a strict SRv6-like adjacency header, so transit satellites only need a local neighbor and interface map. For state accounting, every satellite counts its local neighbor/interface entries, while destination-to-segment ingress bindings are counted only on satellites that currently host a ground-station attachment.
+
+Failover follows SRv6-style local protection rather than a transit shortest-path fallback. When the active adjacency goes away, the intended behaviour is to use a precomputed local backup for that hop; with no backup the packet drops and later packets wait for the ingress or controller to replan. When the planned egress satellite can no longer see the destination ground station, the strict mode drops the packet instead of falling back to a full topology lookup, while the dynamic final-egress mode repairs delivery toward whichever egress is currently visible.
+
+Route plans are exposed for evaluation, adjacency SID lists and strict-header byte counts included. Treat it as a family-level example, not a full SRv6 control plane.
 
 Parameter notes:
 
-- `segment_count`: controls sampled waypoint metadata only; strict explicit forwarding follows the adjacency SID list.
-- `segment_refresh_interval_steps`: controls how many evaluation timesteps a strict route plan is reused before replanning. If omitted, the current implementation defaults to `1` and replans every timestep.
-- `segment_mode`, `plane_weight`, `sat_weight`, and `shell_weight` are not used by the current explicit-path implementation and should not be treated as effective tuning knobs.
+- `segment_count`: affects sampled waypoint metadata only. Strict forwarding follows the adjacency SID list regardless.
+- `segment_refresh_interval_steps`: how many timesteps a strict route plan is reused before replanning. Defaults to `1`, which replans every timestep.
+- `plane_weight`, `sat_weight` and `shell_weight` are ignored here and are not tuning knobs for this algorithm.
 
 ## Algorithm parameters
 
-Parameters are passed via `simulation.algorithm_params`.
+Parameters go under `simulation.algorithm_params`.
 
 ### Link-state baseline
 
@@ -74,15 +68,18 @@ simulation:
 ```yaml
 simulation:
   dynamic_state_algorithm: topological_routing
+  algorithm_params:
+    distance_mode: torus_weighted_pivot
+    plane_weight: 100.0
+    sat_weight: 1.0
+    shell_weight: 1000.0
 ```
 
-### Predictive link-state
+### DRA baseline
 
 ```yaml
 simulation:
-  dynamic_state_algorithm: predictive_link_state
-  algorithm_params:
-    prediction_horizon_minutes: 5
+  dynamic_state_algorithm: dra_routing
 ```
 
 ### Explicit-path routing
@@ -92,29 +89,7 @@ simulation:
   dynamic_state_algorithm: explicit_path_routing
   algorithm_params:
     segment_count: 2
+    segment_refresh_interval_steps: 1
 ```
 
-For paper-aligned runs, prefer:
-
-```yaml
-simulation:
-  dynamic_state_algorithm: topological_routing
-```
-
-or
-
-```yaml
-simulation:
-  dynamic_state_algorithm: predictive_link_state
-  algorithm_params:
-    prediction_horizon_minutes: 5
-```
-
-or
-
-```yaml
-simulation:
-  dynamic_state_algorithm: explicit_path_routing
-  algorithm_params:
-    segment_count: 2
-```
+The paper matrix runs all four against the same snapshots, with `torus_weighted_pivot` as the topological distance mode.
