@@ -19,7 +19,7 @@ to_runtime_path() {
 
 OUTPUT_BASE=${1:-"$ROOT_DIR/paper_eval_outputs"}
 
-ALGORITHMS=${ALGORITHMS:-"topological_routing shortest_path_link_state predictive_link_state"}
+ALGORITHMS=${ALGORITHMS:-"topological_routing shortest_path_link_state dra_routing explicit_path_routing"}
 ISL_SCENARIOS=${ISL_SCENARIOS:-"ring grid"}
 CONFIGS=${CONFIGS:-"starlink kuiper oneweb telesat dense_synthetic"}
 
