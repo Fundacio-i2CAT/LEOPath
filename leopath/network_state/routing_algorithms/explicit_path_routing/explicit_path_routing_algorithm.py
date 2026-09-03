@@ -7,7 +7,7 @@ import networkx as nx
 from astropy.time import Time
 
 from leopath.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
-from leopath.network_state.routing_algorithms.traditional_segment_routing.traditional_segment_routing_algorithm import (
+from leopath.network_state.routing_algorithms.explicit_path_routing.segment_helpers import (
     _add_gs_to_gs_fstate,
     _calculate_bandwidth_state,
     _handle_direct_gs_path,

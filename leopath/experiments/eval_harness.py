@@ -107,10 +107,8 @@ def flatten_distribution(prefix: str, stats: dict) -> dict:
 def prepare_algorithm_params(
     simulation_config: dict,
     algorithm_name: str,
-    prediction_horizon_minutes: float | None,
     segment_count: int | None,
     segment_refresh_interval_steps: int | None,
-    segment_mode: str | None,
     plane_weight: float | None,
     sat_weight: float | None,
     shell_weight: float | None,
@@ -120,18 +118,10 @@ def prepare_algorithm_params(
 ) -> dict:
     algorithm_params = dict(simulation_config.get("algorithm_params") or {})
 
-    if algorithm_name == "traditional_segment_routing":
-        algorithm_params["prediction_horizon_minutes"] = (
-            0.0 if prediction_horizon_minutes is None else prediction_horizon_minutes
-        )
-    elif algorithm_name == "explicit_path_routing":
-        algorithm_params.pop("prediction_horizon_minutes", None)
-        algorithm_params.pop("segment_mode", None)
+    if algorithm_name == "explicit_path_routing":
         algorithm_params.pop("plane_weight", None)
         algorithm_params.pop("sat_weight", None)
         algorithm_params.pop("shell_weight", None)
-    elif prediction_horizon_minutes is not None:
-        algorithm_params["prediction_horizon_minutes"] = prediction_horizon_minutes
 
     if segment_count is not None:
         algorithm_params["segment_count"] = segment_count
@@ -139,8 +129,6 @@ def prepare_algorithm_params(
         algorithm_params["segment_refresh_interval_steps"] = segment_refresh_interval_steps
     elif algorithm_name == "explicit_path_routing":
         algorithm_params.setdefault("segment_refresh_interval_steps", 1)
-    if segment_mode is not None and algorithm_name != "explicit_path_routing":
-        algorithm_params["segment_mode"] = segment_mode
     if plane_weight is not None and algorithm_name != "explicit_path_routing":
         algorithm_params["plane_weight"] = plane_weight
     if sat_weight is not None and algorithm_name != "explicit_path_routing":
@@ -167,10 +155,8 @@ def run_evaluation(
     gs_override_path: str | None,
     end_time_hours: float | None,
     time_step_minutes: float | None,
-    prediction_horizon_minutes: float | None,
     segment_count: int | None,
     segment_refresh_interval_steps: int | None,
-    segment_mode: str | None,
     plane_weight: float | None,
     sat_weight: float | None,
     shell_weight: float | None,
@@ -191,10 +177,8 @@ def run_evaluation(
     algorithm_params = prepare_algorithm_params(
         simulation_config=config["simulation"],
         algorithm_name=effective_algorithm_name,
-        prediction_horizon_minutes=prediction_horizon_minutes,
         segment_count=segment_count,
         segment_refresh_interval_steps=segment_refresh_interval_steps,
-        segment_mode=segment_mode,
         plane_weight=plane_weight,
         sat_weight=sat_weight,
         shell_weight=shell_weight,
@@ -223,13 +207,6 @@ def run_evaluation(
     )
 
     undirected_isls = select_isls(constellation_data, isl_scenario)
-    if config["simulation"]["dynamic_state_algorithm"] in {
-        "predictive_link_state",
-        "traditional_segment_routing",
-    }:
-        algorithm_params = {**algorithm_params, "undirected_isls": undirected_isls}
-        config["simulation"]["algorithm_params"] = algorithm_params
-
     sim_config = config["simulation"]
     simulation_end_time_ns = int(sim_config["end_time_hours"] * 60 * 60 * 1e9)
     time_step_ns = int(sim_config["time_step_minutes"] * 60 * 1e9)
@@ -445,9 +422,7 @@ def run_evaluation(
         "generated_at": datetime.datetime.now().isoformat(),
         "forwarding_state_definition": {
             "shortest_path_link_state": "destination forwarding entries toward routable satellites (proxy: number of satellites)",
-            "predictive_link_state": "destination forwarding entries toward routable satellites (proxy: number of satellites)",
             "explicit_path_routing": "local neighbor/interface entries on all satellites, plus destination-to-segment ingress bindings only on satellites that currently have attached ground stations; strict-adjacency header bytes are tracked separately in route plans",
-            "traditional_segment_routing": "forwarding entries toward segment endpoints / routable satellites (proxy: number of satellites)",
             "topological_routing": "local neighbor-address forwarding entries (proxy: node degree)",
             "dra_routing": "local neighbor-address forwarding entries (proxy: node degree); DRA-style hop-only logical-coordinate baseline",
             "default": "reachable GS destinations per satellite",
@@ -455,8 +430,6 @@ def run_evaluation(
         "satellite_forwarding_state_update_definition": {
             "definition": "per-snapshot additions, deletions, or modifications of satellite-local forwarding-state units between consecutive snapshots",
             "shortest_path_link_state": "destination-to-next-hop forwarding entries toward currently attached destination satellites",
-            "predictive_link_state": "destination-to-next-hop forwarding entries toward currently attached destination satellites",
-            "traditional_segment_routing": "destination-to-next-hop forwarding entries toward currently attached destination satellites",
             "topological_routing": "mutable satellite-local forwarding state only; in the regular Ring/+Grid model this is limited to local GS delivery bindings and any explicit exception state, not algorithmic default forwarding",
             "dra_routing": "mutable satellite-local forwarding state only, as for topological_routing; the families differ solely in the distance metric used for default forwarding",
             "explicit_path_routing": "satellite-local GS delivery bindings plus ingress destination-to-path bindings on satellites that currently host GS attachments; packet-carried adjacency guidance is excluded",
@@ -506,10 +479,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gs-config", default=None, help="Ground station list override YAML")
     parser.add_argument("--end-time-hours", type=float, default=None)
     parser.add_argument("--time-step-minutes", type=float, default=None)
-    parser.add_argument("--prediction-horizon-minutes", type=float, default=None)
     parser.add_argument("--segment-count", type=int, default=None)
     parser.add_argument("--segment-refresh-interval-steps", type=int, default=None)
-    parser.add_argument("--segment-mode", type=str, default=None)
     parser.add_argument("--plane-weight", type=float, default=None)
     parser.add_argument("--sat-weight", type=float, default=None)
     parser.add_argument("--shell-weight", type=float, default=None)
@@ -532,10 +503,8 @@ def main() -> None:
         gs_override_path=args.gs_config,
         end_time_hours=args.end_time_hours,
         time_step_minutes=args.time_step_minutes,
-        prediction_horizon_minutes=args.prediction_horizon_minutes,
         segment_count=args.segment_count,
         segment_refresh_interval_steps=args.segment_refresh_interval_steps,
-        segment_mode=args.segment_mode,
         plane_weight=args.plane_weight,
         sat_weight=args.sat_weight,
         shell_weight=args.shell_weight,

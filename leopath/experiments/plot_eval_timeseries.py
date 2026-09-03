@@ -84,11 +84,6 @@ def time_minutes(rows: list[dict]) -> list[float]:
 
 def format_label(metadata: dict) -> str:
     algorithm = metadata.get("algorithm", "unknown")
-    params = metadata.get("algorithm_params") or {}
-    if algorithm == "predictive_link_state":
-        horizon = params.get("prediction_horizon_minutes")
-        if horizon is not None:
-            return f"Predictive LS (h={int(horizon)}m)"
     if algorithm == "shortest_path_link_state":
         return "Link-state"
     if algorithm == "topological_routing":
@@ -106,8 +101,6 @@ def should_include_run(metadata: dict) -> bool:
         return True
     if algorithm == "explicit_path_routing":
         return True
-    if algorithm == "traditional_segment_routing":
-        return False
     return False
 
 

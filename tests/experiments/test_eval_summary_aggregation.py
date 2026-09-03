@@ -5,11 +5,11 @@ from leopath.experiments.summarize_eval import summarize_run
 
 
 def test_summarize_run_weights_stretch_by_samples(tmp_path: Path) -> None:
-    run_dir = tmp_path / "predictive_link_state" / "ring"
+    run_dir = tmp_path / "shortest_path_link_state" / "ring"
     run_dir.mkdir(parents=True)
 
     (run_dir / "metadata.json").write_text(
-        '{"algorithm": "predictive_link_state", "isl_scenario": "ring"}',
+        '{"algorithm": "shortest_path_link_state", "isl_scenario": "ring"}',
         encoding="utf-8",
     )
     (run_dir / "timestep_metrics.csv").write_text(

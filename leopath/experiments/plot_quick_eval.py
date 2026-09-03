@@ -12,7 +12,6 @@ import matplotlib.pyplot as plt  # noqa: E402
 ALGORITHM_COLORS = {
     "shortest_path_link_state": "#4c72b0",
     "topological_routing": "#55a868",
-    "predictive_link_state": "#c44e52",
     "explicit_path_routing": "#8172b3",
 }
 

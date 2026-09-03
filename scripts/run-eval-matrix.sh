@@ -27,8 +27,6 @@ END_TIME_HOURS=${END_TIME_HOURS:-6}
 TIME_STEP_MINUTES=${TIME_STEP_MINUTES:-5}
 GS_CONFIG=${GS_CONFIG:-"$ROOT_DIR/leopath/config/ground_stations_dense.yaml"}
 GS_CONFIG=$(to_runtime_path "$GS_CONFIG")
-PREDICTION_HORIZONS=${PREDICTION_HORIZONS:-"0 5 10"}
-SEGMENT_COUNTS=${SEGMENT_COUNTS:-"2 3"}
 EXPLICIT_PATH_REFRESH_INTERVAL_STEPS=${EXPLICIT_PATH_REFRESH_INTERVAL_STEPS:-1}
 EXPLICIT_PATH_FINAL_EGRESS_MODE=${EXPLICIT_PATH_FINAL_EGRESS_MODE:-strict}
 TOPOLOGICAL_DISTANCE_MODE=${TOPOLOGICAL_DISTANCE_MODE:-}
@@ -46,37 +44,7 @@ for config_name in $CONFIGS; do
   config_path=$(to_runtime_path "$config_path")
   for algorithm in $ALGORITHMS; do
     for isl in $ISL_SCENARIOS; do
-      if [ "$algorithm" = "predictive_link_state" ]; then
-        for horizon in $PREDICTION_HORIZONS; do
-          out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}/horizon_${horizon}m"
-          mkdir -p "$out_dir"
-          runtime_out_dir=$(to_runtime_path "$out_dir")
-          run_eval_harness \
-            --config "$config_path" \
-            --output-dir "$runtime_out_dir" \
-            --isl-scenario "$isl" \
-            --algorithm "$algorithm" \
-            --gs-config "$GS_CONFIG" \
-            --end-time-hours "$END_TIME_HOURS" \
-            --time-step-minutes "$TIME_STEP_MINUTES" \
-            --prediction-horizon-minutes "$horizon"
-        done
-      elif [ "$algorithm" = "traditional_segment_routing" ]; then
-        for count in $SEGMENT_COUNTS; do
-          out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}/segments_${count}"
-          mkdir -p "$out_dir"
-          runtime_out_dir=$(to_runtime_path "$out_dir")
-          run_eval_harness \
-            --config "$config_path" \
-            --output-dir "$runtime_out_dir" \
-            --isl-scenario "$isl" \
-            --algorithm "$algorithm" \
-            --gs-config "$GS_CONFIG" \
-            --end-time-hours "$END_TIME_HOURS" \
-            --time-step-minutes "$TIME_STEP_MINUTES" \
-            --segment-count "$count"
-        done
-      elif [ "$algorithm" = "explicit_path_routing" ]; then
+      if [ "$algorithm" = "explicit_path_routing" ]; then
         out_dir="$OUTPUT_BASE/${config_name}/${algorithm}/${isl}"
         mkdir -p "$out_dir"
         runtime_out_dir=$(to_runtime_path "$out_dir")

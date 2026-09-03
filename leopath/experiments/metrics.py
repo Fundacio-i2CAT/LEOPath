@@ -105,10 +105,6 @@ def compute_forwarding_state_stats(
     counts = []
     if algorithm_name == "shortest_path_link_state":
         counts = [float(len(satellite_ids)) for _ in satellite_ids]
-    elif algorithm_name == "predictive_link_state":
-        counts = [float(len(satellite_ids)) for _ in satellite_ids]
-    elif algorithm_name == "traditional_segment_routing":
-        counts = [float(len(satellite_ids)) for _ in satellite_ids]
     elif algorithm_name == "explicit_path_routing":
         attached_satellites = {sat_id for sat_id, _ in attachments if sat_id is not None}
         for sat_id in satellite_ids:
@@ -228,11 +224,7 @@ def project_satellite_forwarding_state(
 
     _add_local_delivery_entries(projected_state, attachment_by_gs)
 
-    if algorithm_name in {
-        "shortest_path_link_state",
-        "predictive_link_state",
-        "traditional_segment_routing",
-    }:
+    if algorithm_name == "shortest_path_link_state":
         _add_destination_forwarding_entries(
             projected_state,
             fstate,

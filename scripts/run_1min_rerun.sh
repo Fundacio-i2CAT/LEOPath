@@ -20,8 +20,7 @@ run_top() {
     --end-time-hours 6.0 --time-step-minutes 1.0 \
     --distance-mode torus_weighted_pivot \
     --plane-weight 100.0 --sat-weight 1.0 --shell-weight 1000.0 \
-    --segment-count 2 --segment-mode plane_then_inplane \
-    --prediction-horizon-minutes 5 2>&1 | grep -v '%|' || true
+    2>&1 | grep -v '%|' || true
 }
 run_ls() {
   local const=$1
