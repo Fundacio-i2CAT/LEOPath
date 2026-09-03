@@ -46,6 +46,12 @@ One of LEOPath's best features is the interactive constellation viewer:
   </a>
 </p>
 
+
+
+https://github.com/user-attachments/assets/960df2e5-3f7a-4cd3-a3c2-8b9923298a53
+
+
+
 The viewer runs in the browser and lets you inspect satellite motion, ring vs +grid ISL topologies, ground stations, nearest-visible GSL attachments, and dense constellation samples.
 
 ## Quickstart
