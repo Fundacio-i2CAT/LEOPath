@@ -197,6 +197,7 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
             self.ground_stations,
             self.mock_gsl_strategy,
             self.test_time,
+            None,
         )
 
         # 3. Assert F-State Result
@@ -226,6 +227,7 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
             self.ground_stations,
             self.mock_gsl_strategy,
             self.test_time,
+            None,
         )
 
         # Assert results are still based on current calculation

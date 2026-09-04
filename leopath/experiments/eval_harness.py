@@ -326,6 +326,9 @@ def run_evaluation(
                 **flatten_distribution("srv6_srh_bytes", explicit_srv6_srh_stats),
                 **flatten_distribution("stretch_hop", stretch_stats["hop"]),
                 **flatten_distribution("stretch_dist", stretch_stats["distance"]),
+                **flatten_distribution("stretch_hop_shared", stretch_stats["hop_shared"]),
+                **flatten_distribution("stretch_dist_shared", stretch_stats["distance_shared"]),
+                **{f"delivery_{key}": value for key, value in stretch_stats["delivery"].items()},
                 **{
                     f"explicit_failover_{key}": value
                     for key, value in explicit_failover_stats.items()

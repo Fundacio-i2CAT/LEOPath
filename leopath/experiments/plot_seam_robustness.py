@@ -80,8 +80,11 @@ def plot_delivery(eval_data: Path, output_dir: Path) -> None:
     width = 0.38
     fig, ax = plt.subplots(figsize=(8, 4.5))
     bars_pivot = ax.bar(
-        [i - width / 2 for i in x], pivot, width,
-        label="Topological routing with pivot (ours)", color=PIVOT_COLOR
+        [i - width / 2 for i in x],
+        pivot,
+        width,
+        label="Topological routing with pivot (ours)",
+        color=PIVOT_COLOR,
     )
     bars_dra = ax.bar(
         [i + width / 2 for i in x], dra, width, label=r"Hop-only ($\delta_{hop}$)", color=DRA_COLOR
@@ -191,8 +194,16 @@ def plot_schematic(output_dir: Path) -> None:
     px = [pos(p, s)[0] for p, s in pivot_nodes]
     py = [pos(p, s)[1] for p, s in pivot_nodes]
     ax.plot(px, py, color=PIVOT_COLOR, lw=3, zorder=2)
-    ax.scatter([dx], [dy], marker="o", s=120, facecolors="none", edgecolors=PIVOT_COLOR,
-               zorder=5, linewidths=3)
+    ax.scatter(
+        [dx],
+        [dy],
+        marker="o",
+        s=120,
+        facecolors="none",
+        edgecolors=PIVOT_COLOR,
+        zorder=5,
+        linewidths=3,
+    )
     ax.text(
         pos(2, 2)[0],
         pos(0, 2)[1] + 0.45,
