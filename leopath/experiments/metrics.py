@@ -648,22 +648,57 @@ def compute_path_stretch(
     route_plans = route_plans or {}
     sat_set = set(satellite_ids)
     sat_graph = topology_graph.subgraph(satellite_ids)
-    hop_stretches = []
-    dist_stretches = []
+
+    # Legacy basis: each algorithm graded against a shortest path to whichever
+    # egress it happened to reach. Retained for continuity with earlier runs.
+    hop_stretches: list[float] = []
+    dist_stretches: list[float] = []
+    # Shared basis: every algorithm graded against the same lower bound, the
+    # best end-to-end route to any satellite the destination can see.
+    shared_hop_stretches: list[float] = []
+    shared_dist_stretches: list[float] = []
+
+    total_pairs = 0
+    no_src_visibility = 0
+    no_dst_visibility = 0
+    disconnected = 0
+    deliverable = 0
+    delivered = 0
+    non_optimal_egress = 0
+
     for src_index, src_gs_id in enumerate(ground_station_ids):
         for dst_index, dst_gs_id in enumerate(ground_station_ids):
             if src_gs_id == dst_gs_id:
                 continue
+            total_pairs += 1
+
             src_sat, src_gsl_dist = attachments[src_index]
-            if src_sat is None:
+            if src_sat is None or src_sat not in sat_set:
+                no_src_visibility += 1
                 continue
-            if src_sat not in sat_set:
-                continue
+
             destination_visibility = (
                 None
                 if ground_station_satellites_in_range is None
                 else ground_station_satellites_in_range[dst_index]
             )
+            if ground_station_satellites_in_range is not None and not destination_visibility:
+                no_dst_visibility += 1
+                continue
+
+            # Reachability is decided from the topology alone, before any
+            # algorithm is consulted, so every algorithm is scored over the
+            # same set of pairs and against the same lower bound.
+            best_hop_sat, best_hops_total, best_dist_sat, best_dist_total = (
+                _best_reachable_egress(
+                    sat_graph, src_sat, src_gsl_dist, destination_visibility
+                )
+            )
+            if best_dist_total is None:
+                disconnected += 1
+                continue
+            deliverable += 1
+
             dst_sat = _resolve_routed_destination_satellite(
                 fstate,
                 topology_graph,
@@ -675,7 +710,7 @@ def compute_path_stretch(
                 destination_visibility,
             )
             if dst_sat is None:
-                continue
+                continue  # deliverable, but this algorithm failed to deliver
             dst_gsl_dist = _lookup_visible_satellite_distance(destination_visibility, dst_sat)
             if dst_gsl_dist is None:
                 _, nearest_dst_gsl_dist = attachments[dst_index]
@@ -704,13 +739,38 @@ def compute_path_stretch(
             if algo_hops is None or algo_dist is None:
                 continue
 
+            delivered += 1
+            if dst_sat != best_dist_sat:
+                non_optimal_egress += 1
+
             if opt_hops_total > 0:
                 hop_stretches.append(algo_hops / opt_hops_total)
             if opt_dist_total > 0.0:
                 dist_stretches.append(algo_dist / opt_dist_total)
+            if best_hops_total:
+                shared_hop_stretches.append(algo_hops / best_hops_total)
+            if best_dist_total > 0.0:
+                shared_dist_stretches.append(algo_dist / best_dist_total)
+
     return {
         "hop": summarize_distribution(hop_stretches),
         "distance": summarize_distribution(dist_stretches),
+        "hop_shared": summarize_distribution(shared_hop_stretches),
+        "distance_shared": summarize_distribution(shared_dist_stretches),
+        "delivery": {
+            "total_pairs": float(total_pairs),
+            "no_src_visibility": float(no_src_visibility),
+            "no_dst_visibility": float(no_dst_visibility),
+            "disconnected": float(disconnected),
+            "deliverable": float(deliverable),
+            "delivered": float(delivered),
+            "forwarding_failure": float(deliverable - delivered),
+            "delivery_rate": (delivered / deliverable) if deliverable else 0.0,
+            "non_optimal_egress": float(non_optimal_egress),
+            "non_optimal_egress_rate": (
+                (non_optimal_egress / delivered) if delivered else 0.0
+            ),
+        },
     }
 
 
@@ -768,6 +828,49 @@ def _resolve_routed_destination_satellite(
         current = next_hop
         steps += 1
     return None
+
+
+def _best_reachable_egress(
+    sat_graph: nx.Graph,
+    src_sat: int,
+    src_gsl_dist: float,
+    destination_visibility: list[tuple[float, int]] | None,
+) -> tuple[int | None, float | None, int | None, float | None]:
+    """Best end-to-end route to a ground station over any satellite it can see.
+
+    A ground station is reachable through any satellite currently above its
+    horizon, so the lower bound on an end-to-end path is the minimum over
+    those satellites, not the route to whichever one an algorithm happened
+    to pick. Returns the hop-optimal and distance-optimal egress separately,
+    since the two need not be the same satellite.
+
+    Returns ``(hop_egress, hop_total, dist_egress, dist_total)``; the entries
+    are ``None`` when no visible satellite is reachable from ``src_sat``.
+    """
+    if not destination_visibility:
+        return None, None, None, None
+
+    best_hops: float | None = None
+    best_hop_sat: int | None = None
+    best_dist: float | None = None
+    best_dist_sat: int | None = None
+
+    for gsl_dist, candidate_sat in destination_visibility:
+        hops, dist = _shortest_path_lengths(sat_graph, src_sat, candidate_sat)
+        if hops is None or dist is None:
+            continue
+        # Both GSL legs are part of the end-to-end path, so the baseline
+        # counts them exactly as the delivered path does.
+        total_hops = hops + 2
+        total_dist = float(dist) + float(src_gsl_dist) + float(gsl_dist)
+        if best_hops is None or total_hops < best_hops:
+            best_hops = total_hops
+            best_hop_sat = candidate_sat
+        if best_dist is None or total_dist < best_dist:
+            best_dist = total_dist
+            best_dist_sat = candidate_sat
+
+    return best_hop_sat, best_hops, best_dist_sat, best_dist
 
 
 def _shortest_path_lengths(
