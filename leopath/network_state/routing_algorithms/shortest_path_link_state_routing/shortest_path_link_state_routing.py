@@ -38,6 +38,10 @@ class ShortestPathLinkStateRoutingAlgorithm(RoutingAlgorithm):
         epoch = Time("2000-01-01 00:00:00", scale="tdb")
         current_time = epoch + time_since_epoch_ns * astro_units.ns
 
+        # Route toward the ground station, not toward one chosen satellite:
+        # any satellite currently above the destination's horizon is a valid
+        # egress, and the fstate calculation picks whichever minimises path
+        # length plus GSL length.
         return algorithm_free_one_only_over_isls(
             time_since_epoch_ns,
             constellation_data,
@@ -46,4 +50,5 @@ class ShortestPathLinkStateRoutingAlgorithm(RoutingAlgorithm):
             gsl_strategy,
             current_time,
             list_gsl_interfaces_info,
+            ground_station_satellites_in_range,
         )
