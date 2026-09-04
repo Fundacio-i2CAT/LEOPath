@@ -689,10 +689,8 @@ def compute_path_stretch(
             # Reachability is decided from the topology alone, before any
             # algorithm is consulted, so every algorithm is scored over the
             # same set of pairs and against the same lower bound.
-            best_hop_sat, best_hops_total, best_dist_sat, best_dist_total = (
-                _best_reachable_egress(
-                    sat_graph, src_sat, src_gsl_dist, destination_visibility
-                )
+            best_hop_sat, best_hops_total, best_dist_sat, best_dist_total = _best_reachable_egress(
+                sat_graph, src_sat, src_gsl_dist, destination_visibility
             )
             if best_dist_total is None:
                 disconnected += 1
@@ -767,9 +765,7 @@ def compute_path_stretch(
             "forwarding_failure": float(deliverable - delivered),
             "delivery_rate": (delivered / deliverable) if deliverable else 0.0,
             "non_optimal_egress": float(non_optimal_egress),
-            "non_optimal_egress_rate": (
-                (non_optimal_egress / delivered) if delivered else 0.0
-            ),
+            "non_optimal_egress_rate": ((non_optimal_egress / delivered) if delivered else 0.0),
         },
     }
 
