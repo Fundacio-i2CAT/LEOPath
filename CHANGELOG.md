@@ -32,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through a satellite other than the optimal one.
 - `scripts/run-matrix-parallel.sh` for running an evaluation matrix as parallel
   Docker jobs with per-job wall-clock recorded.
+- `aux_*` metrics describing the topological-routing algorithm's per-snapshot
+  auxiliary state, reported separately from installed forwarding entries:
+  torus weight-model build time and resident size (row/plane edge-cost and
+  path-cost tables), pivot memo-cache entries, and per-satellite work
+  accounting (forwarding decisions taken, distance-function evaluations
+  performed, and the distinct (neighbour, destination) pairs each node would
+  memoise).
 ### Removed
 - `predictive_link_state` and `traditional_segment_routing`, neither of which
   was used by any published result. The former was link-state evaluated on a

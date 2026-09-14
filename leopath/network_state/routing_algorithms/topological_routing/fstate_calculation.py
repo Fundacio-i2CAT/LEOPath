@@ -1,3 +1,4 @@
+import time
 from typing import Optional
 
 import networkx as nx
@@ -122,6 +123,7 @@ def calculate_fstate_topological_routing_no_gs_relay(
     prev_fstate: dict | None = None,
     graph_has_changed: bool = True,
     algorithm_params: dict | None = None,
+    state_report: dict | None = None,
 ) -> dict:
     """
     Calculates forwarding state using topological routing over ISLs only (no GS relays).
@@ -238,13 +240,21 @@ def calculate_fstate_topological_routing_no_gs_relay(
         ]
         for satellite_id in satellite_node_ids
     }
+    per_satellite_work: dict = {} if state_report is not None else None
     weight_model = None
     if distance_mode == "torus_weighted_pivot":
+        # The pivot estimator rebuilds its geometry every snapshot. Reviewers
+        # asked for that cost, so both the build time and the resident size of
+        # each structure are recorded rather than left implicit.
+        build_start = time.perf_counter()
         weight_model = _build_torus_weight_model(
             satellite_only_subgraph,
             satellite_addresses,
             constellation_data,
         )
+        build_ms = (time.perf_counter() - build_start) * 1000.0
+        if state_report is not None:
+            state_report.update(_describe_weight_model(weight_model, build_ms))
     gs_destination_candidates = []
     for possible_dst_sats in ground_station_satellites_in_range:
         candidates = []
@@ -265,8 +275,14 @@ def calculate_fstate_topological_routing_no_gs_relay(
         constellation_data,
         distance_mode,
         weight_model,
+        per_satellite_work=per_satellite_work,
     )
 
+    if state_report is not None:
+        state_report.update(_summarize_per_satellite_work(per_satellite_work))
+    if state_report is not None and weight_model is not None:
+        # Filled after forwarding, since the cache only grows as pairs are queried.
+        state_report["pivot_cache_entries"] = float(len(weight_model["pivot_distance_cache"]))
     log.debug(f"Calculated fstate with {len(fstate)} entries")
     return fstate
 
@@ -533,6 +549,7 @@ def _calculate_sat_to_gs_fstate(
     constellation_data,
     distance_mode: str,
     weight_model: dict | None = None,
+    per_satellite_work: dict | None = None,
 ):
     """
     Calculate satellite-to-ground-station forwarding state using topological routing.
@@ -601,6 +618,31 @@ def _calculate_sat_to_gs_fstate(
 
             if best_destination_address is None:
                 continue
+
+            if per_satellite_work is not None:
+                # What this satellite alone evaluates for this destination: one
+                # distance per visible egress to pick the destination satellite,
+                # one for its own position, and one per neighbour. The simulator
+                # computes every satellite's state in a single process, so the
+                # shared memo table spans the whole constellation; on board, a
+                # satellite only ever evaluates and caches its own pairs.
+                neighbours = len(neighbor_candidates.get(curr_sat_id, []))
+                work = per_satellite_work.setdefault(
+                    curr_sat_id, {"decisions": 0, "evaluations": 0, "pairs": set()}
+                )
+                work["decisions"] += 1
+                work["evaluations"] += len(possible_dst_sats) + 1 + neighbours
+                dest_key = (
+                    best_destination_address.get_satellite_address().plane_id,
+                    best_destination_address.get_satellite_address().sat_index,
+                )
+                for neighbor_id, _iface, neighbor_address, _w in neighbor_candidates.get(
+                    curr_sat_id, []
+                ):
+                    neighbour_sat = neighbor_address.get_satellite_address()
+                    work["pairs"].add(
+                        (neighbour_sat.plane_id, neighbour_sat.sat_index) + dest_key
+                    )
 
             try:
                 next_hop_decision, distance_to_ground_station_m = (
@@ -784,6 +826,57 @@ def _routing_topological_distance(
         sat_step_cost=sat_step_cost,
         shell_penalty=1000.0,
     )
+
+
+def _summarize_per_satellite_work(per_satellite_work: dict | None) -> dict:
+    """What a single satellite computes and caches, as opposed to the simulator.
+
+    LEOPath derives the whole constellation's forwarding state in one process,
+    so its memo table holds every pair any satellite asked about. That figure
+    describes the simulator, not the design. These are the per-node quantities:
+    forwarding decisions taken, distance-function evaluations performed, and
+    the distinct (neighbour, destination) pairs a node would memoise, which
+    bounds its own cache.
+    """
+    if not per_satellite_work:
+        return {}
+    decisions = [w["decisions"] for w in per_satellite_work.values()]
+    evaluations = [w["evaluations"] for w in per_satellite_work.values()]
+    pairs = [len(w["pairs"]) for w in per_satellite_work.values()]
+
+    def mean(values: list[int]) -> float:
+        return float(sum(values)) / len(values) if values else 0.0
+
+    return {
+        "decisions_per_sat_mean": mean(decisions),
+        "decisions_per_sat_max": float(max(decisions)) if decisions else 0.0,
+        "distance_evals_per_sat_mean": mean(evaluations),
+        "distance_evals_per_sat_max": float(max(evaluations)) if evaluations else 0.0,
+        "cache_pairs_per_sat_mean": mean(pairs),
+        "cache_pairs_per_sat_max": float(max(pairs)) if pairs else 0.0,
+    }
+
+
+def _describe_weight_model(weight_model: dict, build_ms: float) -> dict:
+    """Resident size of each structure the pivot estimator keeps, in entries.
+
+    Reported per category rather than as a single figure, because the tiers
+    differ in kind. The edge costs are the irreducible geometry: measured ISL
+    lengths, a deterministic function of orbital elements and so derivable
+    on board rather than distributed. The path-cost tables are precomputed
+    from those edge costs and are a time-for-space trade, and the pivot cache
+    is memoisation that grows only with the pairs actually queried. None of
+    them is installed forwarding state.
+    """
+    planes = int(weight_model["plane_modulus"])
+    sats = int(weight_model["sat_modulus"])
+    return {
+        "geometry_build_ms": float(build_ms),
+        "geometry_row_edge_entries": float(planes * sats),
+        "geometry_plane_edge_entries": float(sats * planes),
+        "path_cost_row_entries": float(planes * sats * sats),
+        "path_cost_plane_entries": float(sats * planes * planes),
+    }
 
 
 def _build_torus_weight_model(

@@ -41,6 +41,7 @@ def algorithm_topological_routing(
     log.debug(f"Running topological routing algorithm for t={time_since_epoch_ns} ns")
 
     # Calculate forwarding state using topological routing
+    state_report: dict = {}
     fstate = calculate_fstate_topological_routing_no_gs_relay(
         topology_with_isls,
         ground_stations,
@@ -50,6 +51,7 @@ def algorithm_topological_routing(
         prev_fstate,
         graph_has_changed,
         algorithm_params=algorithm_params,
+        state_report=state_report,
     )
 
     # Add GS -> GS entries (used by churn/stretches in evaluation)
@@ -63,6 +65,7 @@ def algorithm_topological_routing(
     return {
         "fstate": fstate,
         "bandwidth": bandwidth_state,
+        "auxiliary_state": state_report,
     }
 
 
