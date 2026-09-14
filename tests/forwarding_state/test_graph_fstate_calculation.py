@@ -142,6 +142,42 @@ class TestFstateCalculationRefactored(unittest.TestCase):
         }
         self.assertDictEqual(fstate, expected_fstate)
 
+    def test_reports_link_state_database_apart_from_fstate(self):
+        """Scenario: Sat 10 -- Sat 11 -- Sat 12, GS 100 -> Sat 10, GS 101 -> Sat 12"""
+        mock_body = MagicMock(spec=ephem.Body)
+        satellites = [
+            Satellite(id=sat_id, ephem_obj_manual=mock_body, ephem_obj_direct=mock_body)
+            for sat_id in (10, 11, 12)
+        ]
+        ground_stations = [
+            GroundStation(
+                gid=gid,
+                name=f"G{gid}",
+                latitude_degrees_str="0",
+                longitude_degrees_str="0",
+                elevation_m_float=0,
+                cartesian_x=0,
+                cartesian_y=0,
+                cartesian_z=0,
+            )
+            for gid in (100, 101)
+        ]
+        isl_edges = [(10, 11, 1000), (11, 12, 1000)]
+        gsl_visibility = [(500, 10), (600, 12)]
+        topology, mock_strategy = self._setup_scenario(
+            satellites, ground_stations, isl_edges, gsl_visibility
+        )
+        current_time = Time("2000-01-01 00:00:00", scale="tdb")
+        state_report = {}
+        calculate_fstate_shortest_path_object_no_gs_relay(
+            topology, ground_stations, mock_strategy, current_time, state_report=state_report
+        )
+        self.assertEqual(state_report["lsdb_node_entries"], 3.0)
+        self.assertEqual(state_report["lsdb_link_entries"], 2.0)
+        self.assertEqual(state_report["spf_tree_entries_per_sat"], 3.0)
+        self.assertEqual(state_report["spf_all_pairs_entries"], 9.0)
+        self.assertGreaterEqual(state_report["spf_all_pairs_build_ms"], 0.0)
+
     def test_two_sat_two_gs_refactored(self):
         """Scenario: Sat 10 -- Sat 11, GS 100 -> Sat 10, GS 101 -> Sat 11"""
         # Diagram: 100(GS) -- 10(Sat) -- 11(Sat) -- 101(GS)

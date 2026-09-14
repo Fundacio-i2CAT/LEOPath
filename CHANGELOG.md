@@ -50,6 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accounting (forwarding decisions taken, distance-function evaluations
   performed, and the distinct (neighbour, destination) pairs each node would
   memoise).
+- `aux_*` metrics for link-state describing the topology database it keeps
+  beside its forwarding table: database node and link entries, the
+  per-satellite shortest-path tree a deployed router would hold, and the
+  all-pairs matrix size and build time the simulator uses to derive every
+  satellite's state at once, labelled as simulator-side.
 ### Removed
 - `predictive_link_state` and `traditional_segment_routing`, neither of which
   was used by any published result. The former was link-state evaluated on a

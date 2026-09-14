@@ -1,6 +1,7 @@
 # fstate_calculation.py (Refactored Function)
 
 import math
+import time
 from typing import Dict, List, Tuple
 
 import networkx as nx
@@ -20,6 +21,7 @@ def calculate_fstate_shortest_path_object_no_gs_relay(
     gsl_attachment_strategy: GSLAttachmentStrategy,
     current_time: Time,
     ground_station_satellites_in_range: list | None = None,
+    state_report: dict | None = None,
 ) -> dict:
     """
     Calculates forwarding state using shortest paths over ISLs only (no GS relays).
@@ -33,6 +35,9 @@ def calculate_fstate_shortest_path_object_no_gs_relay(
             given, a ground station is treated as reachable through any
             satellite currently above its horizon, and the routing chooses
             whichever of those minimises path length plus GSL length.
+        state_report: Optional dict filled with the link-state database and
+            shortest-path state this scheme keeps, reported apart from
+            installed forwarding entries.
 
     Passing only a single attachment per ground station, which is what the
     Hypatia-derived code path did unconditionally, makes the destination a
@@ -87,13 +92,18 @@ def calculate_fstate_shortest_path_object_no_gs_relay(
         log.debug(
             f"Calculating Floyd-Warshall on satellite subgraph for {len(satellite_node_ids)} nodes..."
         )
+        spf_start = time.perf_counter()
         dist_matrix = nx.floyd_warshall_numpy(
             satellite_only_subgraph, nodelist=satellite_node_ids, weight="weight"
         )
+        spf_ms = (time.perf_counter() - spf_start) * 1000.0
         log.debug("Floyd-Warshall calculation complete.")
     except (nx.NetworkXError, Exception) as e:
         log.error(f"Error during Floyd-Warshall shortest path calculation: {e}")
         return {}
+
+    if state_report is not None:
+        state_report.update(_describe_link_state_database(satellite_only_subgraph, spf_ms))
 
     fstate: dict[tuple, tuple] = {}
     dist_satellite_to_ground_station: dict[tuple, float] = {}
@@ -122,6 +132,34 @@ def calculate_fstate_shortest_path_object_no_gs_relay(
 
     log.debug(f"Calculated fstate object with {len(fstate)} entries.")
     return fstate
+
+
+def _describe_link_state_database(sat_subgraph: nx.Graph, spf_ms: float) -> dict:
+    """Topology and shortest-path state link-state keeps, apart from its FIB.
+
+    Link-state's defining cost is its database, not its forwarding table:
+    every router holds the whole topology, flooded by the others, and reruns
+    a shortest-path computation over it whenever it changes. Counting only
+    installed forwarding entries leaves that out, so it is reported here in
+    the same terms as the topological scheme's auxiliary state.
+
+    The database holds one entry per satellite and one per ISL, each carrying
+    the link length; router advertisements list every adjacency from both
+    ends, so the flooded form carries each link twice. A deployed router runs
+    a single-source computation and keeps one distance and next hop per
+    destination satellite. The simulator instead derives every satellite's
+    state from one all-pairs matrix, so that matrix and its build time
+    describe the simulator rather than a node, and are labelled as such.
+    """
+    nodes = sat_subgraph.number_of_nodes()
+    links = sat_subgraph.number_of_edges()
+    return {
+        "lsdb_node_entries": float(nodes),
+        "lsdb_link_entries": float(links),
+        "spf_tree_entries_per_sat": float(nodes),
+        "spf_all_pairs_entries": float(nodes * nodes),
+        "spf_all_pairs_build_ms": float(spf_ms),
+    }
 
 
 def _calculate_sat_to_gs_fstate(

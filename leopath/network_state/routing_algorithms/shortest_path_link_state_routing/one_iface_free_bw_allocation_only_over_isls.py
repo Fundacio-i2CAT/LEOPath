@@ -71,17 +71,20 @@ def algorithm_free_one_only_over_isls(
     bandwidth_state = _calculate_bandwidth_state(
         constellation_data, ground_stations, list_gsl_interfaces_info
     )
+    state_report: dict = {}
     fstate = _calculate_forwarding_state(
         topology_with_isls,
         ground_stations,
         gsl_attachment_strategy,
         current_time,
         ground_station_satellites_in_range,
+        state_report=state_report,
     )
 
     return {
         "fstate": fstate,
         "bandwidth": bandwidth_state,
+        "auxiliary_state": state_report,
     }
 
 
@@ -127,6 +130,7 @@ def _calculate_forwarding_state(
     gsl_attachment_strategy: GSLAttachmentStrategy,
     current_time: Time,
     ground_station_satellites_in_range: list | None = None,
+    state_report: dict | None = None,
 ) -> dict:
     """
     Returns the forwarding state object using shortest path calculation.
@@ -138,6 +142,7 @@ def _calculate_forwarding_state(
             gsl_attachment_strategy,
             current_time,
             ground_station_satellites_in_range,
+            state_report=state_report,
         )
         log.debug("Calculated forwarding state object.")
         return fstate
