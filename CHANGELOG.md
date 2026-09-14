@@ -21,6 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   algorithm being measured happened to reach, so each algorithm was graded
   against a different target and over a different subset of pairs, and neither
   the subset nor its size was reported.
+- Path-stretch computation hoists shortest-path searches into one cached
+  weighted and unweighted single-source run per distinct source satellite,
+  instead of a fresh query per destination candidate. The metric previously
+  cost roughly ten times the routing algorithm itself on Starlink-scale
+  snapshots.
+- Installed forwarding state is now counted from what the simulator actually
+  built instead of taken on trust from the analytical constellation-size
+  proxy. Reported per snapshot as `fstate_installed_*` (reachable table slots
+  occupied), `fstate_markers_*` (unreachable-destination markers), and
+  `fstate_neighbors_*` (resident neighbour table), side by side with the
+  proxy so the two can be compared.
 ### Added
 - Delivery accounting per snapshot (`delivery_*`): deliverable pairs, delivered
   pairs, delivery rate, forwarding failures, and the separate causes of

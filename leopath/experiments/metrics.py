@@ -136,6 +136,52 @@ def compute_forwarding_state_stats(
     return stats
 
 
+def compute_installed_state_breakdown(
+    fstate: dict,
+    topology_graph: nx.Graph,
+    satellite_ids: list[int],
+    ground_station_ids: list[int],
+) -> dict:
+    """Entries actually present in the forwarding state, counted per satellite.
+
+    ``compute_forwarding_state_stats`` reports an analytical proxy per family:
+    constellation size for link-state, node degree for the topological schemes.
+    Those proxies model a deployment where destinations scale with the
+    constellation, which is the claim the paper makes, but they are not counts
+    of anything the simulator built. This function counts what is really there,
+    so the two can be reported side by side and the proxy can be checked
+    rather than taken on trust.
+
+    Reachable destinations and unreachable-destination markers are separated,
+    since a marker occupies a table slot without providing reachability, and
+    the two behave differently in a sparse topology.
+    """
+    installed: list[float] = []
+    markers: list[float] = []
+    neighbor_entries: list[float] = []
+
+    for sat_id in satellite_ids:
+        reachable = 0
+        unreachable = 0
+        for gs_id in ground_station_ids:
+            entry = fstate.get((sat_id, gs_id))
+            if entry is None:
+                continue
+            if is_unreachable(entry):
+                unreachable += 1
+            else:
+                reachable += 1
+        installed.append(float(reachable))
+        markers.append(float(unreachable))
+        neighbor_entries.append(float(len(list(topology_graph.neighbors(sat_id)))))
+
+    return {
+        "installed": summarize_distribution(installed),
+        "unreachable_markers": summarize_distribution(markers),
+        "neighbor_entries": summarize_distribution(neighbor_entries),
+    }
+
+
 def compute_satellite_forwarding_state_updates(
     prev_fstate: dict,
     curr_fstate: dict,
@@ -648,6 +694,7 @@ def compute_path_stretch(
     route_plans = route_plans or {}
     sat_set = set(satellite_ids)
     sat_graph = topology_graph.subgraph(satellite_ids)
+    distances = _SourceDistanceCache(sat_graph)
 
     # Legacy basis: each algorithm graded against a shortest path to whichever
     # egress it happened to reach. Retained for continuity with earlier runs.
@@ -690,7 +737,7 @@ def compute_path_stretch(
             # algorithm is consulted, so every algorithm is scored over the
             # same set of pairs and against the same lower bound.
             best_hop_sat, best_hops_total, best_dist_sat, best_dist_total = _best_reachable_egress(
-                sat_graph, src_sat, src_gsl_dist, destination_visibility
+                distances, src_sat, src_gsl_dist, destination_visibility
             )
             if best_dist_total is None:
                 disconnected += 1
@@ -713,7 +760,7 @@ def compute_path_stretch(
             if dst_gsl_dist is None:
                 _, nearest_dst_gsl_dist = attachments[dst_index]
                 dst_gsl_dist = nearest_dst_gsl_dist
-            opt_hops, opt_dist = _shortest_path_lengths(sat_graph, src_sat, dst_sat)
+            opt_hops, opt_dist = distances.lengths(src_sat, dst_sat)
             if opt_hops is None or opt_dist is None:
                 continue
 
@@ -826,8 +873,47 @@ def _resolve_routed_destination_satellite(
     return None
 
 
+class _SourceDistanceCache:
+    """Single-source shortest paths from each source satellite, computed once.
+
+    Every ordered ground-station pair sharing a source satellite needs
+    distances from that satellite, and each pair considers every satellite
+    visible to its destination. Running a fresh search per pair per candidate
+    made the metrics cost roughly ten times the routing algorithm itself on a
+    Starlink-scale snapshot, so the searches are hoisted: one unweighted and
+    one weighted single-source run per distinct source satellite, at most one
+    per ground station.
+    """
+
+    def __init__(self, sat_graph: nx.Graph) -> None:
+        self._graph = sat_graph
+        self._hops: dict[int, dict[int, float]] = {}
+        self._dist: dict[int, dict[int, float]] = {}
+
+    def _ensure(self, src_sat: int) -> None:
+        if src_sat in self._hops:
+            return
+        try:
+            self._hops[src_sat] = nx.single_source_shortest_path_length(self._graph, src_sat)
+            self._dist[src_sat] = nx.single_source_dijkstra_path_length(
+                self._graph, src_sat, weight="weight"
+            )
+        except (nx.NodeNotFound, nx.NetworkXError):
+            self._hops[src_sat] = {}
+            self._dist[src_sat] = {}
+
+    def lengths(self, src_sat: int, dst_sat: int) -> tuple[int | None, float | None]:
+        """Hop count and physical distance, or ``(None, None)`` if unreachable."""
+        self._ensure(src_sat)
+        hops = self._hops[src_sat].get(dst_sat)
+        dist = self._dist[src_sat].get(dst_sat)
+        if hops is None or dist is None:
+            return None, None
+        return int(hops), float(dist)
+
+
 def _best_reachable_egress(
-    sat_graph: nx.Graph,
+    distances: "_SourceDistanceCache",
     src_sat: int,
     src_gsl_dist: float,
     destination_visibility: list[tuple[float, int]] | None,
@@ -852,7 +938,7 @@ def _best_reachable_egress(
     best_dist_sat: int | None = None
 
     for gsl_dist, candidate_sat in destination_visibility:
-        hops, dist = _shortest_path_lengths(sat_graph, src_sat, candidate_sat)
+        hops, dist = distances.lengths(src_sat, candidate_sat)
         if hops is None or dist is None:
             continue
         # Both GSL legs are part of the end-to-end path, so the baseline
