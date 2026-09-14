@@ -55,6 +55,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-satellite shortest-path tree a deployed router would hold, and the
   all-pairs matrix size and build time the simulator uses to derive every
   satellite's state at once, labelled as simulator-side.
+- Failure injection for robustness evaluation, selected with `--failure-type`:
+  `isl` and `satellite` outages as seeded per-element on/off processes with a
+  stationary rate and mean duration, `void` for a contiguous block of failed
+  satellites, `cut` for inter-plane links removed across two opposite plane
+  boundaries, and `polar` for inter-plane links switched off above a latitude.
+  Failures are applied to each snapshot before routing and depend only on the
+  seed and scenario, so every algorithm faces the same pattern. Reported per
+  snapshot as `failure_isls_removed` and `failure_satellites_down`.
+- `--geometry-source nominal` for topological routing, building the pivot
+  geometry from the failure-free graph so the estimator does not gain global
+  failure knowledge, while next hops still consider only live neighbours.
+- `delivery_failure_*` metrics splitting forwarding failures into loops, dead
+  ends, links down, hop-limit exhaustion and lost egress.
+- `--explicit-backup-adjacencies` to enable explicit-path single-hop local
+  protection from the command line.
+- `scripts/run-failure-sweep.sh` for running the failure-injection sweep as
+  parallel Docker jobs.
 ### Removed
 - `predictive_link_state` and `traditional_segment_routing`, neither of which
   was used by any published result. The former was link-state evaluated on a

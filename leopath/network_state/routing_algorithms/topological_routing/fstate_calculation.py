@@ -244,7 +244,12 @@ def calculate_fstate_topological_routing_no_gs_relay(
     weight_model = None
     if distance_mode == "torus_weighted_pivot":
         weight_model = _build_reported_torus_weight_model(
-            satellite_only_subgraph,
+            _geometry_subgraph(
+                topology_with_isls,
+                satellite_node_ids,
+                satellite_only_subgraph,
+                str(algorithm_params.get("geometry_source", "observed")),
+            ),
             satellite_addresses,
             constellation_data,
             state_report,
@@ -814,6 +819,32 @@ def _routing_topological_distance(
         sat_step_cost=sat_step_cost,
         shell_penalty=1000.0,
     )
+
+
+GEOMETRY_SOURCES = ("observed", "nominal")
+
+
+def _geometry_subgraph(
+    topology_with_isls: LEOTopology,
+    satellite_node_ids: list[int],
+    satellite_only_subgraph: nx.Graph,
+    geometry_source: str,
+) -> nx.Graph:
+    """Graph the pivot geometry is built from.
+
+    ``observed`` is the snapshot graph as routed, so an injected link failure
+    reaches every satellite's distance estimates at once: global failure
+    knowledge the design never distributes. ``nominal`` is the failure-free
+    graph, as a satellite deriving geometry from ephemerides would see it,
+    while next hops still consider only live neighbours. Without injected
+    failures the two are the same graph.
+    """
+    if geometry_source not in GEOMETRY_SOURCES:
+        raise ValueError(f"Unknown geometry source: {geometry_source}")
+    nominal_graph = getattr(topology_with_isls, "nominal_graph", None)
+    if geometry_source == "observed" or nominal_graph is None:
+        return satellite_only_subgraph
+    return nominal_graph.subgraph(satellite_node_ids)
 
 
 def _build_reported_torus_weight_model(

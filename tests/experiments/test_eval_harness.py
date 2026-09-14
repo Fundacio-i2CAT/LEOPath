@@ -76,3 +76,26 @@ def test_explicit_path_preserves_final_egress_mode() -> None:
     )
 
     assert params["final_egress_mode"] == "dynamic"
+
+
+def test_failure_related_params_reach_only_their_algorithm() -> None:
+    common = {
+        "simulation_config": {"time_step_minutes": 1, "algorithm_params": {}},
+        "segment_count": None,
+        "segment_refresh_interval_steps": None,
+        "plane_weight": None,
+        "sat_weight": None,
+        "shell_weight": None,
+        "distance_mode": None,
+        "explicit_final_egress_mode": None,
+        "time_step_minutes": 1,
+        "geometry_source": "nominal",
+        "explicit_backup_adjacencies": True,
+    }
+    topological = prepare_algorithm_params(algorithm_name="topological_routing", **common)
+    explicit = prepare_algorithm_params(algorithm_name="explicit_path_routing", **common)
+
+    assert topological["geometry_source"] == "nominal"
+    assert "include_backup_adjacencies" not in topological
+    assert explicit["include_backup_adjacencies"] is True
+    assert "geometry_source" not in explicit

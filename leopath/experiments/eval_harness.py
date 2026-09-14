@@ -31,6 +31,7 @@ from leopath.network_state.routing_algorithms.routing_algorithm_factory import (
 )
 from leopath.topology.topology import ConstellationData
 
+from .failures import FAILURE_TYPES, FailureConfig, FailureProcess, satellite_latitudes_deg
 from .metrics import (
     build_interface_neighbor_map,
     compute_explicit_failover_stats,
@@ -116,6 +117,8 @@ def prepare_algorithm_params(
     distance_mode: str | None,
     explicit_final_egress_mode: str | None,
     time_step_minutes: float | None,
+    geometry_source: str | None = None,
+    explicit_backup_adjacencies: bool = False,
 ) -> dict:
     algorithm_params = dict(simulation_config.get("algorithm_params") or {})
 
@@ -140,6 +143,10 @@ def prepare_algorithm_params(
         algorithm_params["distance_mode"] = distance_mode
     if explicit_final_egress_mode is not None and algorithm_name == "explicit_path_routing":
         algorithm_params["final_egress_mode"] = explicit_final_egress_mode
+    if geometry_source is not None and algorithm_name == "topological_routing":
+        algorithm_params["geometry_source"] = geometry_source
+    if explicit_backup_adjacencies and algorithm_name == "explicit_path_routing":
+        algorithm_params["include_backup_adjacencies"] = True
 
     effective_time_step_minutes = time_step_minutes
     if effective_time_step_minutes is None:
@@ -163,6 +170,9 @@ def run_evaluation(
     shell_weight: float | None,
     distance_mode: str | None,
     explicit_final_egress_mode: str | None,
+    geometry_source: str | None = None,
+    explicit_backup_adjacencies: bool = False,
+    failure_config: FailureConfig | None = None,
 ) -> None:
     config = load_config(config_path)
     gs_override = load_ground_station_override(gs_override_path)
@@ -186,6 +196,8 @@ def run_evaluation(
         distance_mode=distance_mode,
         explicit_final_egress_mode=explicit_final_egress_mode,
         time_step_minutes=time_step_minutes,
+        geometry_source=geometry_source,
+        explicit_backup_adjacencies=explicit_backup_adjacencies,
     )
     if algorithm_params:
         config["simulation"]["algorithm_params"] = algorithm_params
@@ -217,6 +229,19 @@ def run_evaluation(
     ground_station_ids = [gs.id for gs in ground_stations]
 
     time_steps = list(range(offset_ns, simulation_end_time_ns, time_step_ns))
+    # The failure pattern is drawn from the seed and the scenario, never from the
+    # algorithm, so every algorithm routes over identical failures.
+    failure_process = FailureProcess(
+        failure_config or FailureConfig(),
+        n_orbits=constellation_data.n_orbits,
+        n_sats_per_orbit=constellation_data.n_sats_per_orbit,
+        undirected_isls=undirected_isls,
+        time_step_minutes=float(sim_config["time_step_minutes"]),
+        stream_key=f"{config['constellation']['name']}|{isl_scenario}",
+        latitude_provider=lambda time_absolute: satellite_latitudes_deg(
+            sim_satellites, constellation_data.epoch, time_absolute
+        ),
+    )
     algorithm = get_routing_algorithm(sim_config["dynamic_state_algorithm"])
     max_hops = len(satellite_ids) + 2
 
@@ -258,6 +283,7 @@ def run_evaluation(
         gs_sat_visibility = _compute_ground_station_satellites_in_range(
             topology_with_isls, time_absolute
         )
+        failure_stats = failure_process.inject(topology_with_isls, gs_sat_visibility, time_absolute)
 
         interface_neighbor_map = build_interface_neighbor_map(topology_with_isls.sat_neighbor_to_if)
         algorithm_params = sim_config.get("algorithm_params") or {}
@@ -348,6 +374,7 @@ def run_evaluation(
                     f"explicit_failover_{key}": value
                     for key, value in explicit_failover_stats.items()
                 },
+                **{f"failure_{key}": value for key, value in failure_stats.items()},
                 "compute_time_ms": compute_duration_ms,
             }
         )
@@ -423,6 +450,7 @@ def run_evaluation(
         "algorithm": sim_config["dynamic_state_algorithm"],
         "algorithm_params": sim_config.get("algorithm_params") or {},
         "isl_scenario": isl_scenario,
+        "failure_model": failure_process.describe(),
         "constellation": {
             "name": config["constellation"]["name"],
             "num_orbits": config["constellation"]["num_orbits"],
@@ -508,6 +536,33 @@ def parse_args() -> argparse.Namespace:
         choices=("strict", "dynamic"),
         default=None,
     )
+    parser.add_argument(
+        "--explicit-backup-adjacencies",
+        action="store_true",
+        help="Give explicit paths single-hop local protection around a failed adjacency",
+    )
+    parser.add_argument(
+        "--geometry-source",
+        choices=("observed", "nominal"),
+        default=None,
+        help="Graph the topological pivot geometry is built from under failures",
+    )
+    parser.add_argument("--failure-type", choices=FAILURE_TYPES, default="none")
+    parser.add_argument(
+        "--failure-rate",
+        type=float,
+        default=0.0,
+        help="Stationary probability that an ISL or satellite is down",
+    )
+    parser.add_argument("--failure-seed", type=int, default=0)
+    parser.add_argument(
+        "--failure-mean-duration-minutes",
+        type=float,
+        default=None,
+        help="Mean outage length; defaults to 10 for ISLs and 60 for satellites",
+    )
+    parser.add_argument("--failure-void-size", type=int, default=2)
+    parser.add_argument("--failure-polar-latitude-deg", type=float, default=75.0)
     return parser.parse_args()
 
 
@@ -528,6 +583,16 @@ def main() -> None:
         shell_weight=args.shell_weight,
         distance_mode=args.distance_mode,
         explicit_final_egress_mode=args.explicit_final_egress_mode,
+        geometry_source=args.geometry_source,
+        explicit_backup_adjacencies=args.explicit_backup_adjacencies,
+        failure_config=FailureConfig(
+            failure_type=args.failure_type,
+            rate=args.failure_rate,
+            seed=args.failure_seed,
+            mean_duration_minutes=args.failure_mean_duration_minutes,
+            void_size=args.failure_void_size,
+            polar_latitude_deg=args.failure_polar_latitude_deg,
+        ),
     )
 
 
