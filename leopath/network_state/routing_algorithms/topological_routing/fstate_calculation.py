@@ -240,21 +240,15 @@ def calculate_fstate_topological_routing_no_gs_relay(
         ]
         for satellite_id in satellite_node_ids
     }
-    per_satellite_work: dict = {} if state_report is not None else None
+    per_satellite_work: dict | None = {} if state_report is not None else None
     weight_model = None
     if distance_mode == "torus_weighted_pivot":
-        # The pivot estimator rebuilds its geometry every snapshot. Reviewers
-        # asked for that cost, so both the build time and the resident size of
-        # each structure are recorded rather than left implicit.
-        build_start = time.perf_counter()
-        weight_model = _build_torus_weight_model(
+        weight_model = _build_reported_torus_weight_model(
             satellite_only_subgraph,
             satellite_addresses,
             constellation_data,
+            state_report,
         )
-        build_ms = (time.perf_counter() - build_start) * 1000.0
-        if state_report is not None:
-            state_report.update(_describe_weight_model(weight_model, build_ms))
     gs_destination_candidates = []
     for possible_dst_sats in ground_station_satellites_in_range:
         candidates = []
@@ -278,11 +272,7 @@ def calculate_fstate_topological_routing_no_gs_relay(
         per_satellite_work=per_satellite_work,
     )
 
-    if state_report is not None:
-        state_report.update(_summarize_per_satellite_work(per_satellite_work))
-    if state_report is not None and weight_model is not None:
-        # Filled after forwarding, since the cache only grows as pairs are queried.
-        state_report["pivot_cache_entries"] = float(len(weight_model["pivot_distance_cache"]))
+    _report_forwarding_work(state_report, per_satellite_work, weight_model)
     log.debug(f"Calculated fstate with {len(fstate)} entries")
     return fstate
 
@@ -640,9 +630,7 @@ def _calculate_sat_to_gs_fstate(
                     curr_sat_id, []
                 ):
                     neighbour_sat = neighbor_address.get_satellite_address()
-                    work["pairs"].add(
-                        (neighbour_sat.plane_id, neighbour_sat.sat_index) + dest_key
-                    )
+                    work["pairs"].add((neighbour_sat.plane_id, neighbour_sat.sat_index) + dest_key)
 
             try:
                 next_hop_decision, distance_to_ground_station_m = (
@@ -826,6 +814,44 @@ def _routing_topological_distance(
         sat_step_cost=sat_step_cost,
         shell_penalty=1000.0,
     )
+
+
+def _build_reported_torus_weight_model(
+    satellite_only_subgraph: nx.Graph,
+    satellite_addresses: dict[int, TopologicalNetworkAddress],
+    constellation_data: ConstellationData,
+    state_report: dict | None,
+) -> dict:
+    """Build the pivot weight model, recording its cost when a report is requested.
+
+    The pivot estimator rebuilds its geometry every snapshot. Reviewers asked
+    for that cost, so both the build time and the resident size of each
+    structure are recorded rather than left implicit.
+    """
+    build_start = time.perf_counter()
+    weight_model = _build_torus_weight_model(
+        satellite_only_subgraph,
+        satellite_addresses,
+        constellation_data,
+    )
+    build_ms = (time.perf_counter() - build_start) * 1000.0
+    if state_report is not None:
+        state_report.update(_describe_weight_model(weight_model, build_ms))
+    return weight_model
+
+
+def _report_forwarding_work(
+    state_report: dict | None,
+    per_satellite_work: dict | None,
+    weight_model: dict | None,
+) -> None:
+    """Record per-satellite work and pivot cache size once forwarding has run."""
+    if state_report is None:
+        return
+    state_report.update(_summarize_per_satellite_work(per_satellite_work))
+    if weight_model is not None:
+        # Filled after forwarding, since the cache only grows as pairs are queried.
+        state_report["pivot_cache_entries"] = float(len(weight_model["pivot_distance_cache"]))
 
 
 def _summarize_per_satellite_work(per_satellite_work: dict | None) -> dict:

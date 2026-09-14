@@ -334,12 +334,8 @@ def run_evaluation(
                 "time_since_epoch_ns": time_since_epoch_ns,
                 **flatten_distribution("fstate_size", fstate_stats),
                 **flatten_distribution("fstate_installed", installed_state["installed"]),
-                **flatten_distribution(
-                    "fstate_markers", installed_state["unreachable_markers"]
-                ),
-                **flatten_distribution(
-                    "fstate_neighbors", installed_state["neighbor_entries"]
-                ),
+                **flatten_distribution("fstate_markers", installed_state["unreachable_markers"]),
+                **flatten_distribution("fstate_neighbors", installed_state["neighbor_entries"]),
                 **flatten_distribution("strict_header_bytes", explicit_header_stats),
                 **flatten_distribution("srv6_srh_bytes", explicit_srv6_srh_stats),
                 **flatten_distribution("stretch_hop", stretch_stats["hop"]),
