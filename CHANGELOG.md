@@ -21,6 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   algorithm being measured happened to reach, so each algorithm was graded
   against a different target and over a different subset of pairs, and neither
   the subset nor its size was reported.
+- Path-stretch computation hoists shortest-path searches into one cached
+  weighted and unweighted single-source run per distinct source satellite,
+  instead of a fresh query per destination candidate. The metric previously
+  cost roughly ten times the routing algorithm itself on Starlink-scale
+  snapshots.
+- Installed forwarding state is now counted from what the simulator actually
+  built instead of taken on trust from the analytical constellation-size
+  proxy. Reported per snapshot as `fstate_installed_*` (reachable table slots
+  occupied), `fstate_markers_*` (unreachable-destination markers), and
+  `fstate_neighbors_*` (resident neighbour table), side by side with the
+  proxy so the two can be compared.
 ### Added
 - Delivery accounting per snapshot (`delivery_*`): deliverable pairs, delivered
   pairs, delivery rate, forwarding failures, and the separate causes of
@@ -32,6 +43,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   through a satellite other than the optimal one.
 - `scripts/run-matrix-parallel.sh` for running an evaluation matrix as parallel
   Docker jobs with per-job wall-clock recorded.
+- `aux_*` metrics describing the topological-routing algorithm's per-snapshot
+  auxiliary state, reported separately from installed forwarding entries:
+  torus weight-model build time and resident size (row/plane edge-cost and
+  path-cost tables), pivot memo-cache entries, and per-satellite work
+  accounting (forwarding decisions taken, distance-function evaluations
+  performed, and the distinct (neighbour, destination) pairs each node would
+  memoise).
+- `aux_*` metrics for link-state describing the topology database it keeps
+  beside its forwarding table: database node and link entries, the
+  per-satellite shortest-path tree a deployed router would hold, and the
+  all-pairs matrix size and build time the simulator uses to derive every
+  satellite's state at once, labelled as simulator-side.
 ### Removed
 - `predictive_link_state` and `traditional_segment_routing`, neither of which
   was used by any published result. The former was link-state evaluated on a
@@ -39,6 +62,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   axis measured and did not implement the scheme its name suggested.
 - The `--prediction-horizon-minutes` and `--segment-mode` flags, which no
   remaining algorithm reads.
+### Documentation
+- Added a topological-forwarding demo animation and its caption track to the
+  Cesium viewer assets.
 
 ## [0.1.4] - 2026-06-18
 ### Fixed

@@ -1,7 +1,7 @@
 # tests/dynamic_state/test_algorithm_free_one_only_over_isls.py
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import ephem
 from astropy.time import Time
@@ -198,6 +198,13 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
             self.mock_gsl_strategy,
             self.test_time,
             None,
+            state_report=ANY,
+        )
+
+        # The report the helper fills is the one returned as auxiliary state
+        self.assertIs(
+            self.mock_fstate_calculator.call_args.kwargs["state_report"],
+            result["auxiliary_state"],
         )
 
         # 3. Assert F-State Result
@@ -228,6 +235,7 @@ class TestAlgorithmFreeOneOnlyOverIsls(unittest.TestCase):
             self.mock_gsl_strategy,
             self.test_time,
             None,
+            state_report=ANY,
         )
 
         # Assert results are still based on current calculation

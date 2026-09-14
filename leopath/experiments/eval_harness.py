@@ -39,6 +39,7 @@ from .metrics import (
     compute_gs_handover_rate,
     compute_gs_renumbering_stats,
     compute_gs_to_gs_churn,
+    compute_installed_state_breakdown,
     compute_path_stretch,
     compute_sat_to_gs_churn,
     compute_satellite_forwarding_state_updates,
@@ -273,6 +274,10 @@ def run_evaluation(
         compute_duration_ms = (time.perf_counter() - compute_start) * 1000.0
         fstate = fstate_output.get("fstate", {})
         route_plans = fstate_output.get("route_plans", {})
+        # Per-category auxiliary state: geometry and path-cost tables the
+        # distance estimator maintains, reported separately from installed
+        # forwarding entries rather than folded into them.
+        auxiliary_state = fstate_output.get("auxiliary_state") or {}
         if control_plane_sample is None and fstate_output.get("control_plane"):
             control_plane_sample = fstate_output["control_plane"]
 
@@ -286,6 +291,12 @@ def run_evaluation(
             attachments,
             algorithm_params,
             route_plans,
+        )
+        installed_state = compute_installed_state_breakdown(
+            fstate,
+            topology_with_isls.graph,
+            satellite_ids,
+            ground_station_ids,
         )
         explicit_header_stats = compute_explicit_header_stats(
             route_plans,
@@ -322,6 +333,9 @@ def run_evaluation(
                 "time_index": step_index,
                 "time_since_epoch_ns": time_since_epoch_ns,
                 **flatten_distribution("fstate_size", fstate_stats),
+                **flatten_distribution("fstate_installed", installed_state["installed"]),
+                **flatten_distribution("fstate_markers", installed_state["unreachable_markers"]),
+                **flatten_distribution("fstate_neighbors", installed_state["neighbor_entries"]),
                 **flatten_distribution("strict_header_bytes", explicit_header_stats),
                 **flatten_distribution("srv6_srh_bytes", explicit_srv6_srh_stats),
                 **flatten_distribution("stretch_hop", stretch_stats["hop"]),
@@ -329,6 +343,7 @@ def run_evaluation(
                 **flatten_distribution("stretch_hop_shared", stretch_stats["hop_shared"]),
                 **flatten_distribution("stretch_dist_shared", stretch_stats["distance_shared"]),
                 **{f"delivery_{key}": value for key, value in stretch_stats["delivery"].items()},
+                **{f"aux_{key}": value for key, value in auxiliary_state.items()},
                 **{
                     f"explicit_failover_{key}": value
                     for key, value in explicit_failover_stats.items()
