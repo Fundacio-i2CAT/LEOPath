@@ -57,6 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   axis measured and did not implement the scheme its name suggested.
 - The `--prediction-horizon-minutes` and `--segment-mode` flags, which no
   remaining algorithm reads.
+### Documentation
+- Added a topological-forwarding demo animation and its caption track to the
+  Cesium viewer assets.
 
 ## [0.1.4] - 2026-06-18
 ### Fixed
