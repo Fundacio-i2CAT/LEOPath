@@ -80,6 +80,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   snapshots and write per-run CSVs plus Markdown tables. The sweep summary
   combines seeds into means with 95% confidence intervals and pairs every
   variant with link-state by seed.
+- `--forwarding-guard progress` for topological routing: a satellite forwards
+  only to neighbours strictly lower in (Phi, satellite id), where Phi is the
+  minimum over visible egresses of distance plus GSL length. Every walk then
+  terminates without loops, at an egress or at a local minimum counted as a
+  forwarding exception (`aux_forwarding_exceptions`). Accepted only with the
+  evaluator-independent distance modes (`torus_unit`, `torus_weighted_pivot`).
+- `code_version` in run metadata, set by the runner scripts to the Docker image
+  tag so outputs from different builds in one output tree can be told apart.
 ### Removed
 - `predictive_link_state` and `traditional_segment_routing`, neither of which
   was used by any published result. The former was link-state evaluated on a
