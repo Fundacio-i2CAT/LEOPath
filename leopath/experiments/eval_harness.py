@@ -120,6 +120,7 @@ def prepare_algorithm_params(
     geometry_source: str | None = None,
     explicit_backup_adjacencies: bool = False,
     forwarding_guard: str | None = None,
+    local_repair: str | None = None,
 ) -> dict:
     algorithm_params = dict(simulation_config.get("algorithm_params") or {})
 
@@ -148,6 +149,8 @@ def prepare_algorithm_params(
         algorithm_params["geometry_source"] = geometry_source
     if forwarding_guard is not None and algorithm_name == "topological_routing":
         algorithm_params["forwarding_guard"] = forwarding_guard
+    if local_repair is not None and algorithm_name == "topological_routing":
+        algorithm_params["local_repair"] = local_repair
     if explicit_backup_adjacencies and algorithm_name == "explicit_path_routing":
         algorithm_params["include_backup_adjacencies"] = True
 
@@ -177,6 +180,7 @@ def run_evaluation(
     explicit_backup_adjacencies: bool = False,
     failure_config: FailureConfig | None = None,
     forwarding_guard: str | None = None,
+    local_repair: str | None = None,
 ) -> None:
     config = load_config(config_path)
     gs_override = load_ground_station_override(gs_override_path)
@@ -203,6 +207,7 @@ def run_evaluation(
         geometry_source=geometry_source,
         explicit_backup_adjacencies=explicit_backup_adjacencies,
         forwarding_guard=forwarding_guard,
+        local_repair=local_repair,
     )
     if algorithm_params:
         config["simulation"]["algorithm_params"] = algorithm_params
@@ -561,6 +566,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Topological routing: forward only to neighbours that lower the egress potential",
     )
+    parser.add_argument(
+        "--local-repair",
+        choices=("none", "square"),
+        default=None,
+        help="Topological routing: reach a next hop cut off by a failed ISL over a 3-hop detour",
+    )
     parser.add_argument("--failure-type", choices=FAILURE_TYPES, default="none")
     parser.add_argument(
         "--failure-rate",
@@ -600,6 +611,7 @@ def main() -> None:
         geometry_source=args.geometry_source,
         explicit_backup_adjacencies=args.explicit_backup_adjacencies,
         forwarding_guard=args.forwarding_guard,
+        local_repair=args.local_repair,
         failure_config=FailureConfig(
             failure_type=args.failure_type,
             rate=args.failure_rate,

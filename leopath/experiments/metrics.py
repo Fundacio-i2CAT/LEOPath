@@ -1,10 +1,14 @@
 import csv
 import json
 import math
-from typing import Iterable
+from typing import Iterable, TypeGuard
 
 import networkx as nx
 import numpy as np
+
+from leopath.network_state.routing_algorithms.topological_routing.fstate_calculation import (
+    LOCAL_DETOUR,
+)
 
 
 def write_json(path: str, payload: dict) -> None:
@@ -69,6 +73,9 @@ def normalize_next_hop(
         if len(entry) == 3:
             next_hop_id = entry[0]
             return next_hop_id if isinstance(next_hop_id, int) else None
+        if len(entry) == 4 and entry[0] == LOCAL_DETOUR:
+            # A local detour still names its routing-level next hop, the target.
+            return entry[3] if isinstance(entry[3], int) else None
         if len(entry) == 2 and entry[0] == "GSL":
             return entry[1] if isinstance(entry[1], int) else None
     if isinstance(entry, int):
@@ -878,6 +885,14 @@ def _resolve_routed_destination_satellite(
     steps = 0
     while steps <= max_hops:
         entry = fstate.get((current, dst_gs_id))
+        if is_local_detour(entry):
+            leg = _local_detour_leg(topology_graph, current, entry)
+            if leg is None or current in visited:
+                return None
+            visited.add(current)
+            current = leg[0]
+            steps += 1
+            continue
         next_hop = normalize_next_hop(entry, current, interface_neighbor_map)
         if next_hop == dst_gs_id:
             return current
@@ -922,6 +937,16 @@ def _classify_forwarding_failure(
         entry = fstate.get((current, dst_gs_id))
         if is_unreachable(entry):
             return "dead_end"
+        if is_local_detour(entry):
+            if current in visited:
+                return "loop"
+            leg = _local_detour_leg(topology_graph, current, entry)
+            if leg is None:
+                return "link_down"
+            visited.add(current)
+            current = leg[0]
+            steps += 1
+            continue
         next_hop = normalize_next_hop(entry, current, interface_neighbor_map)
         if next_hop is None:
             # An interface entry whose link is no longer in the snapshot.
@@ -1093,6 +1118,15 @@ def _follow_routing_path(
             return None, None
         visited.add(current)
         entry = fstate.get((current, dst_gs_id))
+        if is_local_detour(entry):
+            leg = _local_detour_leg(topology_graph, current, entry)
+            if leg is None:
+                return None, None
+            total_hops += LOCAL_DETOUR_HOPS
+            total_dist += leg[1]
+            current = leg[0]
+            steps += 1
+            continue
         next_hop = normalize_next_hop(entry, current, interface_neighbor_map)
         if next_hop is None:
             return None, None
@@ -1112,6 +1146,35 @@ def _follow_routing_path(
     total_hops += 1
     total_dist += float(dst_gsl_dist)
     return total_hops, total_dist
+
+
+# Links a local detour entry covers: source -> first relay -> second relay -> target.
+LOCAL_DETOUR_HOPS = 3
+
+
+def is_local_detour(entry: object) -> TypeGuard[tuple]:
+    return isinstance(entry, tuple) and len(entry) == 4 and entry[0] == LOCAL_DETOUR
+
+
+def _local_detour_leg(
+    topology_graph: nx.Graph, current: int, entry: tuple
+) -> tuple[int, float] | None:
+    """Target and length of a local detour, or None if any of its links is down.
+
+    A detour stands in for a failed link to the routing-level next hop. Its relays
+    carry the packet below the routing decision, so a walk moves from the source to
+    the target in one routing step while the path still counts all three links.
+    """
+    path = [current, entry[1], entry[2], entry[3]]
+    length = 0.0
+    for node_a, node_b in zip(path, path[1:]):
+        if not topology_graph.has_edge(node_a, node_b):
+            return None
+        weight = topology_graph.edges[node_a, node_b].get("weight")
+        if weight is None or math.isinf(weight):
+            return None
+        length += float(weight)
+    return entry[3], length
 
 
 def _extract_next_hop(

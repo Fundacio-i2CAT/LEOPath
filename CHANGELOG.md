@@ -88,6 +88,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   evaluator-independent distance modes (`torus_unit`, `torus_weighted_pivot`).
 - `code_version` in run metadata, set by the runner scripts to the Docker image
   tag so outputs from different builds in one output tree can be told apart.
+- `--local-repair square` for topological routing: a satellite whose ISL to a
+  nominal neighbour has failed keeps that neighbour as its next hop and reaches
+  it over the shortest live three-hop detour, the other sides of a grid square.
+  The detour sits below the routing decision, as RINA's two-step routing puts
+  the path to the next hop in a lower layer, so the progress guard still holds.
+  Path following expands detour entries into their three links, a broken leg is
+  classified as `link_down`, and `aux_local_detour_entries` counts them.
 ### Removed
 - `predictive_link_state` and `traditional_segment_routing`, neither of which
   was used by any published result. The former was link-state evaluated on a

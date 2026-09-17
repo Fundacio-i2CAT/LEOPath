@@ -56,6 +56,7 @@ VARIANTS=(
   "topological_observed|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source observed"
   "topological_nominal_progress|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress"
   "topological_observed_progress|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source observed --forwarding-guard progress"
+  "topological_nominal_progress_repair|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --local-repair square"
 )
 
 TIMING_CSV="$OUTPUT_BASE/job_timings.csv"

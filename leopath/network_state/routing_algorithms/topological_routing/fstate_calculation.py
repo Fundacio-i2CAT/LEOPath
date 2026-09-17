@@ -242,6 +242,14 @@ def calculate_fstate_topological_routing_no_gs_relay(
         ]
         for satellite_id in satellite_node_ids
     }
+    neighbor_candidates = _with_local_detours(
+        neighbor_candidates,
+        topology_with_isls,
+        satellite_only_subgraph,
+        satellite_addresses,
+        algorithm_params,
+        distance_mode,
+    )
     per_satellite_work: dict | None = {} if state_report is not None else None
     weight_model = None
     if distance_mode == "torus_weighted_pivot":
@@ -287,7 +295,7 @@ def calculate_fstate_topological_routing_no_gs_relay(
         forwarding_guard=_resolve_forwarding_guard(algorithm_params, distance_mode),
     )
 
-    _report_forwarding_work(state_report, per_satellite_work, weight_model)
+    _report_forwarding_work(state_report, per_satellite_work, weight_model, fstate)
     log.debug(f"Calculated fstate with {len(fstate)} entries")
     return fstate
 
@@ -671,6 +679,108 @@ def _calculate_sat_to_gs_fstate(
             )
 
 
+LOCAL_REPAIRS = ("none", "square")
+
+# Forwarding entry for a detour to the routing-level next hop:
+# (LOCAL_DETOUR, first relay, second relay, target).
+LOCAL_DETOUR = "DETOUR"
+
+
+def _is_local_detour_entry(entry: object) -> bool:
+    return isinstance(entry, tuple) and len(entry) == 4 and entry[0] == LOCAL_DETOUR
+
+
+def _with_local_detours(
+    neighbor_candidates: dict,
+    topology_with_isls: LEOTopology,
+    satellite_only_subgraph: nx.Graph,
+    satellite_addresses: dict,
+    algorithm_params: dict,
+    distance_mode: str,
+) -> dict:
+    """Neighbour candidates, plus a detour to each nominal neighbour cut off by a failed link.
+
+    Routing in RINA is two steps: choose the next hop, then choose a path to it
+    (Reference Model Part 3-1, section 3.2). Under ``local_repair="square"`` a
+    satellite X whose ISL to a nominal neighbour Y has failed keeps Y as a
+    candidate while Y is still three live hops away, and reaches it over the
+    shortest such path X -> B -> C -> Y, on a +Grid the other sides of a grid
+    square. The path sits below the routing decision, as a local-scope lower layer
+    would provide it: the decision still names Y, so the progress guard's argument
+    is unaffected. It needs the state of links within two hops, a fixed
+    neighbourhood that does not grow with the constellation.
+    """
+    repair = str(algorithm_params.get("local_repair", "none"))
+    if repair not in LOCAL_REPAIRS:
+        raise ValueError(f"Unknown local repair: {repair}")
+    if repair == "square" and distance_mode not in EVALUATOR_INDEPENDENT_MODES:
+        raise ValueError(
+            f"Local repair needs an evaluator-independent distance, not {distance_mode}"
+        )
+    nominal_graph = getattr(topology_with_isls, "nominal_graph", None)
+    if repair == "none" or nominal_graph is None or nominal_graph is topology_with_isls.graph:
+        return neighbor_candidates
+
+    augmented = {sat_id: list(candidates) for sat_id, candidates in neighbor_candidates.items()}
+    for sat_id, candidates in augmented.items():
+        for target_id in _failed_nominal_neighbours(nominal_graph, satellite_only_subgraph, sat_id):
+            detour = _shortest_three_hop_detour(satellite_only_subgraph, sat_id, target_id)
+            if detour is None or target_id not in satellite_addresses:
+                continue
+            first_relay, second_relay, length = detour
+            candidates.append(
+                (
+                    target_id,
+                    (LOCAL_DETOUR, first_relay, second_relay, target_id),
+                    satellite_addresses[target_id],
+                    length,
+                )
+            )
+    return augmented
+
+
+def _failed_nominal_neighbours(
+    nominal_graph: nx.Graph, live_subgraph: nx.Graph, satellite_id: int
+) -> list[int]:
+    """Satellites adjacent in the failure-free graph whose link to this one is down."""
+    if not nominal_graph.has_node(satellite_id):
+        return []
+    return sorted(
+        neighbour
+        for neighbour in nominal_graph.neighbors(satellite_id)
+        if live_subgraph.has_node(neighbour) and not live_subgraph.has_edge(satellite_id, neighbour)
+    )
+
+
+def _shortest_three_hop_detour(
+    live_subgraph: nx.Graph, source_id: int, target_id: int
+) -> tuple[int, int, float] | None:
+    """Shortest live path source -> B -> C -> target through two distinct relays."""
+    if not live_subgraph.has_node(source_id) or not live_subgraph.has_node(target_id):
+        return None
+    best: tuple[int, int, float] | None = None
+    for first_relay in sorted(live_subgraph.neighbors(source_id)):
+        if first_relay == target_id:
+            continue
+        for second_relay in sorted(live_subgraph.neighbors(target_id)):
+            if second_relay in (source_id, first_relay):
+                continue
+            if not live_subgraph.has_edge(first_relay, second_relay):
+                continue
+            length = (
+                _edge_length(live_subgraph, source_id, first_relay)
+                + _edge_length(live_subgraph, first_relay, second_relay)
+                + _edge_length(live_subgraph, second_relay, target_id)
+            )
+            if best is None or length < best[2]:
+                best = (first_relay, second_relay, length)
+    return best
+
+
+def _edge_length(graph: nx.Graph, node_a: int, node_b: int) -> float:
+    return float(graph.edges[node_a, node_b].get("weight", 1.0))
+
+
 FORWARDING_GUARDS = ("none", "progress")
 
 # Modes whose distance depends only on the two addresses. The lookahead modes
@@ -1034,11 +1144,15 @@ def _report_forwarding_work(
     state_report: dict | None,
     per_satellite_work: dict | None,
     weight_model: dict | None,
+    fstate: dict | None = None,
 ) -> None:
     """Record per-satellite work and pivot cache size once forwarding has run."""
     if state_report is None:
         return
     state_report.update(_summarize_per_satellite_work(per_satellite_work))
+    state_report["local_detour_entries"] = float(
+        sum(1 for entry in (fstate or {}).values() if _is_local_detour_entry(entry))
+    )
     if weight_model is not None:
         # Filled after forwarding, since the cache only grows as pairs are queried.
         state_report["pivot_cache_entries"] = float(len(weight_model["pivot_distance_cache"]))
