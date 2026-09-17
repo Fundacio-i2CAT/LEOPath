@@ -54,6 +54,8 @@ VARIANTS=(
   "dra|--algorithm dra_routing"
   "topological_nominal|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal"
   "topological_observed|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source observed"
+  "topological_nominal_progress|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress"
+  "topological_observed_progress|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source observed --forwarding-guard progress"
 )
 
 TIMING_CSV="$OUTPUT_BASE/job_timings.csv"
@@ -77,7 +79,7 @@ run_job() {
   echo "[$(date +%H:%M:%S)] start $cfg/$condition/seed$seed/$variant"
   docker run --rm --entrypoint python \
     -e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 -e MKL_NUM_THREADS=1 \
-    -e NUMEXPR_NUM_THREADS=1 \
+    -e NUMEXPR_NUM_THREADS=1 -e LEOPATH_CODE_VERSION="$IMAGE" \
     -v "$ROOT_DIR/leopath/config:/app/leopath/config:ro" \
     -v "$out:/app/output" \
     "$IMAGE" \

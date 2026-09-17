@@ -99,3 +99,25 @@ def test_failure_related_params_reach_only_their_algorithm() -> None:
     assert "include_backup_adjacencies" not in topological
     assert explicit["include_backup_adjacencies"] is True
     assert "geometry_source" not in explicit
+
+
+def test_forwarding_guard_reaches_only_topological_routing() -> None:
+    common = {
+        "simulation_config": {"time_step_minutes": 1, "algorithm_params": {}},
+        "segment_count": None,
+        "segment_refresh_interval_steps": None,
+        "plane_weight": None,
+        "sat_weight": None,
+        "shell_weight": None,
+        "distance_mode": None,
+        "explicit_final_egress_mode": None,
+        "time_step_minutes": 1,
+        "forwarding_guard": "progress",
+    }
+    assert (
+        prepare_algorithm_params(algorithm_name="topological_routing", **common)["forwarding_guard"]
+        == "progress"
+    )
+    assert "forwarding_guard" not in prepare_algorithm_params(
+        algorithm_name="dra_routing", **common
+    )

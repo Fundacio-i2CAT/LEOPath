@@ -1,4 +1,6 @@
+import math
 import time
+from collections.abc import Callable
 from typing import Optional
 
 import networkx as nx
@@ -275,6 +277,14 @@ def calculate_fstate_topological_routing_no_gs_relay(
         distance_mode,
         weight_model,
         per_satellite_work=per_satellite_work,
+        potential=_EgressPotential(
+            satellite_addresses,
+            gs_destination_candidates,
+            constellation_data,
+            distance_mode,
+            weight_model,
+        ),
+        forwarding_guard=_resolve_forwarding_guard(algorithm_params, distance_mode),
     )
 
     _report_forwarding_work(state_report, per_satellite_work, weight_model)
@@ -545,6 +555,8 @@ def _calculate_sat_to_gs_fstate(
     distance_mode: str,
     weight_model: dict | None = None,
     per_satellite_work: dict | None = None,
+    potential: "_EgressPotential | None" = None,
+    forwarding_guard: str = "none",
 ):
     """
     Calculate satellite-to-ground-station forwarding state using topological routing.
@@ -626,7 +638,12 @@ def _calculate_sat_to_gs_fstate(
                     curr_sat_id, {"decisions": 0, "evaluations": 0, "pairs": set()}
                 )
                 work["decisions"] += 1
-                work["evaluations"] += len(possible_dst_sats) + 1 + neighbours
+                # Under the progress guard the satellite also evaluates each
+                # neighbour's potential, one distance per visible egress.
+                guard_evaluations = (
+                    len(possible_dst_sats) * neighbours * (forwarding_guard != "none")
+                )
+                work["evaluations"] += len(possible_dst_sats) + 1 + neighbours + guard_evaluations
                 dest_key = (
                     best_destination_address.get_satellite_address().plane_id,
                     best_destination_address.get_satellite_address().sat_index,
@@ -637,31 +654,173 @@ def _calculate_sat_to_gs_fstate(
                     neighbour_sat = neighbor_address.get_satellite_address()
                     work["pairs"].add((neighbour_sat.plane_id, neighbour_sat.sat_index) + dest_key)
 
-            try:
-                next_hop_decision, distance_to_ground_station_m = (
-                    _get_next_hop_decision_topological(
-                        curr_sat_id,
-                        curr_satellite_address,
-                        best_destination_address,
-                        neighbor_candidates.get(curr_sat_id, []),
-                        dst_gs_node_id,
-                        constellation_data,
-                        distance_mode,
-                        weight_model,
-                    )
-                )
+            _install_next_hop(
+                fstate,
+                curr_sat_id,
+                curr_satellite_address,
+                best_destination_address,
+                gs_idx,
+                dst_gs_node_id,
+                neighbor_candidates.get(curr_sat_id, []),
+                constellation_data,
+                distance_mode,
+                weight_model,
+                potential,
+                forwarding_guard,
+                per_satellite_work,
+            )
 
-                if next_hop_decision is not None:
-                    fstate[(curr_sat_id, dst_gs_node_id)] = next_hop_decision
-                    log.debug(
-                        f"Fstate entry: Sat {curr_sat_id} -> GS {dst_gs_node_id} via {next_hop_decision}"
-                    )
 
-            except Exception as e:
-                log.warning(
-                    f"Failed to create routing decision for satellite {curr_sat_id} to GS {dst_gs_node_id}: {e}"
+FORWARDING_GUARDS = ("none", "progress")
+
+# Modes whose distance depends only on the two addresses. The lookahead modes
+# estimate step costs from the evaluating satellite's own links, so two
+# satellites can disagree on a third satellite's distance.
+EVALUATOR_INDEPENDENT_MODES = ("torus_unit", "torus_weighted_pivot")
+
+
+def _resolve_forwarding_guard(algorithm_params: dict, distance_mode: str) -> str:
+    """Validated forwarding guard for this run.
+
+    The progress guard's loop-freedom argument needs every satellite to agree on
+    each other's potential, which holds only when the distance depends on the two
+    addresses alone, so the guard refuses the lookahead modes.
+    """
+    guard = str(algorithm_params.get("forwarding_guard", "none"))
+    if guard not in FORWARDING_GUARDS:
+        raise ValueError(f"Unknown forwarding guard: {guard}")
+    if guard == "progress" and distance_mode not in EVALUATOR_INDEPENDENT_MODES:
+        raise ValueError(
+            f"The progress guard needs an evaluator-independent distance, not {distance_mode}"
+        )
+    return guard
+
+
+class _EgressPotential:
+    """Potential of a satellite toward one ground station, memoised per snapshot.
+
+    Phi(S) = min over the satellites e that can see the destination of
+    d(S, e) + l_e, the same quantity a satellite minimises when it selects its
+    egress. With an evaluator-independent distance every satellite computes the
+    same Phi for a given satellite, so the potential defines one order per
+    destination. A walk that strictly descends (Phi, satellite id) at every hop
+    cannot revisit a satellite: it reaches an egress, or stops at a local minimum,
+    within as many hops as there are satellites.
+    """
+
+    def __init__(
+        self,
+        satellite_addresses: dict,
+        gs_destination_candidates: list,
+        constellation_data: ConstellationData,
+        distance_mode: str,
+        weight_model: dict | None,
+    ) -> None:
+        self._addresses = satellite_addresses
+        self._candidates = gs_destination_candidates
+        self._constellation_data = constellation_data
+        self._distance_mode = distance_mode
+        self._weight_model = weight_model
+        self._cache: dict[tuple[int, int], float] = {}
+
+    def __call__(self, satellite_id: int, gs_idx: int) -> float:
+        key = (satellite_id, gs_idx)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return cached
+        value = float("inf")
+        address = self._addresses.get(satellite_id)
+        if address is not None and gs_idx < len(self._candidates):
+            for dist_gs_to_sat_m, _visible_sat_id, egress_address in self._candidates[gs_idx]:
+                distance = _routing_topological_distance(
+                    address,
+                    egress_address,
+                    self._constellation_data,
+                    distance_mode=self._distance_mode,
+                    weight_model=self._weight_model,
                 )
-                continue
+                value = min(
+                    value, distance + _scaled_gsl_distance(dist_gs_to_sat_m, self._distance_mode)
+                )
+        self._cache[key] = value
+        return value
+
+
+def _admissible_neighbours(
+    curr_sat_id: int,
+    neighbours: list,
+    gs_idx: int,
+    potential: Callable[[int, int], float] | None,
+    forwarding_guard: str,
+) -> list:
+    """Neighbours a hop may use toward one ground station.
+
+    Without a guard, every live neighbour. Under the progress guard, only those
+    strictly below the current satellite in (potential, satellite id), with a
+    finite potential. Ties on the potential are broken by satellite id so the
+    order stays strict when distances are integers, as in the unit mode.
+    """
+    if forwarding_guard == "none":
+        return neighbours
+    if potential is None:
+        raise ValueError("The progress guard needs a potential")
+    own = (potential(curr_sat_id, gs_idx), curr_sat_id)
+    return [
+        candidate
+        for candidate in neighbours
+        if math.isfinite(potential(candidate[0], gs_idx))
+        and (potential(candidate[0], gs_idx), candidate[0]) < own
+    ]
+
+
+def _install_next_hop(
+    fstate: dict,
+    curr_sat_id: int,
+    curr_satellite_address: TopologicalNetworkAddress,
+    destination_address: TopologicalNetworkAddress,
+    gs_idx: int,
+    dst_gs_node_id: int,
+    neighbours: list,
+    constellation_data: ConstellationData,
+    distance_mode: str,
+    weight_model: dict | None,
+    potential: Callable[[int, int], float] | None,
+    forwarding_guard: str,
+    per_satellite_work: dict | None,
+) -> None:
+    """Choose and install one satellite's next hop toward one ground station.
+
+    Under the progress guard, a satellite none of whose neighbours lowers the
+    potential is at a local minimum. It installs nothing and counts a forwarding
+    exception: the point at which an exception entry would take over.
+    """
+    candidates = _admissible_neighbours(
+        curr_sat_id, neighbours, gs_idx, potential, forwarding_guard
+    )
+    try:
+        next_hop_decision, _distance = _get_next_hop_decision_topological(
+            curr_sat_id,
+            curr_satellite_address,
+            destination_address,
+            candidates,
+            dst_gs_node_id,
+            constellation_data,
+            distance_mode,
+            weight_model,
+        )
+    except Exception as e:
+        log.warning(
+            f"Failed to create routing decision for satellite {curr_sat_id} to GS {dst_gs_node_id}: {e}"
+        )
+        return
+    if next_hop_decision is not None:
+        fstate[(curr_sat_id, dst_gs_node_id)] = next_hop_decision
+        return
+    if forwarding_guard != "none" and per_satellite_work is not None:
+        work = per_satellite_work.setdefault(
+            curr_sat_id, {"decisions": 0, "evaluations": 0, "pairs": set()}
+        )
+        work["exceptions"] = work.get("exceptions", 0) + 1
 
 
 def _get_next_hop_decision_topological(
@@ -911,6 +1070,9 @@ def _summarize_per_satellite_work(per_satellite_work: dict | None) -> dict:
         "distance_evals_per_sat_max": float(max(evaluations)) if evaluations else 0.0,
         "cache_pairs_per_sat_mean": mean(pairs),
         "cache_pairs_per_sat_max": float(max(pairs)) if pairs else 0.0,
+        "forwarding_exceptions": float(
+            sum(w.get("exceptions", 0) for w in per_satellite_work.values())
+        ),
     }
 
 

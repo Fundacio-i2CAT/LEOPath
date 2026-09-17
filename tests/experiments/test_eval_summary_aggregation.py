@@ -136,3 +136,13 @@ def test_summarize_run_backfills_renumbering_from_handover(tmp_path: Path) -> No
     assert summary["sat_fstate_updates_total_mean"] == 1.0
     assert summary["sat_fstate_updates_total_p95_mean"] == 1.5
     assert summary["sat_fstate_updates_touched_satellite_rate_mean"] == 0.375
+
+
+def test_read_csv_mean_weights_shared_stretch_by_pairs(tmp_path: Path) -> None:
+    path = tmp_path / "timestep_metrics.csv"
+    path.write_text(
+        "stretch_dist_shared_mean,stretch_dist_shared_count\n1.2,1\n0.0,0\n1.0,3\n",
+        encoding="utf-8",
+    )
+    means = _read_csv_mean(str(path))
+    assert abs(means["stretch_dist_shared_mean"] - 1.05) < 1e-12

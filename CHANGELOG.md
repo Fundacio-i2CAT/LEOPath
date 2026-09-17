@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   occupied), `fstate_markers_*` (unreachable-destination markers), and
   `fstate_neighbors_*` (resident neighbour table), side by side with the
   proxy so the two can be compared.
+- `aggregate_eval` weights shared-basis stretch by the pairs it was measured
+  over, as it already did for the legacy stretch columns. It was averaging
+  shared stretch per snapshot, which over-weights sparse Ring snapshots.
 ### Added
 - Delivery accounting per snapshot (`delivery_*`): deliverable pairs, delivered
   pairs, delivery rate, forwarding failures, and the separate causes of
@@ -72,6 +75,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   protection from the command line.
 - `scripts/run-failure-sweep.sh` for running the failure-injection sweep as
   parallel Docker jobs.
+- `leopath.experiments.state_accounting_tables` and
+  `leopath.experiments.summarize_failure_sweep`, which pool each run over its
+  snapshots and write per-run CSVs plus Markdown tables. The sweep summary
+  combines seeds into means with 95% confidence intervals and pairs every
+  variant with link-state by seed.
 ### Removed
 - `predictive_link_state` and `traditional_segment_routing`, neither of which
   was used by any published result. The former was link-state evaluated on a

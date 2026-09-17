@@ -119,6 +119,7 @@ def prepare_algorithm_params(
     time_step_minutes: float | None,
     geometry_source: str | None = None,
     explicit_backup_adjacencies: bool = False,
+    forwarding_guard: str | None = None,
 ) -> dict:
     algorithm_params = dict(simulation_config.get("algorithm_params") or {})
 
@@ -145,6 +146,8 @@ def prepare_algorithm_params(
         algorithm_params["final_egress_mode"] = explicit_final_egress_mode
     if geometry_source is not None and algorithm_name == "topological_routing":
         algorithm_params["geometry_source"] = geometry_source
+    if forwarding_guard is not None and algorithm_name == "topological_routing":
+        algorithm_params["forwarding_guard"] = forwarding_guard
     if explicit_backup_adjacencies and algorithm_name == "explicit_path_routing":
         algorithm_params["include_backup_adjacencies"] = True
 
@@ -173,6 +176,7 @@ def run_evaluation(
     geometry_source: str | None = None,
     explicit_backup_adjacencies: bool = False,
     failure_config: FailureConfig | None = None,
+    forwarding_guard: str | None = None,
 ) -> None:
     config = load_config(config_path)
     gs_override = load_ground_station_override(gs_override_path)
@@ -198,6 +202,7 @@ def run_evaluation(
         time_step_minutes=time_step_minutes,
         geometry_source=geometry_source,
         explicit_backup_adjacencies=explicit_backup_adjacencies,
+        forwarding_guard=forwarding_guard,
     )
     if algorithm_params:
         config["simulation"]["algorithm_params"] = algorithm_params
@@ -451,6 +456,9 @@ def run_evaluation(
         "algorithm_params": sim_config.get("algorithm_params") or {},
         "isl_scenario": isl_scenario,
         "failure_model": failure_process.describe(),
+        # Set by the runner scripts to the image tag, so outputs from different
+        # builds sharing one output tree can be told apart.
+        "code_version": os.environ.get("LEOPATH_CODE_VERSION"),
         "constellation": {
             "name": config["constellation"]["name"],
             "num_orbits": config["constellation"]["num_orbits"],
@@ -547,6 +555,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Graph the topological pivot geometry is built from under failures",
     )
+    parser.add_argument(
+        "--forwarding-guard",
+        choices=("none", "progress"),
+        default=None,
+        help="Topological routing: forward only to neighbours that lower the egress potential",
+    )
     parser.add_argument("--failure-type", choices=FAILURE_TYPES, default="none")
     parser.add_argument(
         "--failure-rate",
@@ -585,6 +599,7 @@ def main() -> None:
         explicit_final_egress_mode=args.explicit_final_egress_mode,
         geometry_source=args.geometry_source,
         explicit_backup_adjacencies=args.explicit_backup_adjacencies,
+        forwarding_guard=args.forwarding_guard,
         failure_config=FailureConfig(
             failure_type=args.failure_type,
             rate=args.failure_rate,
