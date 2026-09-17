@@ -147,3 +147,16 @@ def test_guard_needs_an_evaluator_independent_distance() -> None:
         _resolve_forwarding_guard({"forwarding_guard": "progress"}, "torus_weighted_lookahead")
     with pytest.raises(ValueError):
         _resolve_forwarding_guard({"forwarding_guard": "loop-free"}, MODE)
+
+
+def test_satellite_without_live_links_is_isolated_not_at_a_local_minimum() -> None:
+    work: dict = {}
+    fstate: dict = {}
+    _install_next_hop(
+        fstate, 0, _address(0), _address(2 * SATS + 3), 0, GS_ID, [],
+        CONSTELLATION, "torus_unit", None,
+        lambda _sat_id, _gs: 3.0, "progress", work,
+    )  # fmt: skip
+    assert fstate == {}
+    assert "exceptions" not in work[0]
+    assert work[0]["isolated"] == 1

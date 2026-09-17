@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- `aux_forwarding_exceptions` counted every decision at a satellite with no live
+  link, so failed satellites dominated it: one exception per ground station per
+  dead satellite. It now counts only satellites with at least one live link, and
+  decisions at isolated satellites are reported as
+  `aux_forwarding_exceptions_isolated`.
 - Link-state routing now treats a ground station as reachable through any
   satellite above its horizon, choosing whichever minimises path length plus
   GSL length. The Hypatia-derived code path collapsed visibility to the single

@@ -930,7 +930,11 @@ def _install_next_hop(
         work = per_satellite_work.setdefault(
             curr_sat_id, {"decisions": 0, "evaluations": 0, "pairs": set()}
         )
-        work["exceptions"] = work.get("exceptions", 0) + 1
+        # A satellite with no live link is down rather than at a local minimum,
+        # so its decisions are counted apart and exception state reflects live
+        # satellites only.
+        outcome = "exceptions" if neighbours else "isolated"
+        work[outcome] = work.get(outcome, 0) + 1
 
 
 def _get_next_hop_decision_topological(
@@ -1184,6 +1188,9 @@ def _summarize_per_satellite_work(per_satellite_work: dict | None) -> dict:
         "distance_evals_per_sat_max": float(max(evaluations)) if evaluations else 0.0,
         "cache_pairs_per_sat_mean": mean(pairs),
         "cache_pairs_per_sat_max": float(max(pairs)) if pairs else 0.0,
+        "forwarding_exceptions_isolated": float(
+            sum(w.get("isolated", 0) for w in per_satellite_work.values())
+        ),
         "forwarding_exceptions": float(
             sum(w.get("exceptions", 0) for w in per_satellite_work.values())
         ),
