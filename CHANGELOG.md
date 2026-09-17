@@ -100,6 +100,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the path to the next hop in a lower layer, so the progress guard still holds.
   Path following expands detour entries into their three links, a broken leg is
   classified as `link_down`, and `aux_local_detour_entries` counts them.
+- `--exception-policy grow` for topological routing: where the rules cannot deliver
+  to a ground station, satellites get exception entries along the shortest live
+  path, as in rule-and-exception forwarding. Only the satellites where walks
+  break receive entries, repeated until every reachable live satellite delivers.
+  Reported as `aux_exception_entries`, with the one-pass placement (every satellite
+  whose rule walk fails) as `aux_exception_entries_one_pass`, plus distinct
+  satellites, aggregated groups, hops to the nearest failure and unresolved walks.
+- `failure_events` per snapshot: failures appearing or clearing since the previous
+  snapshot, the dissemination cost of a failure-only flooding scheme.
 ### Removed
 - `predictive_link_state` and `traditional_segment_routing`, neither of which
   was used by any published result. The former was link-state evaluated on a

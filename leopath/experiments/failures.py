@@ -155,6 +155,7 @@ class FailureProcess:
         self._isl_outage: _MarkovOutage[tuple[int, int]] | None = None
         self._satellite_outage: _MarkovOutage[int] | None = None
         self._static = SnapshotFailures()
+        self._previous: SnapshotFailures | None = None
 
         if config.failure_type == "isl":
             self._isl_outage = _MarkovOutage(self._isls, config.rate, duration_steps, rng)
@@ -195,7 +196,17 @@ class FailureProcess:
         """
         failures = self.snapshot(time_absolute)
         topology.nominal_graph = topology.graph if failures.is_empty() else topology.graph.copy()
-        return apply_failures(topology, ground_station_satellites_in_range, failures)
+        stats = apply_failures(topology, ground_station_satellites_in_range, failures)
+        # Elements that failed or recovered since the previous snapshot: what a
+        # failure-only flooding scheme would have to advertise. The first snapshot
+        # counts every failure present, since none has been advertised yet.
+        previous = self._previous or SnapshotFailures()
+        stats["events"] = float(
+            len(failures.failed_isls ^ previous.failed_isls)
+            + len(failures.failed_satellites ^ previous.failed_satellites)
+        )
+        self._previous = failures
+        return stats
 
     def describe(self) -> dict:
         return {

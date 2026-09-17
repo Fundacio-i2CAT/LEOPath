@@ -141,3 +141,25 @@ def test_local_repair_reaches_only_topological_routing() -> None:
         == "square"
     )
     assert "local_repair" not in prepare_algorithm_params(algorithm_name="dra_routing", **common)
+
+
+def test_exception_policy_reaches_only_topological_routing() -> None:
+    common = {
+        "simulation_config": {"time_step_minutes": 1, "algorithm_params": {}},
+        "segment_count": None,
+        "segment_refresh_interval_steps": None,
+        "plane_weight": None,
+        "sat_weight": None,
+        "shell_weight": None,
+        "distance_mode": None,
+        "explicit_final_egress_mode": None,
+        "time_step_minutes": 1,
+        "exception_policy": "grow",
+    }
+    assert (
+        prepare_algorithm_params(algorithm_name="topological_routing", **common)["exception_policy"]
+        == "grow"
+    )
+    assert "exception_policy" not in prepare_algorithm_params(
+        algorithm_name="dra_routing", **common
+    )

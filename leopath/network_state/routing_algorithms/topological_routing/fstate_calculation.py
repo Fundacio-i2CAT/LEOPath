@@ -6,6 +6,9 @@ from typing import Optional
 import networkx as nx
 
 from leopath import logger
+from leopath.network_state.routing_algorithms.topological_routing.exception_policy import (
+    apply_exception_policy,
+)
 from leopath.topology.satellite.topological_network_address import (
     TopologicalNetworkAddress,
     torus_topological_distance,
@@ -295,6 +298,17 @@ def calculate_fstate_topological_routing_no_gs_relay(
         forwarding_guard=_resolve_forwarding_guard(algorithm_params, distance_mode),
     )
 
+    apply_exception_policy(
+        fstate,
+        satellite_only_subgraph,
+        topology_with_isls.sat_neighbor_to_if,
+        getattr(topology_with_isls, "nominal_graph", None),
+        ground_stations,
+        ground_station_satellites_in_range,
+        str(algorithm_params.get("exception_policy", "none")),
+        LOCAL_DETOUR,
+        state_report,
+    )
     _report_forwarding_work(state_report, per_satellite_work, weight_model, fstate)
     log.debug(f"Calculated fstate with {len(fstate)} entries")
     return fstate

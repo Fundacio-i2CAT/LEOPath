@@ -121,6 +121,7 @@ def prepare_algorithm_params(
     explicit_backup_adjacencies: bool = False,
     forwarding_guard: str | None = None,
     local_repair: str | None = None,
+    exception_policy: str | None = None,
 ) -> dict:
     algorithm_params = dict(simulation_config.get("algorithm_params") or {})
 
@@ -151,6 +152,8 @@ def prepare_algorithm_params(
         algorithm_params["forwarding_guard"] = forwarding_guard
     if local_repair is not None and algorithm_name == "topological_routing":
         algorithm_params["local_repair"] = local_repair
+    if exception_policy is not None and algorithm_name == "topological_routing":
+        algorithm_params["exception_policy"] = exception_policy
     if explicit_backup_adjacencies and algorithm_name == "explicit_path_routing":
         algorithm_params["include_backup_adjacencies"] = True
 
@@ -181,6 +184,7 @@ def run_evaluation(
     failure_config: FailureConfig | None = None,
     forwarding_guard: str | None = None,
     local_repair: str | None = None,
+    exception_policy: str | None = None,
 ) -> None:
     config = load_config(config_path)
     gs_override = load_ground_station_override(gs_override_path)
@@ -208,6 +212,7 @@ def run_evaluation(
         explicit_backup_adjacencies=explicit_backup_adjacencies,
         forwarding_guard=forwarding_guard,
         local_repair=local_repair,
+        exception_policy=exception_policy,
     )
     if algorithm_params:
         config["simulation"]["algorithm_params"] = algorithm_params
@@ -572,6 +577,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Topological routing: reach a next hop cut off by a failed ISL over a 3-hop detour",
     )
+    parser.add_argument(
+        "--exception-policy",
+        choices=("none", "grow"),
+        default=None,
+        help="Topological routing: install exception entries where the rules cannot deliver",
+    )
     parser.add_argument("--failure-type", choices=FAILURE_TYPES, default="none")
     parser.add_argument(
         "--failure-rate",
@@ -612,6 +623,7 @@ def main() -> None:
         explicit_backup_adjacencies=args.explicit_backup_adjacencies,
         forwarding_guard=args.forwarding_guard,
         local_repair=args.local_repair,
+        exception_policy=args.exception_policy,
         failure_config=FailureConfig(
             failure_type=args.failure_type,
             rate=args.failure_rate,

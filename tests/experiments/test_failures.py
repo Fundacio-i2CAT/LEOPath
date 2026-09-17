@@ -187,3 +187,19 @@ def test_inject_without_failures_shares_the_graph() -> None:
     )
     process.inject(topology, [], None)
     assert topology.nominal_graph is topology.graph
+
+
+def test_inject_counts_failure_events_since_the_previous_snapshot() -> None:
+    process = FailureProcess(
+        FailureConfig(failure_type="void", void_size=1, seed=0),
+        n_orbits=1,
+        n_sats_per_orbit=3,
+        undirected_isls=[(0, 1), (1, 2)],
+        time_step_minutes=1.0,
+        stream_key="test",
+    )
+    first = process.inject(_Topology(), [], None)
+    second = process.inject(_Topology(), [], None)
+
+    assert first["events"] == 1.0  # the static void appears once
+    assert second["events"] == 0.0  # and nothing changes afterwards
