@@ -33,6 +33,8 @@ Lay the shell out with planes as columns and satellite index as rows, wrapping b
    |  intra-plane (fore/aft)      -  cross-plane (port/starboard)
 ```
 
+Two words used throughout this page, by analogy with a ladder: the verticals are intra-plane links, and a **rung** is one cross-plane link joining a satellite to its counterpart in the neighbouring plane. Neither term is standard.
+
 Distance is Manhattan on the torus, `|dplane| + |drow|`, and the whole topological forwarding argument leans on that.
 
 ## Three terminals force a matching
@@ -50,18 +52,19 @@ One cross-plane terminal per satellite means the cross-plane links form a perfec
 Pairing whole planes fails immediately:
 
 ```
-         p0    p1        p2    p3
-   s0     o-----o         o-----o
-          |     |         |     |
-   s1     o-----o         o-----o
-          |     |         |     |
-   s2     o-----o         o-----o
-         \_____/         \_____/
-          island          island
-
-   every satellite in p1 spent its cross terminal on p0,
-   so nothing is left to reach p2
+         p0    p1        p2    p3        p4    p5
+   s0     o-----o         o-----o         o-----o
+          |     |         |     |         |     |
+   s1     o-----o         o-----o         o-----o
+          |     |         |     |         |     |
+   s2     o-----o         o-----o         o-----o
+         \_____/         \_____/         \_____/
+          island          island          island
+                    ^               ^
+              no rungs here    no rungs here
 ```
+
+Every satellite in p1 spent its one cross terminal pointing at p0, so the p0/p1 boundary carries a rung at *every* row, far more than it needs, while the p1/p2 boundary gets nothing. The shell falls apart into disconnected components, 36 two-plane islands on Starlink, and a packet sitting in p0 can never reach p2 by any route. That's the counting argument behind the stagger: each plane has to spend some terminals leftward and the rest rightward, or a boundary starves.
 
 Two diagonal variants also fail. Running the rung from `(p,s)` to `(p+1,s+1)` and staggering on plane parity splits the shell into the same isolated plane pairs; staggering the same diagonal on `(p+s)` parity hands half the satellites two cross links and the other half none, so it isn't a three-laser layout at all.
 
@@ -78,7 +81,25 @@ What survives is one rule: a rung joins `(p,s)` and `(p+1,s)` when `(p + s)` is 
    s3     o     o-----o     o-----o
 ```
 
-Brick courses, which is where the name comes from; graph theory calls it the hexagonal lattice. Every satellite has degree 3, the shell stays connected, and no satellite is special. Given that the intra-plane ring stays, it's the only uniform option.
+Brick courses, which is where the name comes from; graph theory calls it the hexagonal lattice. Every satellite has degree 3, the shell stays connected, and no satellite is special.
+
+## Which links get sacrificed is a guess
+
+Everything above assumes both intra-plane terminals survive and the cross-plane one gets staggered. That assumption does real work, and no public source settles it.
+
+The case for keeping the orbital pair is that those links are cheap to hold: two satellites in the same orbit at the same altitude never move relative to each other, so the terminal can be bolted down with no tracking loop, while cross-plane terminals fight varying range and high angular rates, worst near the poles where the planes converge. Cheap to keep lit isn't the same as worth buying twice, though.
+
+Spend the terminals the other way round, one along the orbit and two across planes, and the cross-plane mesh stays complete while the intra-plane ring breaks into a matching. That layout is better, and on Starlink it isn't close:
+
+| shell | ring kept, rungs staggered | rungs kept, ring staggered |
+|---|---|---|
+| Starlink 72 x 22 | +56%, diameter 72 | **+2%**, diameter 47 |
+| OneWeb 36 x 18 | +39%, diameter 36 | **+5%**, diameter 27 |
+| Kuiper 34 x 34 | +17%, diameter 34 | +17%, diameter 34 |
+
+Kuiper's square grid makes the two identical, which is the clue: **the second layout is the first one transposed.** Swap the roles of plane index and satellite index and one becomes the other, so the closed form below covers both, with its arguments swapped and `(planes, sats)` exchanged. Checked against BFS that way over 4 265 296 ordered pairs on OneWeb, Kuiper and Starlink, with zero mismatches.
+
+Which means there's no reason to pick. Build one estimator, run both layouts as sweep variants, and let the paper report the pair as a range rather than defend a guess about hardware nobody has documented.
 
 The rule needs an even number of planes and an even number of satellites per plane, or the parity fails to close on the wrap. Telesat's 27 by 13 grid fails both, and patching it with a seam leaves a column of degree-2 and degree-4 satellites. Starlink (72 by 22), Kuiper (34 by 34) and OneWeb (36 by 18) all close cleanly.
 
@@ -156,6 +177,8 @@ On a brick wall no row ever has two consecutive rungs. Row `s2` carries a rung o
 
 `plane_edge_costs` starts every entry at infinity and records only rungs that exist (`fstate_calculation.py:1244`), and `_sum_torus_edges` returns infinity the moment it walks into one gap. Both directions round the torus hit gaps. So for any `|dplane|` of 2 or more, every pivot row returns infinity and the estimator reports every satellite beyond the adjacent plane as unreachable. The model doesn't degrade on a brick wall; it stops producing a number.
 
+Worth fixing whether or not the brick wall ever gets built: a distance policy handed a topology it can't represent should refuse at model-build time instead of reporting the whole constellation unreachable. Checking that each pivot row has contiguous rungs in `_build_torus_weight_model` and raising otherwise costs a few lines.
+
 An idealised estimator that fails gracefully instead, plain Manhattan with no knowledge of which rungs exist, still strands a couple of percent of traffic with no failures injected anywhere:
 
 ```
@@ -209,9 +232,17 @@ So a three-laser shell isn't a case where structured addressing gives up and fal
 
 Keep the two costs apart when reporting. The 17% to 56% path penalty is what the missing third laser costs *anyone* routing on that graph, and link-state pays it in full on the same topology. LEOPath's stretch metric compares topological forwarding against shortest path on the brick graph itself, and with the row-pair model it should sit near 1.0. Reporting the two together would be wrong.
 
+## Where this sits in the architecture
+
+RINA splits the two things this page keeps conflating. The RMT is a stateless function that takes a PDU, reads its address field, and either delivers it locally or consults the forwarding table and posts it to an `(N-1)`-port (`rmt-spec-0002`, l.56-90), with that table keyed on `[destination-address, QoS-id]` (`rmt-spec-0003`, l.92-139). Building the table belongs to the Forwarding Table Generator, "sometimes called routing" (`rina-spec-overview-0005` section 5.3.2; Part 3-1 section 2.6.2.2, `rina-refmodel-part3-1-0015`, l.1176-1235). Interior routers do nothing beyond relaying: a border router is distinguished only by an extra level of multiplexing and PDU aggregation (`rina-refmodel-part3-1-0012`, l.935-1022).
+
+Cutting a laser therefore touches one component. The distance estimator is an FTG policy, the brick wall needs a different policy, and the relay, the PDU format and the address layout all stay as they are. An interior satellite still holds forwarding state proportional to its degree, which on a brick wall is three.
+
+Two things not to overclaim. The reference model has the RMT consult a table, so a policy that computes the next hop from the address rather than storing it per destination is compatible with the model rather than prescribed by it. And the policy detects nothing: `distance_mode` is configured, and in RINA terms selected per DIF at enrollment or by management, so "adapts to the topology" would be wrong.
+
 ## Caveats
 
-The closed form is exact for unit hops. Under measured kilometre weights it becomes an approximation, the same way the single-row model is already an approximation today, and `forwarding_guard: progress` covers whatever residual error is left. Parity has to close, which rules out Telesat unless someone writes a seam variant. SpaceX publishes the laser count but not the wiring, so the brick wall is an argued assumption rather than a disclosure, and any paper text should carry the counting argument alongside it.
+The closed form is exact for unit hops. Under measured kilometre weights it becomes an approximation, the same way the single-row model is already an approximation today, and `forwarding_guard: progress` covers whatever residual error is left. Parity has to close, which rules out Telesat unless someone writes a seam variant. SpaceX publishes the laser count but not the wiring, so the brick wall is an argued assumption rather than a disclosure, and any paper text should carry the counting argument alongside it. How the three terminals get split is a second, separate guess on top of that one, which is why both layouts belong in the sweep.
 
 ## Effort
 
