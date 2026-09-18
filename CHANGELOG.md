@@ -85,6 +85,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   snapshots and write per-run CSVs plus Markdown tables. The sweep summary
   combines seeds into means with 95% confidence intervals and pairs every
   variant with link-state by seed.
+- The failure-sweep summary now reads the guard, local-repair and exception variants.
+  It reports looping pairs, local minima at live satellites (subtracting dead
+  satellites' decisions for runs recorded before the counter fix), detour and
+  exception entries with the one-pass bound and their share of link-state's table,
+  hops from each entry to the nearest failure, and failure events per snapshot.
 - `--forwarding-guard progress` for topological routing: a satellite forwards
   only to neighbours strictly lower in (Phi, satellite id), where Phi is the
   minimum over visible egresses of distance plus GSL length. Every walk then

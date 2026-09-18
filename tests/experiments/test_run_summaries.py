@@ -1,4 +1,5 @@
 import csv
+import json
 import math
 import statistics
 from pathlib import Path
@@ -18,9 +19,14 @@ def _write_csv(path: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
-def _run(run_dir: Path, rows: list[dict], deltas: list[dict] | None = None) -> None:
+def _run(
+    run_dir: Path,
+    rows: list[dict],
+    deltas: list[dict] | None = None,
+    metadata: dict | None = None,
+) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "metadata.json").write_text("{}", encoding="utf-8")
+    (run_dir / "metadata.json").write_text(json.dumps(metadata or {}), encoding="utf-8")
     _write_csv(run_dir / "timestep_metrics.csv", rows)
     if deltas:
         _write_csv(run_dir / "delta_metrics.csv", deltas)
@@ -118,3 +124,57 @@ def test_matrix_tables_pool_runs_and_keep_per_node_maxima(tmp_path: Path) -> Non
     markdown = state_accounting_tables.render_markdown(runs)
     assert "## grid" in markdown
     assert "3,168" in markdown
+
+
+def test_failure_sweep_reports_exception_state_and_corrects_old_minima(tmp_path: Path) -> None:
+    guarded = {
+        "algorithm_params": {"forwarding_guard": "progress"},
+        "constellation": {"num_orbits": 2, "num_sats_per_orbit": 5},
+    }
+
+    def snapshot(**extra: float) -> dict:
+        # Four ground stations (12 ordered pairs) and one dead satellite.
+        return {
+            **_snapshot(12, 12),
+            "delivery_total_pairs": 12,
+            "failure_satellites_down": 1,
+            **extra,
+        }
+
+    cell = tmp_path / "telesat" / "sat_p0.05" / "seed1"
+    # Before the counter fix: the dead satellite's four decisions are included.
+    _run(
+        cell / "topological_nominal_progress",
+        [snapshot(aux_forwarding_exceptions=10)],
+        metadata=guarded,
+    )
+    _run(
+        cell / "topological_nominal_progress_exceptions",
+        [
+            snapshot(
+                aux_forwarding_exceptions=6,
+                aux_forwarding_exceptions_isolated=4,
+                aux_exception_entries=2,
+                aux_exception_entries_one_pass=5,
+                aux_exception_satellites=2,
+                aux_exception_hops_to_failure_mean=0.5,
+                aux_exception_hops_to_failure_max=1,
+                aux_exception_unresolved=0,
+            )
+        ],
+        metadata=guarded,
+    )
+
+    runs = {run["variant"]: run for run in summarize_failure_sweep.discover_runs(tmp_path)}
+    old, new = runs["topological_nominal_progress"], runs["topological_nominal_progress_exceptions"]
+
+    assert old["live_minima_per_snapshot"] == pytest.approx(6.0)
+    assert new["live_minima_per_snapshot"] == pytest.approx(6.0)
+    assert old["exception_entries_per_snapshot"] is None
+    assert new["exception_entries_per_snapshot"] == 2.0
+    assert new["exception_share_of_link_state"] == pytest.approx(2 / (10 * 4))
+    assert new["exception_hops_to_failure_mean"] == pytest.approx(0.5)
+
+    summarize_failure_sweep.add_baseline_gaps(list(runs.values()))
+    summary = summarize_failure_sweep.combine_seeds(list(runs.values()))
+    assert "2.0 (5)" in summarize_failure_sweep.render_markdown(summary)

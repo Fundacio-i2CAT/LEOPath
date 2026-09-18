@@ -11,6 +11,7 @@ before averaging, which gives a tighter interval than differencing the means.
 """
 
 import argparse
+import json
 import math
 import statistics
 from collections import defaultdict
@@ -19,7 +20,16 @@ from pathlib import Path
 from typing import Any
 
 from .metrics import FORWARDING_FAILURE_CAUSES
-from .run_pooling import column_mean, column_sum, pooled_delivery, ratio, read_rows, write_rows
+from .run_pooling import (
+    column_max,
+    column_mean,
+    column_sum,
+    pooled_delivery,
+    ratio,
+    read_rows,
+    weighted_mean,
+    write_rows,
+)
 
 CONSTELLATION_ORDER = ["telesat", "oneweb", "kuiper", "starlink"]
 CONDITION_ORDER = [
@@ -46,7 +56,12 @@ VARIANT_ORDER = [
     "explicit_r15",
     "dra",
     "topological_nominal",
+    "topological_nominal_progress",
+    "topological_nominal_progress_repair",
+    "topological_nominal_progress_exceptions",
+    "topological_nominal_progress_repair_exceptions",
     "topological_observed",
+    "topological_observed_progress",
 ]
 BASELINE_VARIANT = "link_state"
 METRICS = (
@@ -59,6 +74,17 @@ METRICS = (
     "satellites_down_per_snapshot",
     "fstate_updates_per_snapshot",
     "compute_time_ms",
+    "loop_pairs_per_snapshot",
+    "live_minima_per_snapshot",
+    "detour_entries_per_snapshot",
+    "failure_events_per_snapshot",
+    "exception_entries_per_snapshot",
+    "exception_entries_one_pass_per_snapshot",
+    "exception_satellites_per_snapshot",
+    "exception_share_of_link_state",
+    "exception_hops_to_failure_mean",
+    "exception_hops_to_failure_max",
+    "exception_unresolved_total",
     *(f"failure_share_{cause}" for cause in FORWARDING_FAILURE_CAUSES),
 )
 # Two-sided 95% Student t quantiles by degrees of freedom.
@@ -83,6 +109,7 @@ def summarize_run(run_dir: Path) -> dict[str, float | None]:
     """One pooled value per metric for a single sweep run."""
     rows = read_rows(run_dir / "timestep_metrics.csv")
     deltas = read_rows(run_dir / "delta_metrics.csv")
+    metadata = json.loads((run_dir / "metadata.json").read_text(encoding="utf-8") or "{}")
     failures = column_sum(rows, "delivery_forwarding_failure")
     summary = {
         **pooled_delivery(rows),
@@ -90,12 +117,86 @@ def summarize_run(run_dir: Path) -> dict[str, float | None]:
         "satellites_down_per_snapshot": column_mean(rows, "failure_satellites_down"),
         "fstate_updates_per_snapshot": column_mean(deltas, "sat_fstate_updates_total_mean"),
         "compute_time_ms": column_mean(rows, "compute_time_ms"),
+        "loop_pairs_per_snapshot": column_mean(rows, "delivery_failure_loop"),
+        "live_minima_per_snapshot": _live_minima(rows, metadata),
+        "detour_entries_per_snapshot": column_mean(rows, "aux_local_detour_entries"),
+        "failure_events_per_snapshot": column_mean(rows, "failure_events"),
+        **_exception_state(rows, metadata),
     }
     for cause in FORWARDING_FAILURE_CAUSES:
         summary[f"failure_share_{cause}"] = ratio(
             column_sum(rows, f"delivery_failure_{cause}"), failures
         )
     return summary
+
+
+def _ground_stations(row: dict[str, str]) -> float:
+    """Ground stations in a snapshot, recovered from its ordered pair count G(G-1)."""
+    pairs = float(row.get("delivery_total_pairs") or 0)
+    return (1 + math.sqrt(1 + 4 * pairs)) / 2
+
+
+def _satellite_count(metadata: dict[str, Any]) -> int | None:
+    constellation = metadata.get("constellation") or {}
+    orbits = constellation.get("num_orbits")
+    per_orbit = constellation.get("num_sats_per_orbit")
+    return int(orbits) * int(per_orbit) if orbits and per_orbit else None
+
+
+def _live_minima(rows: list[dict[str, str]], metadata: dict[str, Any]) -> float | None:
+    """Local minima of the progress guard at satellites with a live link, per snapshot.
+
+    Runs made before the counter was fixed also counted every decision of a dead
+    satellite, one per ground station that sees a live satellite. They lack the
+    ``aux_forwarding_exceptions_isolated`` column, so that share is subtracted
+    here; the sweep had full ground visibility in every snapshot, where the
+    subtraction is exact. Without the guard the counter is not collected.
+    """
+    params = metadata.get("algorithm_params") or {}
+    if params.get("forwarding_guard") != "progress" or not rows:
+        return None
+    if "aux_forwarding_exceptions_isolated" in rows[0]:
+        return column_mean(rows, "aux_forwarding_exceptions")
+    corrected = [
+        float(row.get("aux_forwarding_exceptions") or 0)
+        - _ground_stations(row) * float(row.get("failure_satellites_down") or 0)
+        for row in rows
+    ]
+    return sum(corrected) / len(corrected)
+
+
+def _exception_state(rows: list[dict[str, str]], metadata: dict[str, Any]) -> dict[str, Any]:
+    """Exception entries installed per snapshot, and their size next to link-state's table."""
+    if not rows or "aux_exception_entries" not in rows[0]:
+        return {
+            "exception_entries_per_snapshot": None,
+            "exception_entries_one_pass_per_snapshot": None,
+            "exception_satellites_per_snapshot": None,
+            "exception_share_of_link_state": None,
+            "exception_hops_to_failure_mean": None,
+            "exception_hops_to_failure_max": None,
+            "exception_unresolved_total": None,
+        }
+    satellites = _satellite_count(metadata)
+    # Link-state installs one entry per satellite per ground station.
+    link_state_entries = (
+        sum(satellites * _ground_stations(row) for row in rows) if satellites else 0.0
+    )
+    return {
+        "exception_entries_per_snapshot": column_mean(rows, "aux_exception_entries"),
+        "exception_entries_one_pass_per_snapshot": column_mean(
+            rows, "aux_exception_entries_one_pass"
+        ),
+        "exception_satellites_per_snapshot": column_mean(rows, "aux_exception_satellites"),
+        "exception_share_of_link_state": ratio(
+            column_sum(rows, "aux_exception_entries"), link_state_entries
+        ),
+        "exception_hops_to_failure_mean": weighted_mean(
+            rows, "aux_exception_hops_to_failure_mean", "aux_exception_entries"
+        ),
+        "exception_hops_to_failure_max": column_max(rows, "aux_exception_hops_to_failure_max"),
+        "exception_unresolved_total": column_sum(rows, "aux_exception_unresolved"),
+    }
 
 
 def discover_runs(input_dir: Path) -> list[dict[str, Any]]:
@@ -211,11 +312,35 @@ def _cause_cell(row: dict[str, Any]) -> str:
     return f"{cause} {100 * shares[cause]:.0f}%"
 
 
+def _count_cell(metric: str) -> Callable[[dict[str, Any]], str]:
+    def render(row: dict[str, Any]) -> str:
+        value = row[f"{metric}_mean"]
+        return "—" if value is None else f"{value:.1f}"
+
+    return render
+
+
+def _exception_cell(row: dict[str, Any]) -> str:
+    entries = row["exception_entries_per_snapshot_mean"]
+    bound = row["exception_entries_one_pass_per_snapshot_mean"]
+    if entries is None:
+        return "—"
+    return f"{entries:.1f}" if bound is None else f"{entries:.1f} ({bound:.0f})"
+
+
+def _share_cell(row: dict[str, Any]) -> str:
+    value = row["exception_share_of_link_state_mean"]
+    return "—" if value is None else f"{100 * value:.2f}"
+
+
 TABLES: tuple[tuple[str, Callable[[dict[str, Any]], str]], ...] = (
     ("Delivery rate, % of deliverable pairs", _delivery_cell),
     ("Delivery gap to link-state, percentage points, paired by seed", _gap_cell),
     ("Distance stretch, shared basis", _stretch_cell),
     ("Dominant forwarding-failure cause, share of failures", _cause_cell),
+    ("Forwarding loops, looping pairs per snapshot", _count_cell("loop_pairs_per_snapshot")),
+    ("Exception entries per snapshot, one-pass bound in brackets", _exception_cell),
+    ("Exception entries, % of link-state forwarding entries", _share_cell),
 )
 
 
