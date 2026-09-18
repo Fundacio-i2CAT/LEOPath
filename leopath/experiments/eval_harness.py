@@ -73,17 +73,32 @@ def load_ground_station_override(path: str | None) -> list[dict] | None:
     raise ValueError("Ground station override must be a list or contain ground_stations")
 
 
-def select_isls(constellation: ConstellationData, scenario: str) -> list[tuple[int, int]]:
+def has_counter_rotating_seam(raan_spread_degree: float) -> bool:
+    """True for a Walker star, whose nodes span less than a full circle.
+
+    In a star the last plane and the first head in opposite directions, so a
+    wrap ISL between them would join satellites up to half an orbit apart. A
+    Walker delta spreads its nodes over 360 degrees and its wrap is an ordinary
+    co-rotating neighbour link.
+    """
+    return raan_spread_degree < 360.0
+
+
+def select_isls(
+    constellation: ConstellationData, scenario: str, raan_spread_degree: float = 360.0
+) -> list[tuple[int, int]]:
     if scenario == "ring":
         return setup_isls_in_the_same_orbit(
             num_orbits=constellation.n_orbits,
             sats_per_orbit=constellation.n_sats_per_orbit,
         )
     if scenario == "grid":
+        # A star shell cannot close the torus, so its +Grid is the cylinder.
         return generate_plus_grid_isls(
             n_orbits=constellation.n_orbits,
             n_sats_per_orbit=constellation.n_sats_per_orbit,
             idx_offset=0,
+            seam=has_counter_rotating_seam(raan_spread_degree),
         )
     if scenario == "grid_seam":
         return generate_plus_grid_isls(
@@ -234,7 +249,8 @@ def run_evaluation(
         satellites=sim_satellites,
     )
 
-    undirected_isls = select_isls(constellation_data, isl_scenario)
+    raan_spread_degree = float(config["constellation"].get("raan_spread_degree", 360.0))
+    undirected_isls = select_isls(constellation_data, isl_scenario, raan_spread_degree)
     sim_config = config["simulation"]
     simulation_end_time_ns = int(sim_config["end_time_hours"] * 60 * 60 * 1e9)
     time_step_ns = int(sim_config["time_step_minutes"] * 60 * 1e9)
@@ -465,6 +481,11 @@ def run_evaluation(
         "algorithm": sim_config["dynamic_state_algorithm"],
         "algorithm_params": sim_config.get("algorithm_params") or {},
         "isl_scenario": isl_scenario,
+        # Whether the +Grid wrap between the last and first plane was built. It is
+        # absent for ring and grid_seam, and for grid on a Walker star shell.
+        "isl_seam_wrap": isl_scenario == "grid"
+        and not has_counter_rotating_seam(raan_spread_degree),
+        "raan_spread_degree": raan_spread_degree,
         "failure_model": failure_process.describe(),
         # Set by the runner scripts to the image tag, so outputs from different
         # builds sharing one output tree can be told apart.

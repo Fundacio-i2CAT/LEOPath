@@ -1,12 +1,13 @@
 constellation:
   name: "OneWeb-synthetic"
-  num_orbits: 18
-  num_sats_per_orbit: 36
+  num_orbits: 12  # FCC DA 23-362 para 6: 12 planes x 49 satellites at 87.9 deg
+  num_sats_per_orbit: 49
   phase_diff: true
   inclination_degree: 87.9
   eccentricity: 0.0000001
   arg_of_perigee_degree: 0.0
-  mean_motion_rev_per_day: 13.0
+  mean_motion_rev_per_day: 13.16  # flies 1200 km under SGP4; live CelesTrak median 13.155
+  raan_spread_degree: 180  # Walker star, as flown: 12 planes 15.2 deg apart (CelesTrak)
   tle_output_filename: "tles_oneweb_synth.txt"
 
 simulation:

@@ -1,12 +1,12 @@
 constellation:
   name: "Starlink-550"
-  num_orbits: 22
-  num_sats_per_orbit: 72
+  num_orbits: 72  # FCC 21-48 para 4: 72 planes x 22 satellites at 550 km, 53 deg
+  num_sats_per_orbit: 22
   phase_diff: true
   inclination_degree: 53
   eccentricity: 0.0000001
   arg_of_perigee_degree: 0.0
-  mean_motion_rev_per_day: 15.19
+  mean_motion_rev_per_day: 15.05  # flies 550 km under SGP4; Hypatia's 15.19 flies ~508 km
   tle_output_filename: "tles_starlink_550_sgp.txt"
 
 simulation:

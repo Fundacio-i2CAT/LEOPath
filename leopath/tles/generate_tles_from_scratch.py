@@ -36,7 +36,16 @@ def generate_tles_from_scratch_with_sgp(
     eccentricity,
     arg_of_perigee_degree,
     mean_motion_rev_per_day,
+    raan_spread_degree=360.0,
 ):
+    """
+    raan_spread_degree is the arc the ascending nodes are spread over. 360 gives
+    a Walker delta, the usual layout for inclined shells. 180 gives a Walker
+    star, which is how near-polar shells such as OneWeb are actually laid out:
+    at ~88 degrees a node at RAAN and one at RAAN + 180 trace nearly the same
+    ground track in opposite directions, so a 360-degree spread would stack
+    counter-rotating planes on top of each other.
+    """
 
     with open(filename_out, "w+") as f_out:
 
@@ -56,7 +65,7 @@ def generate_tles_from_scratch_with_sgp(
         for orbit in range(0, num_orbits):
 
             # Orbit-dependent
-            raan_degree = orbit * 360.0 / num_orbits
+            raan_degree = orbit * raan_spread_degree / num_orbits
             orbit_wise_shift = 0
             if orbit % 2 == 1:
                 if phase_diff:

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- Three of the four evaluation constellations did not match their sources.
+  Starlink was built as 22 planes of 72 satellites; FCC 21-48 authorises the
+  550 km shell as 72 planes of 22, which is also what Hypatia uses. Mean
+  motions did not fly the altitude that `altitude_m` states, and `altitude_m`
+  sets the ground-link range and the ISL length limit: Starlink flew about
+  508 km (now 15.05 rev/day for 550 km), Telesat about 916 km (now 13.66 for
+  1015 km, Hypatia's value) and OneWeb about 1264 km (now 13.16 for 1200 km).
+  OneWeb was 18 planes of 36 spread over 360 degrees; FCC DA 23-362 gives
+  12 planes of 49, and the flying constellation spreads them over about 180
+  degrees. Kuiper already matched FCC 20-102. Results from earlier configs are
+  preserved under the `pre-config-fix` tag.
+- `generate_plus_grid_isls` claimed the last and first planes always
+  counter-rotate. That holds only for a Walker star; in a Walker delta the wrap
+  is an ordinary co-rotating link and `grid_seam` is a stress test.
 - `aux_forwarding_exceptions` counted every decision at a satellite with no live
   link, so failed satellites dominated it: one exception per ground station per
   dead satellite. It now counts only satellites with at least one live link, and
@@ -41,6 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   over, as it already did for the legacy stretch columns. It was averaging
   shared stretch per snapshot, which over-weights sparse Ring snapshots.
 ### Added
+- `raan_spread_degree` in the constellation config, default 360 (Walker
+  delta). Set it to 180 for a Walker star. On a star shell the `grid` scenario
+  builds the cylinder, because the wrap across its counter-rotating seam would
+  join satellites up to half an orbit apart; run metadata records this as
+  `isl_seam_wrap`, alongside `raan_spread_degree`.
 - Delivery accounting per snapshot (`delivery_*`): deliverable pairs, delivered
   pairs, delivery rate, forwarding failures, and the separate causes of
   non-delivery (no source visibility, no destination visibility, graph
