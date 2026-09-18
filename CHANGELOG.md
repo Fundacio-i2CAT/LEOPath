@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Fixed
+- `aux_forwarding_exceptions` counted every decision at a satellite with no live
+  link, so failed satellites dominated it: one exception per ground station per
+  dead satellite. It now counts only satellites with at least one live link, and
+  decisions at isolated satellites are reported as
+  `aux_forwarding_exceptions_isolated`.
 - Link-state routing now treats a ground station as reachable through any
   satellite above its horizon, choosing whichever minimises path length plus
   GSL length. The Hypatia-derived code path collapsed visibility to the single
@@ -32,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   occupied), `fstate_markers_*` (unreachable-destination markers), and
   `fstate_neighbors_*` (resident neighbour table), side by side with the
   proxy so the two can be compared.
+- `aggregate_eval` weights shared-basis stretch by the pairs it was measured
+  over, as it already did for the legacy stretch columns. It was averaging
+  shared stretch per snapshot, which over-weights sparse Ring snapshots.
 ### Added
 - Delivery accounting per snapshot (`delivery_*`): deliverable pairs, delivered
   pairs, delivery rate, forwarding failures, and the separate causes of
@@ -55,6 +63,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-satellite shortest-path tree a deployed router would hold, and the
   all-pairs matrix size and build time the simulator uses to derive every
   satellite's state at once, labelled as simulator-side.
+- Failure injection for robustness evaluation, selected with `--failure-type`:
+  `isl` and `satellite` outages as seeded per-element on/off processes with a
+  stationary rate and mean duration, `void` for a contiguous block of failed
+  satellites, `cut` for inter-plane links removed across two opposite plane
+  boundaries, and `polar` for inter-plane links switched off above a latitude.
+  Failures are applied to each snapshot before routing and depend only on the
+  seed and scenario, so every algorithm faces the same pattern. Reported per
+  snapshot as `failure_isls_removed` and `failure_satellites_down`.
+- `--geometry-source nominal` for topological routing, building the pivot
+  geometry from the failure-free graph so the estimator does not gain global
+  failure knowledge, while next hops still consider only live neighbours.
+- `delivery_failure_*` metrics splitting forwarding failures into loops, dead
+  ends, links down, hop-limit exhaustion and lost egress.
+- `--explicit-backup-adjacencies` to enable explicit-path single-hop local
+  protection from the command line.
+- `scripts/run-failure-sweep.sh` for running the failure-injection sweep as
+  parallel Docker jobs.
+- `leopath.experiments.state_accounting_tables` and
+  `leopath.experiments.summarize_failure_sweep`, which pool each run over its
+  snapshots and write per-run CSVs plus Markdown tables. The sweep summary
+  combines seeds into means with 95% confidence intervals and pairs every
+  variant with link-state by seed.
+- The failure-sweep summary now reads the guard, local-repair and exception variants.
+  It reports looping pairs, local minima at live satellites (subtracting dead
+  satellites' decisions for runs recorded before the counter fix), detour and
+  exception entries with the one-pass bound and their share of link-state's table,
+  hops from each entry to the nearest failure, and failure events per snapshot.
+- `--forwarding-guard progress` for topological routing: a satellite forwards
+  only to neighbours strictly lower in (Phi, satellite id), where Phi is the
+  minimum over visible egresses of distance plus GSL length. Every walk then
+  terminates without loops, at an egress or at a local minimum counted as a
+  forwarding exception (`aux_forwarding_exceptions`). Accepted only with the
+  evaluator-independent distance modes (`torus_unit`, `torus_weighted_pivot`).
+- `code_version` in run metadata, set by the runner scripts to the Docker image
+  tag so outputs from different builds in one output tree can be told apart.
+- `--local-repair square` for topological routing: a satellite whose ISL to a
+  nominal neighbour has failed keeps that neighbour as its next hop and reaches
+  it over the shortest live three-hop detour, the other sides of a grid square.
+  The detour sits below the routing decision, as RINA's two-step routing puts
+  the path to the next hop in a lower layer, so the progress guard still holds.
+  Path following expands detour entries into their three links, a broken leg is
+  classified as `link_down`, and `aux_local_detour_entries` counts them.
+- `--exception-policy grow` for topological routing: where the rules cannot deliver
+  to a ground station, satellites get exception entries along the shortest live
+  path, as in rule-and-exception forwarding. Only the satellites where walks
+  break receive entries, repeated until every reachable live satellite delivers.
+  Reported as `aux_exception_entries`, with the one-pass placement (every satellite
+  whose rule walk fails) as `aux_exception_entries_one_pass`, plus distinct
+  satellites, aggregated groups, hops to the nearest failure and unresolved walks.
+- `failure_events` per snapshot: failures appearing or clearing since the previous
+  snapshot, the dissemination cost of a failure-only flooding scheme.
 ### Removed
 - `predictive_link_state` and `traditional_segment_routing`, neither of which
   was used by any published result. The former was link-state evaluated on a

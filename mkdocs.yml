@@ -10,6 +10,7 @@ nav:
   - Getting Started: quickstart.md
   - Configuration: configuration.md
   - Algorithms: algorithms.md
+  - ISL Topology: isl-topology.md
   - Evaluation: evaluation.md
   - Visualizations: visualizations.md
   - Experiments: experiments.md

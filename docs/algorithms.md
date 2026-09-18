@@ -17,6 +17,8 @@ LEOPath exposes routing algorithms through a pluggable interface. Each one compu
 - `explicit_path_routing` plans on the current snapshot. Planning against a predicted future snapshot is deliberately left out.
 - Topological addressing assumes plane and satellite indices stay stable, which is what makes the address meaningful as a location.
 - ISL failures are not modelled unless you inject them.
+- Inter-satellite links are built as a `+Grid`, four terminals per satellite. Starlink flies three lasers,
+  and [ISL Topology](isl-topology.md) works out what that layout would do to the pivot estimator. It isn't built yet.
 
 ## Design considerations
 
@@ -37,6 +39,16 @@ The `distance_mode` parameter selects that metric:
 Parameter notes:
 
 - `plane_weight`, `sat_weight`, `shell_weight`: relative costs used by the weighted modes.
+
+#### Forwarding under failures
+
+Greedy forwarding on a damaged grid can loop. With `geometry_source: nominal`, a satellite whose best link has failed picks another neighbour, and that neighbour's estimate, which knows nothing about the failure, sends the packet straight back. Three options deal with this, and they stack:
+
+- `forwarding_guard: progress` forwards only to a neighbour strictly lower in a potential Φ: the estimated distance to the closest satellite that sees the destination, plus that satellite's ground-link length, with ties broken by satellite id. Every hop goes downhill, so a packet can't revisit a satellite, and one with no lower neighbour is at a local minimum, counted in `aux_forwarding_exceptions`. Φ has to be the same whichever satellite computes it, so only `torus_unit` and `torus_weighted_pivot` accept the guard.
+- `local_repair: square` keeps a next hop whose link has failed and reaches it over the shortest live three-hop detour, which on +Grid runs around one grid square. It follows RINA's two-step routing, where the path to the next hop is the lower layer's business, and because the decision still names the same next hop the guard's argument holds. A satellite needs the state of links within two hops, nothing more.
+- `exception_policy: grow` adds explicit entries wherever the first two still can't deliver, along the shortest live path, in the style of rule-and-exception forwarding. Entries go only to the satellite where a walk breaks, repeated until every reachable live satellite delivers; `aux_exception_entries_one_pass` reports the larger placement that gives every failing satellite an entry. It assumes satellites learn failures by flooding only the failures over a topology they already know.
+
+With all three on, the failure sweep delivered every deliverable pair on all four constellations, and exception state stayed mostly under 1% of link-state's table.
 
 ### Explicit-path routing
 
@@ -93,3 +105,16 @@ simulation:
 ```
 
 The paper matrix runs all four against the same snapshots, with `torus_weighted_pivot` as the topological distance mode.
+
+Topological routing with every failure option on:
+
+```yaml
+simulation:
+  dynamic_state_algorithm: topological_routing
+  algorithm_params:
+    distance_mode: torus_weighted_pivot
+    geometry_source: nominal
+    forwarding_guard: progress
+    local_repair: square
+    exception_policy: grow
+```

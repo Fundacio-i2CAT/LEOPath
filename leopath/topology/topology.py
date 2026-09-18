@@ -22,6 +22,10 @@ class LEOTopology:
         # TODO This info is in the graph, probably we do not need it here. If for some reason we do, I think it should be placed inside the satellite object
         self.sat_neighbor_to_if: dict = {}  # TODO Specify the type of this dictionary
         self.number_of_isls = 0
+        # Failure-free graph of the current snapshot when failures are injected.
+        # Structures that should not observe failures, such as geometry derived
+        # from ephemerides, are built from it.
+        self.nominal_graph: nx.Graph | None = None
         # TODO This info is probably in the graph. If we still need it, I think it should be placed inside the satellite object
         self.gsl_interfaces_info: list  # TODO Specify the type of this list
 

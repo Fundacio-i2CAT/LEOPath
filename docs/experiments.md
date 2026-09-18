@@ -91,7 +91,24 @@ python -m leopath.experiments.plot_eval_timeseries \
 
 Includes compute time per step when available.
 
+## Failure sweep
+
+`scripts/run-failure-sweep.sh` runs the robustness sweep as parallel Docker jobs on +Grid, one hour at one-minute steps, covering every condition described under failure injection in `evaluation.md`, with seeds 1 to 5 for the random ones:
+
+```bash
+IMAGE=leopath:<tag> JOBS=40 ./scripts/run-failure-sweep.sh /path/to/sweep
+```
+
+Runs land in `<sweep>/<constellation>/<condition>/seed<k>/<variant>/`. The runner skips any job that already has output, so adding a variant to the script and rerunning with a newer image runs only that variant, against the same failures; each run's `metadata.json` keeps the image tag as `code_version`. Don't start a second runner on a directory while the first is still going, though, because it would restart the jobs that haven't finished.
+
+```bash
+python -m leopath.experiments.summarize_failure_sweep --input /path/to/sweep --output-dir failure_summary
+```
+
+writes one row per run, a per-cell summary with 95% intervals across seeds, and Markdown tables per constellation.
+
 ## Notes
 
 - Use the same time step across every algorithm in a matrix, otherwise churn numbers are not comparable: a tighter sampling interval mechanically raises the link-state update rate while leaving topological forwarding untouched.
 - Keep ground stations fixed across runs for comparability.
+- Run parallel harness processes in Docker or in separate working directories. Each run writes its TLE file to the current directory, and runs sharing one overwrite each other's.

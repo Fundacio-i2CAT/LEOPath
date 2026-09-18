@@ -56,7 +56,7 @@ run_job() {
   echo "[$(date +%H:%M:%S)] start $cfg/$alg/$isl"
   docker run --rm --entrypoint python \
     -e OMP_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1 -e MKL_NUM_THREADS=1 \
-    -e NUMEXPR_NUM_THREADS=1 \
+    -e NUMEXPR_NUM_THREADS=1 -e LEOPATH_CODE_VERSION="$IMAGE" \
     -v "$ROOT_DIR/leopath/config:/app/leopath/config:ro" \
     -v "$out:/app/output" \
     "$IMAGE" \

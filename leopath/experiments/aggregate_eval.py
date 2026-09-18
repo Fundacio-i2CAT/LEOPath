@@ -16,7 +16,20 @@ STRETCH_COUNT_KEYS = {
     "stretch_hop_median": "stretch_hop_count",
     "stretch_hop_p95": "stretch_hop_count",
 }
-WEIGHTED_MEAN_KEYS = {"stretch_dist_mean", "stretch_hop_mean"}
+# Shared-basis stretch is weighted the same way, by the pairs it was measured over.
+STRETCH_COUNT_KEYS.update(
+    {
+        f"stretch_{basis}_shared_{stat}": f"stretch_{basis}_shared_count"
+        for basis in ("dist", "hop")
+        for stat in ("min", "max", "mean", "median", "p95")
+    }
+)
+WEIGHTED_MEAN_KEYS = {
+    "stretch_dist_mean",
+    "stretch_hop_mean",
+    "stretch_dist_shared_mean",
+    "stretch_hop_shared_mean",
+}
 
 
 def _read_csv_mean(path: str) -> dict:

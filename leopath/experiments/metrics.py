@@ -1,10 +1,14 @@
 import csv
 import json
 import math
-from typing import Iterable
+from typing import Iterable, TypeGuard
 
 import networkx as nx
 import numpy as np
+
+from leopath.network_state.routing_algorithms.topological_routing.fstate_calculation import (
+    LOCAL_DETOUR,
+)
 
 
 def write_json(path: str, payload: dict) -> None:
@@ -69,6 +73,9 @@ def normalize_next_hop(
         if len(entry) == 3:
             next_hop_id = entry[0]
             return next_hop_id if isinstance(next_hop_id, int) else None
+        if len(entry) == 4 and entry[0] == LOCAL_DETOUR:
+            # A local detour still names its routing-level next hop, the target.
+            return entry[3] if isinstance(entry[3], int) else None
         if len(entry) == 2 and entry[0] == "GSL":
             return entry[1] if isinstance(entry[1], int) else None
     if isinstance(entry, int):
@@ -680,6 +687,10 @@ def _derive_gs_to_gs_next_hop(
     )
 
 
+# Why a deliverable pair was not delivered; see _classify_forwarding_failure.
+FORWARDING_FAILURE_CAUSES = ("loop", "dead_end", "link_down", "hop_limit", "egress_lost")
+
+
 def compute_path_stretch(
     fstate: dict,
     topology_graph: nx.Graph,
@@ -712,6 +723,7 @@ def compute_path_stretch(
     deliverable = 0
     delivered = 0
     non_optimal_egress = 0
+    failure_causes = dict.fromkeys(FORWARDING_FAILURE_CAUSES, 0)
 
     for src_index, src_gs_id in enumerate(ground_station_ids):
         for dst_index, dst_gs_id in enumerate(ground_station_ids):
@@ -743,6 +755,16 @@ def compute_path_stretch(
                 disconnected += 1
                 continue
             deliverable += 1
+            # The walk delivery follows, kept so a failure can be classified.
+            walk = (
+                fstate,
+                topology_graph,
+                src_sat,
+                dst_gs_id,
+                interface_neighbor_map,
+                max_hops,
+                route_plans,
+            )
 
             dst_sat = _resolve_routed_destination_satellite(
                 fstate,
@@ -755,13 +777,16 @@ def compute_path_stretch(
                 destination_visibility,
             )
             if dst_sat is None:
-                continue  # deliverable, but this algorithm failed to deliver
+                # Deliverable, but this algorithm failed to deliver.
+                failure_causes[_classify_forwarding_failure(*walk)] += 1
+                continue
             dst_gsl_dist = _lookup_visible_satellite_distance(destination_visibility, dst_sat)
             if dst_gsl_dist is None:
                 _, nearest_dst_gsl_dist = attachments[dst_index]
                 dst_gsl_dist = nearest_dst_gsl_dist
             opt_hops, opt_dist = distances.lengths(src_sat, dst_sat)
             if opt_hops is None or opt_dist is None:
+                failure_causes[_classify_forwarding_failure(*walk)] += 1
                 continue
 
             # Make the baseline comparable to the algorithm-induced end-to-end path:
@@ -782,6 +807,7 @@ def compute_path_stretch(
                 destination_visibility,
             )
             if algo_hops is None or algo_dist is None:
+                failure_causes[_classify_forwarding_failure(*walk)] += 1
                 continue
 
             delivered += 1
@@ -810,6 +836,7 @@ def compute_path_stretch(
             "deliverable": float(deliverable),
             "delivered": float(delivered),
             "forwarding_failure": float(deliverable - delivered),
+            **{f"failure_{cause}": float(count) for cause, count in failure_causes.items()},
             "delivery_rate": (delivered / deliverable) if deliverable else 0.0,
             "non_optimal_egress": float(non_optimal_egress),
             "non_optimal_egress_rate": ((non_optimal_egress / delivered) if delivered else 0.0),
@@ -858,6 +885,14 @@ def _resolve_routed_destination_satellite(
     steps = 0
     while steps <= max_hops:
         entry = fstate.get((current, dst_gs_id))
+        if is_local_detour(entry):
+            leg = _local_detour_leg(topology_graph, current, entry)
+            if leg is None or current in visited:
+                return None
+            visited.add(current)
+            current = leg[0]
+            steps += 1
+            continue
         next_hop = normalize_next_hop(entry, current, interface_neighbor_map)
         if next_hop == dst_gs_id:
             return current
@@ -871,6 +906,80 @@ def _resolve_routed_destination_satellite(
         current = next_hop
         steps += 1
     return None
+
+
+def _classify_forwarding_failure(
+    fstate: dict,
+    topology_graph: nx.Graph,
+    src_sat: int,
+    dst_gs_id: int,
+    interface_neighbor_map: dict[int, dict[int, int]],
+    max_hops: int,
+    route_plans: dict | None = None,
+) -> str:
+    """Why a deliverable pair was not delivered, walking the path delivery walks.
+
+    ``loop``: forwarding revisits a satellite. ``dead_end``: a satellite holds no
+    route to the destination. ``link_down``: an entry or a planned adjacency
+    points over a link missing from the snapshot, which is how stale state meets
+    a failure. ``hop_limit``: the walk exceeds the hop budget. ``egress_lost``:
+    forwarding completes, but the satellite handing off to the ground cannot see
+    the destination.
+    """
+    route_plan = (route_plans or {}).get((src_sat, dst_gs_id))
+    if route_plan:
+        return _classify_route_plan_failure(topology_graph, route_plan)
+
+    current = src_sat
+    visited: set[int] = set()
+    steps = 0
+    while steps <= max_hops:
+        entry = fstate.get((current, dst_gs_id))
+        if is_unreachable(entry):
+            return "dead_end"
+        if is_local_detour(entry):
+            if current in visited:
+                return "loop"
+            leg = _local_detour_leg(topology_graph, current, entry)
+            if leg is None:
+                return "link_down"
+            visited.add(current)
+            current = leg[0]
+            steps += 1
+            continue
+        next_hop = normalize_next_hop(entry, current, interface_neighbor_map)
+        if next_hop is None:
+            # An interface entry whose link is no longer in the snapshot.
+            return "link_down"
+        if next_hop == dst_gs_id:
+            return "egress_lost"
+        if current in visited:
+            return "loop"
+        if not topology_graph.has_edge(current, next_hop):
+            return "link_down"
+        visited.add(current)
+        current = next_hop
+        steps += 1
+    return "hop_limit"
+
+
+def _classify_route_plan_failure(topology_graph: nx.Graph, route_plan: dict) -> str:
+    """Failure cause for a pair carried on an explicit route plan."""
+    sat_path = route_plan.get("satellite_path", [])
+    backups = route_plan.get("backup_adjacency_sid_list", [])
+    for hop_index, (current, next_hop) in enumerate(zip(sat_path, sat_path[1:])):
+        if topology_graph.has_edge(current, next_hop):
+            continue
+        backup = backups[hop_index] if hop_index < len(backups) else None
+        if backup is None or not (
+            topology_graph.has_edge(current, backup) and topology_graph.has_edge(backup, next_hop)
+        ):
+            return "link_down"
+    repair_path = route_plan.get("egress_repair_satellite_path", [])
+    for current, next_hop in zip(repair_path, repair_path[1:]):
+        if not topology_graph.has_edge(current, next_hop):
+            return "link_down"
+    return "egress_lost"
 
 
 class _SourceDistanceCache:
@@ -1009,6 +1118,15 @@ def _follow_routing_path(
             return None, None
         visited.add(current)
         entry = fstate.get((current, dst_gs_id))
+        if is_local_detour(entry):
+            leg = _local_detour_leg(topology_graph, current, entry)
+            if leg is None:
+                return None, None
+            total_hops += LOCAL_DETOUR_HOPS
+            total_dist += leg[1]
+            current = leg[0]
+            steps += 1
+            continue
         next_hop = normalize_next_hop(entry, current, interface_neighbor_map)
         if next_hop is None:
             return None, None
@@ -1028,6 +1146,35 @@ def _follow_routing_path(
     total_hops += 1
     total_dist += float(dst_gsl_dist)
     return total_hops, total_dist
+
+
+# Links a local detour entry covers: source -> first relay -> second relay -> target.
+LOCAL_DETOUR_HOPS = 3
+
+
+def is_local_detour(entry: object) -> TypeGuard[tuple]:
+    return isinstance(entry, tuple) and len(entry) == 4 and entry[0] == LOCAL_DETOUR
+
+
+def _local_detour_leg(
+    topology_graph: nx.Graph, current: int, entry: tuple
+) -> tuple[int, float] | None:
+    """Target and length of a local detour, or None if any of its links is down.
+
+    A detour stands in for a failed link to the routing-level next hop. Its relays
+    carry the packet below the routing decision, so a walk moves from the source to
+    the target in one routing step while the path still counts all three links.
+    """
+    path = [current, entry[1], entry[2], entry[3]]
+    length = 0.0
+    for node_a, node_b in zip(path, path[1:]):
+        if not topology_graph.has_edge(node_a, node_b):
+            return None
+        weight = topology_graph.edges[node_a, node_b].get("weight")
+        if weight is None or math.isinf(weight):
+            return None
+        length += float(weight)
+    return entry[3], length
 
 
 def _extract_next_hop(

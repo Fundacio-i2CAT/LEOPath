@@ -76,3 +76,90 @@ def test_explicit_path_preserves_final_egress_mode() -> None:
     )
 
     assert params["final_egress_mode"] == "dynamic"
+
+
+def test_failure_related_params_reach_only_their_algorithm() -> None:
+    common = {
+        "simulation_config": {"time_step_minutes": 1, "algorithm_params": {}},
+        "segment_count": None,
+        "segment_refresh_interval_steps": None,
+        "plane_weight": None,
+        "sat_weight": None,
+        "shell_weight": None,
+        "distance_mode": None,
+        "explicit_final_egress_mode": None,
+        "time_step_minutes": 1,
+        "geometry_source": "nominal",
+        "explicit_backup_adjacencies": True,
+    }
+    topological = prepare_algorithm_params(algorithm_name="topological_routing", **common)
+    explicit = prepare_algorithm_params(algorithm_name="explicit_path_routing", **common)
+
+    assert topological["geometry_source"] == "nominal"
+    assert "include_backup_adjacencies" not in topological
+    assert explicit["include_backup_adjacencies"] is True
+    assert "geometry_source" not in explicit
+
+
+def test_forwarding_guard_reaches_only_topological_routing() -> None:
+    common = {
+        "simulation_config": {"time_step_minutes": 1, "algorithm_params": {}},
+        "segment_count": None,
+        "segment_refresh_interval_steps": None,
+        "plane_weight": None,
+        "sat_weight": None,
+        "shell_weight": None,
+        "distance_mode": None,
+        "explicit_final_egress_mode": None,
+        "time_step_minutes": 1,
+        "forwarding_guard": "progress",
+    }
+    assert (
+        prepare_algorithm_params(algorithm_name="topological_routing", **common)["forwarding_guard"]
+        == "progress"
+    )
+    assert "forwarding_guard" not in prepare_algorithm_params(
+        algorithm_name="dra_routing", **common
+    )
+
+
+def test_local_repair_reaches_only_topological_routing() -> None:
+    common = {
+        "simulation_config": {"time_step_minutes": 1, "algorithm_params": {}},
+        "segment_count": None,
+        "segment_refresh_interval_steps": None,
+        "plane_weight": None,
+        "sat_weight": None,
+        "shell_weight": None,
+        "distance_mode": None,
+        "explicit_final_egress_mode": None,
+        "time_step_minutes": 1,
+        "local_repair": "square",
+    }
+    assert (
+        prepare_algorithm_params(algorithm_name="topological_routing", **common)["local_repair"]
+        == "square"
+    )
+    assert "local_repair" not in prepare_algorithm_params(algorithm_name="dra_routing", **common)
+
+
+def test_exception_policy_reaches_only_topological_routing() -> None:
+    common = {
+        "simulation_config": {"time_step_minutes": 1, "algorithm_params": {}},
+        "segment_count": None,
+        "segment_refresh_interval_steps": None,
+        "plane_weight": None,
+        "sat_weight": None,
+        "shell_weight": None,
+        "distance_mode": None,
+        "explicit_final_egress_mode": None,
+        "time_step_minutes": 1,
+        "exception_policy": "grow",
+    }
+    assert (
+        prepare_algorithm_params(algorithm_name="topological_routing", **common)["exception_policy"]
+        == "grow"
+    )
+    assert "exception_policy" not in prepare_algorithm_params(
+        algorithm_name="dra_routing", **common
+    )
