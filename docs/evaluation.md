@@ -40,7 +40,6 @@ A ground station is reachable through **any** satellite above its horizon, not o
 Optional metrics to add later:
 
 - **Stability window**: time between next-hop changes.
-- **Outage sensitivity**: connectivity loss under ISL failures.
 
 ## Constellations
 
@@ -61,6 +60,74 @@ Optional metrics to add later:
 
 - `ring`: intra-plane only
 - `grid`: intra-plane + inter-plane (+grid)
+
+## Failure injection
+
+Pass `--failure-type` to the harness and it removes links or satellites from every snapshot before any routing algorithm runs. The pattern depends only on `--failure-seed` and the failure parameters, never on the algorithm, so two algorithms run with the same seed route over exactly the same broken network.
+
+Random failures don't flicker from one minute to the next. Each link or satellite follows its own on/off process and, once down, stays down for a while: 10 minutes on average for a link and 60 for a satellite, which `--failure-mean-duration-minutes` overrides. `--failure-rate` is the long-run fraction of time an element spends down, and a run starts from that steady state instead of from a healthy network.
+
+| `--failure-type` | What breaks |
+| --- | --- |
+| `isl` | single ISLs, independently of each other, at `--failure-rate` |
+| `satellite` | whole satellites, with every ISL and ground link they had; a dead satellite also drops out of ground-station visibility |
+| `void` | a square block of neighbouring satellites, `--failure-void-size` on each side, down for the whole run at a position drawn from the seed |
+| `cut` | every inter-plane link across two opposite plane boundaries, which splits the grid in two |
+| `polar` | inter-plane links with either end above `--failure-polar-latitude-deg`, recomputed each snapshot from satellite positions |
+
+### Voids
+
+Picture the +Grid as a sheet that wraps around in both directions, with orbital planes as columns and positions within a plane as rows. A void punches a hole in it:
+
+```
+    plane:  0   1   2   3   4   5   6
+    row 0   o---o---o---o---o---o---o
+            |   |   |   |   |   |   |
+    row 1   o---o---X   X   X   X---o
+            |   |               |   |
+    row 2   o---o---X   X   X   X---o      X = failed satellite (4x4 void)
+            |   |               |   |
+    row 3   o---o---X   X   X   X---o
+            |   |               |   |
+    row 4   o---o---X   X   X   X---o
+            |   |   |   |   |   |   |
+    row 5   o---o---o---o---o---o---o
+```
+
+It models a regional loss, such as a batch of neighbouring satellites taken out together. Topological forwarding finds voids awkward because its distance estimate still points straight through the hole, so a packet approaching from the far side reaches the edge and finds no neighbour any closer to the destination.
+
+### Cuts
+
+```
+    plane:  0   1   2 | 3   4   5 | (wraps to 0)
+    row 0   o---o---o | o---o---o |
+            |   |   | | |   |   | |
+    row 1   o---o---o | o---o---o |      | = every inter-plane link removed
+            |   |   | | |   |   | |
+    row 2   o---o---o | o---o---o |
+```
+
+Removing the links across one boundary would only turn the torus into a cylinder, so the cut takes out two boundaries half the constellation apart. That leaves two halves with no link between them, while every satellite keeps working. A pair stays deliverable only when the destination ground station sees some satellite on the source's side, and the delivery metric counts only those pairs. It's the hardest condition for topological forwarding, since the geometry still believes the halves are joined.
+
+Polar deactivation only matters where satellites climb above the threshold. Starlink and Kuiper stay below 60°, so at 60° and 75° it removes nothing from them and only Telesat and OneWeb are affected.
+
+### Who knows about a failure
+
+Every algorithm routes over the post-failure graph of the snapshot it's in. For link-state that's close to reality at one-minute snapshots, because flooding converges within seconds. Topological routing is the exception: its pivot geometry would pick up every failure in the constellation at once, which a satellite deriving that geometry from ephemerides couldn't do. `--geometry-source nominal` builds the geometry from the failure-free graph while next hops still use only live neighbours, and `observed`, the default, keeps the global view as an upper bound.
+
+### Failure metrics
+
+`failure_isls_removed` and `failure_satellites_down` describe each snapshot's damage, and `failure_events` counts failures that appeared or cleared since the previous snapshot. The first snapshot counts every failure present, since none has been announced yet.
+
+When a deliverable pair isn't delivered, `delivery_failure_*` records why, and the causes add up to `delivery_forwarding_failure`:
+
+| Cause | What happened |
+| --- | --- |
+| `loop` | forwarding came back to a satellite it had already visited |
+| `dead_end` | a satellite held no route to the destination |
+| `link_down` | an entry or a planned adjacency pointed over a link missing from the snapshot, which is how stale state meets a failure |
+| `hop_limit` | the walk ran out of hops |
+| `egress_lost` | forwarding finished at a satellite that can't see the destination ground station |
 
 ## Evaluation checklist
 
