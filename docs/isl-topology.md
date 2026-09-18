@@ -33,124 +33,232 @@ Lay the shell out with planes as columns and satellite index as rows, wrapping b
    |  intra-plane (fore/aft)      -  cross-plane (port/starboard)
 ```
 
-Two words used throughout this page, by analogy with a ladder: the verticals are intra-plane links, and a **rung** is one cross-plane link joining a satellite to its counterpart in the neighbouring plane. Neither term is standard.
+Two words used throughout this page, by analogy with a ladder. The verticals are **rails**, running along the orbit; the horizontals are **rungs**, crossing to the neighbouring plane. Neither term is standard, and the two behave nothing alike:
+
+```
+                  ahead (same orbit)
+                        o
+                        |   rail
+                        |
+     o ---- rung ----- [X] ----- rung ---- o
+   plane p-1            |             plane p+1
+                        |   rail
+                        o
+                  behind (same orbit)
+
+   rails  fixed range, fixed pointing, no tracking loop
+   rungs  range and pointing change constantly,
+          worst near the poles where the planes converge
+```
 
 Distance is Manhattan on the torus, `|dplane| + |drow|`, and the whole topological forwarding argument leans on that.
 
-## Three terminals force a matching
+## Counting terminals
 
-Keep fore and aft, which cost nothing because two satellites in the same orbit never move relative to each other, and one cross-plane terminal is left:
+Three terminals mean one kind of neighbour gets bought once. Working the arithmetic through shows there are exactly two candidate layouts, not one, and that the choice between them isn't settled by anything SpaceX has published.
 
-```
-            |
-        ?---o        one of port / starboard, not both
-            |
-```
-
-One cross-plane terminal per satellite means the cross-plane links form a perfect matching over the whole shell. Within any plane, some satellites point left and the rest point right. That isn't a design decision anyone gets to make; it follows from counting terminals.
-
-Pairing whole planes fails immediately:
+A link burns one terminal at each end, so a terminal points at exactly one satellite and nothing else:
 
 ```
-         p0    p1        p2    p3        p4    p5
-   s0     o-----o         o-----o         o-----o
-          |     |         |     |         |     |
-   s1     o-----o         o-----o         o-----o
-          |     |         |     |         |     |
-   s2     o-----o         o-----o         o-----o
-         \_____/         \_____/         \_____/
-          island          island          island
-                    ^               ^
-              no rungs here    no rungs here
+        [X] ============== [Y]
+         ^                  ^
+    one terminal       one terminal
 ```
 
-Every satellite in p1 spent its one cross terminal pointing at p0, so the p0/p1 boundary carries a rung at *every* row, far more than it needs, while the p1/p2 boundary gets nothing. The shell falls apart into disconnected components, 36 two-plane islands on Starlink, and a packet sitting in p0 can never reach p2 by any route. That's the counting argument behind the stagger: each plane has to spend some terminals leftward and the rest rightward, or a boundary starves.
-
-Two diagonal variants also fail. Running the rung from `(p,s)` to `(p+1,s+1)` and staggering on plane parity splits the shell into the same isolated plane pairs; staggering the same diagonal on `(p+s)` parity hands half the satellites two cross links and the other half none, so it isn't a three-laser layout at all.
-
-What survives is one rule: a rung joins `(p,s)` and `(p+1,s)` when `(p + s)` is even.
+Buy two terminals of a kind and those links form an unbroken line. Buy one and they can only form pairs:
 
 ```
-         p0    p1    p2    p3    p4
-   s0     o-----o     o-----o     o
-          |     |     |     |     |
-   s1     o     o-----o     o-----o
-          |     |     |     |     |
-   s2     o-----o     o-----o     o
-          |     |     |     |     |
-   s3     o     o-----o     o-----o
+  TWO terminals of a kind              ONE terminal of a kind
+
+   o---o---o---o---o---o                o---o   o---o   o---o
+   ^   ^   ^   ^   ^   ^                ^   ^   ^   ^   ^   ^
+   spends 2, links both                 spends 1, links ONE
+   neighbours                           neighbour
+
+   -> unbroken line                     -> disjoint pairs, a matching
 ```
 
-Brick courses, which is where the name comes from; graph theory calls it the hexagonal lattice. Every satellite has degree 3, the shell stays connected, and no satellite is special.
+The pairs can't all face the same way either:
 
-## Which links get sacrificed is a guess
+```
+  all pairs aligned                    pairs alternate
 
-Everything above assumes both intra-plane terminals survive and the cross-plane one gets staggered. That assumption does real work, and no public source settles it.
+  p0   p1    p2   p3                   p0   p1   p2   p3
+   o---o     o---o                      o---o    o---o
+   |   |     |   |                      |   |    |   |
+   o---o     o---o                      o    o---o    o
+   |   |     |   |                      |   |    |   |
+   o---o     o---o                      o---o    o---o
+  \____/    \____/
+   island    island                     connected, every plane reachable
+                 ^
+        no rungs cross here
+```
 
-The case for keeping the orbital pair is that those links are cheap to hold: two satellites in the same orbit at the same altitude never move relative to each other, so the terminal can be bolted down with no tracking loop, while cross-plane terminals fight varying range and high angular rates, worst near the poles where the planes converge. Cheap to keep lit isn't the same as worth buying twice, though.
+Every satellite in p1 spent its one rung terminal pointing at p0, so the p0/p1 boundary carries a rung at *every* row, far more than it needs, while the p1/p2 boundary gets nothing. The shell falls into disconnected components, 36 two-plane islands on Starlink, and a packet sitting in p0 can never reach p2 by any route. Alternation isn't a preference; it's what stops that happening.
 
-Spend the terminals the other way round, one along the orbit and two across planes, and the cross-plane mesh stays complete while the intra-plane ring breaks into a matching. That layout is better, and on Starlink it isn't close:
+Two diagonal layouts fail for related reasons. Running the rung from `(p,s)` to `(p+1,s+1)` and staggering on plane parity produces the same isolated plane pairs; staggering that diagonal on `(p+s)` parity hands half the satellites two rungs and the other half none, so it isn't a three-terminal layout at all.
 
-| shell | ring kept, rungs staggered | rungs kept, ring staggered |
-|---|---|---|
-| Starlink 72 x 22 | +56%, diameter 72 | **+2%**, diameter 47 |
-| OneWeb 36 x 18 | +39%, diameter 36 | **+5%**, diameter 27 |
-| Kuiper 34 x 34 | +17%, diameter 34 | +17%, diameter 34 |
+## The two splits
 
-Kuiper's square grid makes the two identical, which is the clue: **the second layout is the first one transposed.** Swap the roles of plane index and satellite index and one becomes the other, so the closed form below covers both, with its arguments swapped and `(planes, sats)` exchanged. Checked against BFS that way over 4 265 296 ordered pairs on OneWeb, Kuiper and Starlink, with zero mismatches.
+```
+             rails (along orbit)      rungs (across planes)      degree
+          +------------------------+-------------------------+
+  +Grid   |  2 terminals -> LINE   |  2 terminals -> LINE    |    4
+          +------------------------+-------------------------+
+  SPLIT A |  2 terminals -> LINE   |  1 terminal  -> STAGGER |    3
+          +------------------------+-------------------------+
+  SPLIT B |  1 terminal  -> STAGGER|  2 terminals -> LINE    |    3
+          +------------------------+-------------------------+
+```
 
-Which means there's no reason to pick. Build one estimator, run both layouts as sweep variants, and let the paper report the pair as a range rather than defend a guess about hardware nobody has documented.
+Split A keeps the orbital ring whole and staggers the rung, so a rung joins `(p,s)` and `(p+1,s)` when `(p + s)` is even:
 
-The rule needs an even number of planes and an even number of satellites per plane, or the parity fails to close on the wrap. Telesat's 27 by 13 grid fails both, and patching it with a seam leaves a column of degree-2 and degree-4 satellites. Starlink (72 by 22), Kuiper (34 by 34) and OneWeb (36 by 18) all close cleanly.
+```
+SPLIT A   rails complete, rungs staggered
 
-## The rungs never line up
+      p0    p1    p2    p3    p4
+ s0    o-----o     o-----o     o
+       |     |     |     |     |          every vertical present
+ s1    o     o-----o     o-----o          horizontals alternate
+       |     |     |     |     |
+ s2    o-----o     o-----o     o
+       |     |     |     |     |
+ s3    o     o-----o     o-----o
+```
 
-Send a packet from `(p0,s0)` to `(p4,s0)`: four planes right, same row.
+Brick courses, which is where the name comes from; graph theory calls it the hexagonal lattice.
 
-On `+Grid` that's four hops in a straight line:
+Split B keeps the cross-plane mesh whole and staggers the rail instead, breaking each orbital ring into pairs:
+
+```
+SPLIT B   rungs complete, rails staggered
+
+      p0    p1    p2    p3    p4
+ s0    o-----o-----o-----o-----o
+       |           |           |          every horizontal present
+ s1    o-----o-----o-----o-----o          verticals alternate
+             |           |
+ s2    o-----o-----o-----o-----o
+       |           |           |
+ s3    o-----o-----o-----o-----o
+```
+
+Neither is obviously the real one. Rails are cheap to hold, since two satellites in the same orbit at the same altitude never move relative to each other and the terminal can sit bolted down with no tracking loop, while rungs fight varying range and high angular rates, worst near the poles where planes converge. Cheap to keep lit isn't the same as worth buying twice, though, and the numbers below favour split B heavily on the shell that matters most.
+
+Both layouts carry 1.5 links per satellite, down from 2.
+
+## Which shells the parity fits
+
+Split A needs an even plane count, split B an even number of satellites per plane, or the alternation collides with itself on the wrap:
+
+```
+   P even, alternation closes          P odd, alternation collides
+
+   p0  p1  p2  p3  p0                  p0  p1  p2  p0
+    o---o   o---o                       o---o   o   o
+                   \___ wraps                       \___ wraps
+                       back to p0                       back to p0
+
+    matching stays a matching           two rungs land on the same
+                                        satellite and another gets none
+```
+
+| shell | grid | split A | split B |
+|---|---|---|---|
+| Starlink | 72 x 22 | yes | yes |
+| Kuiper | 34 x 34 | yes | yes |
+| OneWeb | 36 x 18 | yes | yes |
+| Telesat | 27 x 13 | no, 27 is odd | no, 13 is odd |
+
+Patching Telesat with a seam leaves a column of degree-2 and degree-4 satellites, which is a different topology rather than a brick wall, so Telesat stays out of everything that follows.
+
+## What each split costs a packet
+
+On `+Grid`, crossing four planes along one row is four hops in a straight line:
 
 ```
          p0    p1    p2    p3    p4
    s0     S====>o====>o====>o====>D
 ```
 
-On the brick wall it costs eight:
+Split A turns that into eight, and split B does the same thing to row movement:
 
 ```
-         p0    p1    p2    p3    p4
-   s0     (1)===(2)   (5)===(6)   (9)
-           |     |     |     |     |
-   s1      o    (3)===(4)   (7)===(8)
+SPLIT A: cross 4 planes, same row            SPLIT B: move 4 rows, same plane
+
+      p0    p1    p2    p3    p4                  p0    p1
+ s0   (1)===(2)   (5)===(6)   (9)            s0   (1)
+       |     |     |     |     |                   |
+ s1    o    (3)===(4)   (7)===(8)            s1   (2)===(3)
+                                                          |
+   rung, rail, rung, rail, ...               s2   (5)===(4)
+   4 rungs + 4 rails = 8 hops                      |
+                                             s3   (6)===(7)
+                                                          |
+                                             s4   (9)===(8)
+
+                                               rail, rung, rail, rung, ...
+                                               4 rails + 4 rungs = 8 hops
 ```
 
-Cross, step down, cross, step back up, cross, step down, cross, step back up. Half those hops net out to zero row movement and buy nothing; the packet pays them because crossing a plane flips the parity that decides where the next rung sits. Crossing one plane costs two hops rather than one, unless the forced row shift happens to be movement the packet wanted anyway.
+In split A, crossing a plane flips the parity that decides where the next rung sits, so the packet has to shift a row before it can cross again, and half its hops net out to zero row movement. Split B is the same picture rotated: moving a row flips the parity that decides where the next rail sits. Each split charges roughly one extra hop per step along the axis it taxes, unless that step was movement the packet wanted anyway.
 
-That "unless" is why the penalty depends on the shape of the grid and not on its size:
+That exception is why the penalty tracks the shape of the grid rather than its size:
 
 ```
-  Starlink, 72 planes x 22 rows, worst case crosses 36 planes
-     +Grid:  36 rungs                              =  36 hops
-     brick:  36 rungs + 35 forced row hops         =  71 hops
-             the row hops go +1, -1, +1, -1, netting zero;
-             22 rows cannot absorb 35 of them
+   Starlink:  72 planes  x  22 rows            Kuiper:  34 x 34
+   +----------------------------------+        +---------------+
+   |                                  |        |               |
+   |      long axis = PLANES          | 22     |               | 34
+   |                                  |        |               |
+   +----------------------------------+        +---------------+
+                  72                                   34
 
-  Kuiper, 34 x 34, worst case crosses 17 planes
-     a typical trip already needs about 17 row hops,
-     so the forced shifts disappear into movement the packet wanted
+   SPLIT A taxes plane crossings -> lands on the LONG axis
+   SPLIT B taxes row movement    -> lands on the SHORT axis
+   Kuiper is square, so both land on an axis of the same length
+```
+
+Worked out on Starlink's worst case:
+
+```
+  cross 36 planes, same row
+     +Grid:    36 rungs                             =  36 hops
+     split A:  36 rungs + 35 forced row hops        =  71 hops
+               the row hops go +1, -1, +1, -1, netting zero,
+               and 22 rows cannot absorb 35 of them
+     split B:  36 rungs, no rail needed             =  36 hops
 ```
 
 All-pairs BFS on the logical torus, unit hop costs:
 
-| shell | grid | ISLs, +Grid to brick | mean path, +Grid | mean path, brick | penalty | diameter |
+| shell | grid | ISLs, 4 to 3 terminals | mean, +Grid | mean, split A | mean, split B | diameter, +Grid / A / B |
 |---|---|---|---|---|---|---|
-| Kuiper | 34 x 34 | 2312 to 1734 | 17.01 | 19.84 | +17% | 34 to 34 |
-| Telesat* | 27 x 13 | 702 to 527 | 10.00 | 13.90 | +39% | 19 to 27 |
-| OneWeb | 36 x 18 | 1296 to 972 | 13.52 | 18.77 | +39% | 27 to 36 |
-| Starlink | 72 x 22 | 3168 to 2376 | 23.51 | 36.58 | **+56%** | 47 to **72** |
+| Kuiper | 34 x 34 | 2312 to 1734 | 17.01 | 19.84 (+17%) | 19.84 (+17%) | 34 / 34 / 34 |
+| OneWeb | 36 x 18 | 1296 to 972 | 13.52 | 18.77 (+39%) | 14.26 (**+5%**) | 27 / 36 / 27 |
+| Starlink | 72 x 22 | 3168 to 2376 | 23.51 | 36.58 (+56%) | 24.07 (**+2%**) | 47 / 72 / 47 |
 
-\* Telesat's grid is odd in both dimensions, so its brick row uses a seam and its satellites aren't all degree 3. Treat that row as indicative.
+Starlink's split-A diameter lands on exactly `2 x 36`: every crossing paid double, nothing absorbed. Cutting a quarter of the links costs far more than a quarter of the path efficiency under split A and almost nothing under split B, on the same hardware budget.
 
-Starlink's diameter lands on exactly `2 x 36`: every crossing paid double, nothing absorbed. Cutting a quarter of the links costs more than a quarter of the path efficiency, and how much more depends entirely on aspect ratio.
+## The two splits are one graph
+
+```
+   SPLIT A                              rotate 90 degrees, relabel the axes
+
+        p ------>                              s ------>
+   s   o---o   o---o                      p   o---o---o---o
+   |   |   |   |   |                      |   |       |
+   |   o   o---o   o                      |   o---o---o---o
+   v   |   |   |   |                      v       |       |
+       o---o   o---o                          o---o---o---o
+
+                                         which is SPLIT B
+```
+
+Swap the roles of plane index and satellite index and one layout becomes the other, which is why Kuiper's two columns are identical. The closed form further down therefore covers both: same function, arguments swapped, `(planes, sats)` exchanged. Checked that way against BFS over 4 265 296 ordered pairs on OneWeb, Kuiper and Starlink, with zero mismatches.
+
+So there's nothing to choose between them. One estimator serves both, the second layout costs a flag, and a sweep can report the pair as a range instead of defending a guess about hardware nobody has documented.
 
 ## What breaks in the estimator
 
@@ -177,6 +285,8 @@ On a brick wall no row ever has two consecutive rungs. Row `s2` carries a rung o
 
 `plane_edge_costs` starts every entry at infinity and records only rungs that exist (`fstate_calculation.py:1244`), and `_sum_torus_edges` returns infinity the moment it walks into one gap. Both directions round the torus hit gaps. So for any `|dplane|` of 2 or more, every pivot row returns infinity and the estimator reports every satellite beyond the adjacent plane as unreachable. The model doesn't degrade on a brick wall; it stops producing a number.
 
+Split B breaks it in the mirror image. Every rung is present there, so `plane_edge_costs` comes out clean and plane crossings cost what they should; the gaps move into `row_edge_costs` instead, and walking more than one row inside a plane returns infinity. Same failure, different table.
+
 Worth fixing whether or not the brick wall ever gets built: a distance policy handed a topology it can't represent should refuse at model-build time instead of reporting the whole constellation unreachable. Checking that each pivot row has contiguous rungs in `_build_torus_weight_model` and raising otherwise costs a few lines.
 
 An idealised estimator that fails gracefully instead, plain Manhattan with no knowledge of which rungs exist, still strands a couple of percent of traffic with no failures injected anywhere:
@@ -202,7 +312,7 @@ Drop the assumption that one row can carry the whole crossing. Use two adjacent 
    r+1     o     o=====o     o=====o
 ```
 
-Every rung on that staircase exists by construction, for any starting row. Crossing one plane costs a rung plus a vertical hop, and the vertical hops come out of `row_edge_costs`, which the weight model already builds. The pivot loop at `fstate_calculation.py:1352` iterates row pairs instead of rows; table sizes and query cost don't change.
+Every rung on that staircase exists by construction, for any starting row. Split B needs the same staircase turned ninety degrees, pairing planes rather than rows, which the transposed closed form already gives. Crossing one plane costs a rung plus a vertical hop, and the vertical hops come out of `row_edge_costs`, which the weight model already builds. The pivot loop at `fstate_calculation.py:1352` iterates row pairs instead of rows; table sizes and query cost don't change.
 
 In closed form, crossing `a` planes with a row ring-distance of `rd`:
 
