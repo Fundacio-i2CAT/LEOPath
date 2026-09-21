@@ -707,14 +707,24 @@ def compute_path_stretch(
     sat_graph = topology_graph.subgraph(satellite_ids)
     distances = _SourceDistanceCache(sat_graph)
 
-    # Legacy basis: each algorithm graded against a shortest path to whichever
-    # egress it happened to reach. Retained for continuity with earlier runs.
+    # Forwarding basis: the algorithm graded against a shortest path to the
+    # egress it actually reached, which isolates how well it forwarded once the
+    # egress was settled. On its own it is not a headline number, because the
+    # yardstick moves with the algorithm; it is the second factor of the shared
+    # basis below. Also the basis earlier runs reported.
     hop_stretches: list[float] = []
     dist_stretches: list[float] = []
     # Shared basis: every algorithm graded against the same lower bound, the
     # best end-to-end route to any satellite the destination can see.
     shared_hop_stretches: list[float] = []
     shared_dist_stretches: list[float] = []
+    # Egress-choice basis: the best route to the egress reached, over the best
+    # route to any egress. It prices the choice of egress rather than the
+    # forwarding, which matters under attachment addressing, where the egress is
+    # fixed by the destination address instead of minimised at every satellite.
+    # shared = egress x forwarding, exactly.
+    egress_hop_stretches: list[float] = []
+    egress_dist_stretches: list[float] = []
 
     total_pairs = 0
     no_src_visibility = 0
@@ -820,14 +830,18 @@ def compute_path_stretch(
                 dist_stretches.append(algo_dist / opt_dist_total)
             if best_hops_total:
                 shared_hop_stretches.append(algo_hops / best_hops_total)
+                egress_hop_stretches.append(opt_hops_total / best_hops_total)
             if best_dist_total > 0.0:
                 shared_dist_stretches.append(algo_dist / best_dist_total)
+                egress_dist_stretches.append(opt_dist_total / best_dist_total)
 
     return {
         "hop": summarize_distribution(hop_stretches),
         "distance": summarize_distribution(dist_stretches),
         "hop_shared": summarize_distribution(shared_hop_stretches),
         "distance_shared": summarize_distribution(shared_dist_stretches),
+        "hop_egress": summarize_distribution(egress_hop_stretches),
+        "distance_egress": summarize_distribution(egress_dist_stretches),
         "delivery": {
             "total_pairs": float(total_pairs),
             "no_src_visibility": float(no_src_visibility),

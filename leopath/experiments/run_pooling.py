@@ -76,4 +76,15 @@ def pooled_delivery(rows: list[dict[str, str]]) -> dict[str, float | None]:
         "stretch_hop_shared": weighted_mean(
             rows, "stretch_hop_shared_mean", "stretch_hop_shared_count"
         ),
+        # shared = egress x forwarding. The egress factor prices the choice of
+        # egress, the forwarding factor what the algorithm did once that egress
+        # was settled.
+        "stretch_dist_egress": weighted_mean(
+            rows, "stretch_dist_egress_mean", "stretch_dist_egress_count"
+        ),
+        "stretch_hop_egress": weighted_mean(
+            rows, "stretch_hop_egress_mean", "stretch_hop_egress_count"
+        ),
+        "stretch_dist_forwarding": weighted_mean(rows, "stretch_dist_mean", "stretch_dist_count"),
+        "stretch_hop_forwarding": weighted_mean(rows, "stretch_hop_mean", "stretch_hop_count"),
     }

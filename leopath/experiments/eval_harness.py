@@ -404,6 +404,8 @@ def run_evaluation(
                 **flatten_distribution("stretch_dist", stretch_stats["distance"]),
                 **flatten_distribution("stretch_hop_shared", stretch_stats["hop_shared"]),
                 **flatten_distribution("stretch_dist_shared", stretch_stats["distance_shared"]),
+                **flatten_distribution("stretch_hop_egress", stretch_stats["hop_egress"]),
+                **flatten_distribution("stretch_dist_egress", stretch_stats["distance_egress"]),
                 **{f"delivery_{key}": value for key, value in stretch_stats["delivery"].items()},
                 **{f"aux_{key}": value for key, value in auxiliary_state.items()},
                 **{

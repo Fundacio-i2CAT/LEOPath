@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   attachment is replaced at the next snapshot rather than stranding the station.
   The default, `visibility`, keeps the previous behaviour, where the address is
   stable and every satellite minimises over every visible egress instead.
+- Stretch is reported as two factors that multiply to it. `stretch_*_egress`
+  prices the choice of egress, the best route to the egress an algorithm reached
+  over the best route to any egress the destination can see. `stretch_*` prices
+  the forwarding, what the algorithm did once that egress was settled. Their
+  product is `stretch_*_shared`, which stays the single headline figure against
+  an unmoving baseline. The split matters under attachment addressing, where the
+  egress follows from the destination address rather than being minimised at
+  every satellite, so a suboptimal egress would otherwise be read as a
+  forwarding penalty. `stretch_*` is the basis earlier runs reported, now named
+  for what it measures rather than kept for continuity alone.
 - `aux_gs_renumberings` reports attachment changes per snapshot. Under attachment
   addressing each one costs a directory update and a flow update to the far end
   of every active flow, so it is the price paid for dropping the ground station
