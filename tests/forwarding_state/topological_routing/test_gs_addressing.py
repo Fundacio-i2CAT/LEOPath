@@ -179,7 +179,7 @@ def test_the_first_attachment_is_not_counted_as_a_renumbering() -> None:
     _run("attachment", [[(500.0, 10)]], state_report=report)
 
     # The ground station had no address to change, so nothing was renumbered.
-    assert report["aux_gs_renumberings"] == 0.0
+    assert report["gs_renumberings"] == 0.0
 
 
 def test_moving_the_attachment_counts_one_renumbering() -> None:
@@ -187,7 +187,7 @@ def test_moving_the_attachment_counts_one_renumbering() -> None:
 
     first: dict = {}
     _run("attachment", [[(500.0, 10)]], state_report=first, built=built)
-    assert first["aux_gs_renumberings"] == 0.0
+    assert first["gs_renumberings"] == 0.0
 
     # Satellite 10 sets, satellite 11 rises: the address has to follow.
     second: dict = {}
@@ -198,7 +198,7 @@ def test_moving_the_attachment_counts_one_renumbering() -> None:
         built=built,
         time_since_epoch_ns=60_000_000_000,
     )
-    assert second["aux_gs_renumberings"] == 1.0
+    assert second["gs_renumberings"] == 1.0
 
 
 def test_a_steady_attachment_costs_no_renumbering() -> None:
@@ -214,7 +214,7 @@ def test_a_steady_attachment_costs_no_renumbering() -> None:
         time_since_epoch_ns=60_000_000_000,
     )
 
-    assert report["aux_gs_renumberings"] == 0.0
+    assert report["gs_renumberings"] == 0.0
 
 
 def test_exceptions_deliver_only_through_the_attachment() -> None:
@@ -259,3 +259,13 @@ def test_no_satellite_but_the_attachment_gets_a_ground_link_entry() -> None:
         sat for (sat, gs), entry in fstate.items() if gs == 100 and entry == ("GSL", 100)
     }
     assert ground_links <= {10}
+
+
+def test_state_report_keys_leave_the_aux_prefix_to_the_harness() -> None:
+    # The harness writes every key as aux_<key>; a key that already carries the
+    # prefix lands in the CSV as aux_aux_<key>, where no summary looks for it.
+    report: dict = {}
+    _run("attachment", [[(500.0, 10)]], state_report=report)
+
+    assert "gs_renumberings" in report
+    assert not [key for key in report if key.startswith("aux_")]

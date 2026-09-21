@@ -225,8 +225,9 @@ def calculate_fstate_topological_routing_no_gs_relay(
     if state_report is not None:
         # Attachment changes are what a ground station has to renumber for, and
         # under attachment addressing each one costs a directory update and a
-        # flow update to the far end of every active flow.
-        state_report["aux_gs_renumberings"] = float(len(gsl_changes))
+        # flow update to the far end of every active flow. The harness adds the
+        # aux_ prefix, so the column reaches the summaries as aux_gs_renumberings.
+        state_report["gs_renumberings"] = float(len(gsl_changes))
 
     # Step 4: Calculate satellite-to-GS forwarding state
     fstate: dict[tuple, tuple] = {}
