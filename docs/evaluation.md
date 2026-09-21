@@ -30,12 +30,42 @@ Reachability is decided from the topology before any algorithm runs, so every al
 | `deliverable` | a path exists, so the pair counts toward `delivery_rate` |
 | `delivered` | the algorithm got a packet there; the shortfall is `forwarding_failure` |
 
-A ground station is reachable through **any** satellite above its horizon, not only its nearest one. The baseline for stretch is therefore the best end-to-end route to any of them, which makes it identical for every algorithm. Two stretch families are written:
+A ground station is reachable through **any** satellite above its horizon, not only its nearest one. The baseline for stretch is therefore the best end-to-end route to any of them, which makes it identical for every algorithm and independent of what any algorithm does.
 
-- `stretch_hop` / `stretch_dist` grade an algorithm against a shortest path to whichever egress satellite it happened to reach. An algorithm that delivers through a poor egress still scores near 1.0, because the baseline follows it there. Kept for continuity with earlier runs.
-- `stretch_hop_shared` / `stretch_dist_shared` grade every algorithm against the same lower bound. Use these for comparisons between algorithms.
+Falling short of that baseline has two separate causes, so stretch is one headline figure and two factors that multiply to it:
 
-`delivery_non_optimal_egress_rate` reports how often an algorithm delivered through an egress other than the optimal one, which is what separates the two families. A shortest-path algorithm scores 1.000000 on the shared basis by construction, so link-state doubles as a correctness check on the metric itself.
+```
+  end-to-end  =  egress choice   x   forwarding
+
+  stretch_dist_shared    stretch_dist_egress    stretch_dist_forwarding
+  stretch_hop_shared     stretch_hop_egress     stretch_hop_forwarding
+```
+
+| factor | question it answers | what sets it |
+| --- | --- | --- |
+| `_shared` | how much worse than the best possible? | both causes together |
+| `_egress` | did it aim at the right satellite? | the attachment policy |
+| `_forwarding` | given that target, was the path good? | the distance estimator, guard, repair and exceptions |
+
+The egress factor exists because "nearest to the ground station" and "best for this particular source" are different questions:
+
+```
+     S = source
+      \
+       \                  e2    ..... a longer route, but the station
+        \                /  \          did not attach here
+         \______________/    ~~~~ g
+                             /
+                       e1 ~~/    nearest to g, so the address names it
+                      /
+        ............./  the best route from S
+```
+
+Under `gs_addressing: visibility` every satellite minimises over all visible egresses, so the egress factor is 1.000 and the headline equals the forwarding factor. Under `attachment` the address fixes the egress, so a poor choice and a poor path become two distinct causes that one number cannot separate. Reporting only the headline would make a change of destination model look like a regression in forwarding that never happened.
+
+`delivery_non_optimal_egress_rate` counts how often an algorithm delivered through an egress other than the optimal one, which is the discrete version of the same thing. A shortest-path algorithm scores 1.000000 on all three by construction, so link-state doubles as a correctness check on the metric itself.
+
+`aux_gs_renumberings` counts attachment changes per snapshot. Under `attachment` addressing each one costs a directory update and a flow update to the far end of every active flow, so it belongs in the accounting rather than in an assumption. Under `visibility` it stays at zero, because the address never moves.
 
 Optional metrics to add later:
 

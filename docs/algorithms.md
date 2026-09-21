@@ -39,6 +39,52 @@ The `distance_mode` parameter selects that metric:
 Parameter notes:
 
 - `plane_weight`, `sat_weight`, `shell_weight`: relative costs used by the weighted modes.
+- `gs_addressing`: `attachment` makes a ground station's address name the satellite it is attached to; `visibility` (the default) keeps the address stable and minimises over every visible egress instead.
+
+#### Where the destination address comes from
+
+A packet carries the destination's 6G-RUPA address, and `gs_addressing` decides what that address means for a ground station.
+
+```
+  ATTACHMENT                              VISIBILITY (the default)
+
+  address names the satellite the         address is stable and says nothing
+  station is attached to:                 about location:
+     (shell 0, plane 3, slot 1, x=2)         "ground station 7"
+
+  a satellite reads plane 3, slot 1       a satellite works out which
+  and forwards that way. Done.            satellites can see station 7,
+                                          then minimises over all of them
+
+  needs: nothing about the station        needs: the station's coordinates,
+                                          on board, plus a visibility
+                                          calculation every snapshot
+
+  evaluates 1 distance per decision       evaluates ~16, one per visible
+                                          egress
+```
+
+Attachment is what the addressing scheme describes, and it's the cheaper of the two by some distance: a forwarding satellite holds no ground-station table and does no visibility arithmetic. The station attaches to its nearest live visible satellite, which is the rule `_detect_gsl_changes` already applied to decide when an address has to change, so nothing new decides it.
+
+What it costs is renumbering. A satellite stays above a fixed point for a few minutes, so the address follows it and then has to change:
+
+```
+  t = 0                    t = 5 min                t = 10 min
+
+     e1 = (p3,s1)             e2 = (p3,s2)             e3 = (p4,s2)
+      |                        |                        |
+     ~~~~                     ~~~~                     ~~~~
+       g                        g                        g
+
+  address (0,3,1,2)        address (0,3,2,2)        address (0,4,2,2)
+  name    "madrid-gw-3"    unchanged                unchanged
+```
+
+Each change costs a directory update and a flow update to the far end of every active flow, counted per snapshot as `aux_gs_renumberings`. Connections survive it, since EFCP keys on port-ids rather than addresses.
+
+Failures need no special handling here. `apply_failures` strips dead satellites from the visibility list before routing runs, so a station whose attachment dies simply attaches to the best survivor at the next snapshot. That is multihoming doing its job, and it is why attachment addressing does not turn every satellite outage into a ground-station outage.
+
+One consequence to keep in mind when reading results: the address fixes the egress, so a satellite cannot route around a poor choice of egress the way it can under `visibility`. The evaluation reports that cost separately rather than letting it land on the forwarding algorithm; see the stretch factors in [Evaluation](evaluation.md).
 
 #### Forwarding under failures
 
@@ -82,6 +128,7 @@ simulation:
   dynamic_state_algorithm: topological_routing
   algorithm_params:
     distance_mode: torus_weighted_pivot
+    gs_addressing: attachment
     plane_weight: 100.0
     sat_weight: 1.0
     shell_weight: 1000.0
