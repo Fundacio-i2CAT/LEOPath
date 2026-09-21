@@ -185,13 +185,15 @@ def calculate_fstate_topological_routing_no_gs_relay(
         _fill_forwarding_tables_in_every_satellite(
             satellite_node_ids, satellite_only_subgraph, topology_with_isls, constellation_data
         )
-        # Also assign GS addresses for initial GSL attachments
+        # Also assign GS addresses for initial GSL attachments. The attachment is
+        # the nearest visible satellite, the same rule _detect_gsl_changes applies
+        # from then on, so the first address does not renumber immediately.
         for gs_idx, gs in enumerate(ground_stations):
             curr_sat_id = None
             if gs_idx < len(ground_station_satellites_in_range):
                 satellites = ground_station_satellites_in_range[gs_idx]
                 if satellites:
-                    _, curr_sat_id = satellites[0]
+                    _, curr_sat_id = min(satellites, key=lambda visible: visible[0])
             if curr_sat_id is not None:
                 _perform_renumbering_for_gs(
                     gs,
@@ -219,6 +221,12 @@ def calculate_fstate_topological_routing_no_gs_relay(
             topology_with_isls,
             constellation_data,
         )
+
+    if state_report is not None:
+        # Attachment changes are what a ground station has to renumber for, and
+        # under attachment addressing each one costs a directory update and a
+        # flow update to the far end of every active flow.
+        state_report["aux_gs_renumberings"] = float(len(gsl_changes))
 
     # Step 4: Calculate satellite-to-GS forwarding state
     fstate: dict[tuple, tuple] = {}
@@ -267,14 +275,11 @@ def calculate_fstate_topological_routing_no_gs_relay(
             constellation_data,
             state_report,
         )
-    gs_destination_candidates = []
-    for possible_dst_sats in ground_station_satellites_in_range:
-        candidates = []
-        for dist_gs_to_sat_m, visible_sat_id in possible_dst_sats:
-            destination_address = satellite_addresses.get(visible_sat_id)
-            if destination_address is not None:
-                candidates.append((dist_gs_to_sat_m, visible_sat_id, destination_address))
-        gs_destination_candidates.append(candidates)
+    gs_destination_candidates = _build_gs_destination_candidates(
+        ground_station_satellites_in_range,
+        satellite_addresses,
+        str((algorithm_params or {}).get("gs_addressing", "visibility")),
+    )
 
     _calculate_sat_to_gs_fstate(
         topology_with_isls,
@@ -1106,6 +1111,55 @@ def _routing_topological_distance(
         sat_step_cost=sat_step_cost,
         shell_penalty=1000.0,
     )
+
+
+GS_ADDRESSING = ("visibility", "attachment")
+
+
+def _select_gs_attachments(gs_destination_candidates: list) -> list:
+    """Reduce each ground station's egress candidates to its attachment.
+
+    Under ``attachment`` addressing a ground station's 6G-RUPA address names the
+    satellite it is attached to, so the destination a packet carries is that one
+    satellite rather than the ground station itself. A forwarding satellite then
+    has nothing to choose and nothing to know about where the ground station sits
+    on the surface: it forwards toward the address. The attachment is the live
+    visible satellite with the shortest ground link, the same rule
+    ``_detect_gsl_changes`` uses to decide when the address has to change, and
+    failed satellites have already left the visibility list, so a dead attachment
+    is replaced at the next snapshot rather than stranding the ground station.
+
+    Under ``visibility`` addressing the address is stable and every satellite
+    minimises over all visible egresses instead, which needs the ground station's
+    position on board.
+    """
+    return [
+        [min(candidates, key=lambda candidate: candidate[0])] if candidates else []
+        for candidates in gs_destination_candidates
+    ]
+
+
+def _build_gs_destination_candidates(
+    ground_station_satellites_in_range: list,
+    satellite_addresses: dict,
+    gs_addressing: str,
+) -> list:
+    """Egress candidates per ground station, under the chosen addressing policy."""
+    if gs_addressing not in GS_ADDRESSING:
+        raise ValueError(
+            f"Unknown gs_addressing {gs_addressing!r}, expected one of {GS_ADDRESSING}"
+        )
+    candidates_per_gs = [
+        [
+            (dist_gs_to_sat_m, visible_sat_id, satellite_addresses[visible_sat_id])
+            for dist_gs_to_sat_m, visible_sat_id in visible
+            if visible_sat_id in satellite_addresses
+        ]
+        for visible in ground_station_satellites_in_range
+    ]
+    if gs_addressing == "attachment":
+        return _select_gs_attachments(candidates_per_gs)
+    return candidates_per_gs
 
 
 GEOMETRY_SOURCES = ("observed", "nominal")

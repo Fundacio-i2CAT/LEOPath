@@ -6,7 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- `--gs-addressing attachment` makes a ground station's 6G-RUPA address name the
+  satellite it is attached to, which is what the addressing scheme describes: a
+  forwarding satellite reads the address and forwards toward that slot. It then
+  needs nothing about where the ground station sits on the surface, and stops
+  evaluating one distance per visible egress on every decision. The attachment is
+  the nearest live visible satellite, the rule `_detect_gsl_changes` already used,
+  and failed satellites leave the visibility list before routing runs, so a dead
+  attachment is replaced at the next snapshot rather than stranding the station.
+  The default, `visibility`, keeps the previous behaviour, where the address is
+  stable and every satellite minimises over every visible egress instead.
+- `aux_gs_renumberings` reports attachment changes per snapshot. Under attachment
+  addressing each one costs a directory update and a flow update to the far end
+  of every active flow, so it is the price paid for dropping the ground station
+  table, and it belongs in the accounting rather than in an assumption.
+
 ### Fixed
+- The address assigned to a ground station at t=0 came from the first satellite
+  in its visibility list, while every later snapshot used the nearest one, so a
+  station could renumber immediately after starting. Both now use the nearest.
 - Three of the four evaluation constellations did not match their sources.
   Starlink was built as 22 planes of 72 satellites; FCC 21-48 authorises the
   550 km shell as 72 planes of 22, which is also what Hypatia uses. Mean
