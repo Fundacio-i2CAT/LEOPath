@@ -119,7 +119,11 @@ Parameters go under `simulation.algorithm_params`.
 ```yaml
 simulation:
   dynamic_state_algorithm: shortest_path_link_state
+  algorithm_params:
+    gs_addressing: attachment   # optional; default visibility
 ```
+
+- `gs_addressing`: `visibility` (the default) lets link-state reach a ground station through any satellite above its horizon. `attachment` restricts it to the station's single attachment, the nearest live visible satellite, so it faces the same constraint as topological routing under attachment addressing.
 
 ### Topological routing
 

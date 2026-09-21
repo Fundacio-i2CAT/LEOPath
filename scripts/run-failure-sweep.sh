@@ -49,6 +49,10 @@ FIXED_CONDITIONS=(
 )
 VARIANTS=(
   "link_state|--algorithm shortest_path_link_state"
+  # Link-state held to the one ground link attachment addressing gives a station,
+  # so it is the like-for-like peer of the *_attach variants below; link_state
+  # above stays the any-egress optimum everything is scored against.
+  "link_state_attach|--algorithm shortest_path_link_state --gs-addressing attachment"
   "explicit_r1|--algorithm explicit_path_routing --segment-refresh-interval-steps 1 --explicit-final-egress-mode dynamic --explicit-backup-adjacencies"
   "explicit_r${EXPLICIT_SLOW_REFRESH_STEPS}|--algorithm explicit_path_routing --segment-refresh-interval-steps ${EXPLICIT_SLOW_REFRESH_STEPS} --explicit-final-egress-mode dynamic --explicit-backup-adjacencies"
   "dra|--algorithm dra_routing"

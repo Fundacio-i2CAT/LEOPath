@@ -27,12 +27,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every satellite, so a suboptimal egress would otherwise be read as a
   forwarding penalty. `stretch_*` is the basis earlier runs reported, now named
   for what it measures rather than kept for continuity alone.
+- Link-state accepts `gs_addressing: attachment` too, routing to the station's
+  single attachment instead of any visible satellite, and the failure sweep gains
+  a `link_state_attach` variant. Without it, topological routing under attachment
+  addressing was held to one ground link while link-state kept every visible
+  one, so part of any difference between them was the destination model rather
+  than forwarding. Plain `link_state` remains the any-egress optimum.
 - `aux_gs_renumberings` reports attachment changes per snapshot. Under attachment
   addressing each one costs a directory update and a flow update to the far end
   of every active flow, so it is the price paid for dropping the ground station
   table, and it belongs in the accounting rather than in an assumption.
 
 ### Fixed
+- Under attachment addressing, exception entries still treated every satellite
+  the ground station could see as an egress, so a stuck walk could be handed a
+  ground link through a satellite the station is not attached to, a link that
+  does not exist. Exceptions now deliver only through the attachment, the same
+  egress the rule forwards toward. Visibility addressing is unchanged.
 - The address assigned to a ground station at t=0 came from the first satellite
   in its visibility list, while every later snapshot used the nearest one, so a
   station could renumber immediately after starting. Both now use the nearest.

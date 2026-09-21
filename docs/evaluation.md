@@ -63,7 +63,9 @@ The egress factor exists because "nearest to the ground station" and "best for t
 
 Under `gs_addressing: visibility` every satellite minimises over all visible egresses, so the egress factor is 1.000 and the headline equals the forwarding factor. Under `attachment` the address fixes the egress, so a poor choice and a poor path become two distinct causes that one number cannot separate. Reporting only the headline would make a change of destination model look like a regression in forwarding that never happened.
 
-`delivery_non_optimal_egress_rate` counts how often an algorithm delivered through an egress other than the optimal one, which is the discrete version of the same thing. A shortest-path algorithm scores 1.000000 on all three by construction, so link-state doubles as a correctness check on the metric itself.
+`delivery_non_optimal_egress_rate` counts how often an algorithm delivered through an egress other than the optimal one, which is the discrete version of the same thing. Plain link-state scores 1.000000 on all three by construction, so it doubles as a correctness check on the metric itself.
+
+Attachment addressing gives a ground station one ground link, and it would be an uneven comparison if topological routing were held to that link while link-state kept every visible one. Link-state therefore also accepts `gs_addressing: attachment`, which routes it to the same single satellite. Its forwarding factor stays at 1.000 (still a shortest path, just to a fixed egress), while its egress factor now carries the same attachment cost topological routing pays. In the failure sweep that variant is `link_state_attach`: set it beside the `*_attach` topological variants to compare forwarding like for like, and keep `link_state` as the any-egress optimum that every algorithm is scored against.
 
 `aux_gs_renumberings` counts attachment changes per snapshot. Under `attachment` addressing each one costs a directory update and a flow update to the far end of every active flow, so it belongs in the accounting rather than in an assumption. Under `visibility` it stays at zero, because the address never moves.
 

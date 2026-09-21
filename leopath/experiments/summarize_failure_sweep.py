@@ -52,6 +52,7 @@ CONDITION_ORDER = [
 ]
 VARIANT_ORDER = [
     "link_state",
+    "link_state_attach",
     "explicit_r1",
     "explicit_r15",
     "dra",

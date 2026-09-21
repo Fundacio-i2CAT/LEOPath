@@ -170,7 +170,10 @@ def prepare_algorithm_params(
         algorithm_params["local_repair"] = local_repair
     if exception_policy is not None and algorithm_name == "topological_routing":
         algorithm_params["exception_policy"] = exception_policy
-    if gs_addressing is not None and algorithm_name == "topological_routing":
+    if gs_addressing is not None and algorithm_name in (
+        "topological_routing",
+        "shortest_path_link_state",
+    ):
         algorithm_params["gs_addressing"] = gs_addressing
     if explicit_backup_adjacencies and algorithm_name == "explicit_path_routing":
         algorithm_params["include_backup_adjacencies"] = True
@@ -604,10 +607,11 @@ def parse_args() -> argparse.Namespace:
         choices=("visibility", "attachment"),
         default=None,
         help=(
-            "Topological routing: 'attachment' makes a ground station's address name the "
-            "satellite it is attached to, so satellites forward toward that address and need "
-            "nothing about where the ground station sits; 'visibility' keeps the address stable "
-            "and minimises over every visible egress instead"
+            "Topological routing and link-state: 'attachment' makes a ground station's "
+            "address name the satellite it is attached to, so satellites forward toward that "
+            "address and need nothing about where the ground station sits, and link-state "
+            "routes to that same single egress; 'visibility' keeps the address stable and "
+            "minimises over every visible egress instead"
         ),
     )
     parser.add_argument(
