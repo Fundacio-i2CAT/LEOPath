@@ -6,7 +6,7 @@ constellation:
   inclination_degree: 98.98
   eccentricity: 0.0000001
   arg_of_perigee_degree: 0.0
-  mean_motion_rev_per_day: 13.94
+  mean_motion_rev_per_day: 13.66  # Hypatia telesat_1015; flies 1015 km under SGP4
   tle_output_filename: "tles_telesat_synth.txt"
 
 simulation:

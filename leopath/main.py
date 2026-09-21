@@ -50,6 +50,7 @@ def setup_tles_and_satellites(config):
         tle_config["eccentricity"],
         tle_config["arg_of_perigee_degree"],
         tle_config["mean_motion_rev_per_day"],
+        tle_config.get("raan_spread_degree", 360.0),
     )
     parsed_tles_data = read_tles(tle_config["tle_output_filename"])
     sim_satellites = [
@@ -115,11 +116,16 @@ def generate_plus_grid_isls(n_orbits, n_sats_per_orbit, isl_shift=0, idx_offset=
                                     does it also connect to the satellite at X in the adjacent orbit)
     :param idx_offset:              Index offset (e.g., if you have multiple shells)
     :param seam:                    If True, omit the inter-plane links between the last and first
-                                    orbital planes. These planes are counter-rotating across the
-                                    constellation seam, so cross-seam ISLs are physically infeasible.
-                                    The resulting logical graph is a cylinder (cyclic in the
-                                    satellite-slot dimension, open in the orbital-plane dimension)
-                                    rather than a torus.
+                                    orbital planes. The resulting logical graph is a cylinder
+                                    (cyclic in the satellite-slot dimension, open in the
+                                    orbital-plane dimension) rather than a torus. Whether that
+                                    wrap is physical depends on the shell: in a Walker star
+                                    (nodes spread over 180 degrees, e.g. OneWeb) the last and first
+                                    planes counter-rotate and the wrap cannot be built, so the
+                                    cylinder is the only realisable +Grid. In a Walker delta
+                                    (nodes over 360 degrees, e.g. Starlink, Kuiper) the wrap is an
+                                    ordinary co-rotating link, and the cylinder is a stress test
+                                    for losing it.
     """
     if n_orbits < 3 or n_sats_per_orbit < 3:
         raise ValueError("Number of x and y must each be at least 3")

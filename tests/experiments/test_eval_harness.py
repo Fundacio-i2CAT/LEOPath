@@ -1,4 +1,9 @@
-from leopath.experiments.eval_harness import prepare_algorithm_params
+from leopath.experiments.eval_harness import (
+    has_counter_rotating_seam,
+    prepare_algorithm_params,
+    select_isls,
+)
+from leopath.topology.constellation import ConstellationData
 
 
 def test_explicit_path_preserves_explicit_refresh_interval() -> None:
@@ -163,3 +168,36 @@ def test_exception_policy_reaches_only_topological_routing() -> None:
     assert "exception_policy" not in prepare_algorithm_params(
         algorithm_name="dra_routing", **common
     )
+
+
+def _shell(orbits: int, sats: int) -> ConstellationData:
+    return ConstellationData(
+        orbits=orbits,
+        sats_per_orbit=sats,
+        epoch="00001.00000000",
+        max_gsl_length_m=1.0,
+        max_isl_length_m=1.0,
+        satellites=[],
+    )
+
+
+def test_grid_on_walker_delta_keeps_the_seam_wrap() -> None:
+    shell = _shell(6, 5)
+    grid = set(select_isls(shell, "grid", raan_spread_degree=360.0))
+    cylinder = set(select_isls(shell, "grid_seam", raan_spread_degree=360.0))
+    # The delta wrap is one extra link per slot between the last and first plane.
+    assert cylinder < grid
+    assert len(grid - cylinder) == 5
+    assert all({a // 5, b // 5} == {0, 5} for a, b in grid - cylinder)
+
+
+def test_grid_on_walker_star_is_the_cylinder() -> None:
+    shell = _shell(6, 5)
+    grid = set(select_isls(shell, "grid", raan_spread_degree=180.0))
+    cylinder = set(select_isls(shell, "grid_seam", raan_spread_degree=180.0))
+    assert grid == cylinder
+
+
+def test_counter_rotating_seam_only_on_star_shells() -> None:
+    assert has_counter_rotating_seam(180.0)
+    assert not has_counter_rotating_seam(360.0)
