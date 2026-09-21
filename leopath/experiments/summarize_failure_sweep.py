@@ -60,6 +60,8 @@ VARIANT_ORDER = [
     "topological_nominal_progress_repair",
     "topological_nominal_progress_exceptions",
     "topological_nominal_progress_repair_exceptions",
+    "topological_nominal_attach",
+    "topological_nominal_progress_repair_exceptions_attach",
     "topological_observed",
     "topological_observed_progress",
 ]
@@ -69,7 +71,13 @@ METRICS = (
     "delivery_rate",
     "delivery_gap_vs_link_state",
     "stretch_dist_shared",
+    # shared = egress x forwarding, so the two factors say how much of the gap
+    # comes from the egress the destination address names and how much from the
+    # forwarding itself. Under visibility addressing the egress factor is 1.
+    "stretch_dist_egress",
+    "stretch_dist_forwarding",
     "non_optimal_egress_rate",
+    "gs_renumberings_per_snapshot",
     "isls_removed_per_snapshot",
     "satellites_down_per_snapshot",
     "fstate_updates_per_snapshot",
@@ -120,6 +128,7 @@ def summarize_run(run_dir: Path) -> dict[str, float | None]:
         "loop_pairs_per_snapshot": column_mean(rows, "delivery_failure_loop"),
         "live_minima_per_snapshot": _live_minima(rows, metadata),
         "detour_entries_per_snapshot": column_mean(rows, "aux_local_detour_entries"),
+        "gs_renumberings_per_snapshot": column_mean(rows, "aux_gs_renumberings"),
         "failure_events_per_snapshot": column_mean(rows, "failure_events"),
         **_exception_state(rows, metadata),
     }
@@ -312,10 +321,10 @@ def _cause_cell(row: dict[str, Any]) -> str:
     return f"{cause} {100 * shares[cause]:.0f}%"
 
 
-def _count_cell(metric: str) -> Callable[[dict[str, Any]], str]:
+def _count_cell(metric: str, digits: int = 1) -> Callable[[dict[str, Any]], str]:
     def render(row: dict[str, Any]) -> str:
         value = row[f"{metric}_mean"]
-        return "—" if value is None else f"{value:.1f}"
+        return "—" if value is None else f"{value:.{digits}f}"
 
     return render
 
@@ -337,6 +346,18 @@ TABLES: tuple[tuple[str, Callable[[dict[str, Any]], str]], ...] = (
     ("Delivery rate, % of deliverable pairs", _delivery_cell),
     ("Delivery gap to link-state, percentage points, paired by seed", _gap_cell),
     ("Distance stretch, shared basis", _stretch_cell),
+    (
+        "Distance stretch, egress-choice factor",
+        _count_cell("stretch_dist_egress", digits=3),
+    ),
+    (
+        "Distance stretch, forwarding factor",
+        _count_cell("stretch_dist_forwarding", digits=3),
+    ),
+    (
+        "Ground station renumberings per snapshot",
+        _count_cell("gs_renumberings_per_snapshot"),
+    ),
     ("Dominant forwarding-failure cause, share of failures", _cause_cell),
     ("Forwarding loops, looping pairs per snapshot", _count_cell("loop_pairs_per_snapshot")),
     ("Exception entries per snapshot, one-pass bound in brackets", _exception_cell),

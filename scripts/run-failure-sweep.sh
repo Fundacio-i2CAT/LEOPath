@@ -59,6 +59,14 @@ VARIANTS=(
   "topological_nominal_progress_repair|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --local-repair square"
   "topological_nominal_progress_exceptions|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --exception-policy grow"
   "topological_nominal_progress_repair_exceptions|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --local-repair square --exception-policy grow"
+  # Attachment addressing, paired against the two variants above it that differ
+  # only in the destination model: the ground station's address names the
+  # satellite it is attached to, so satellites forward on the address instead of
+  # minimising over every visible egress. The bare pair isolates what the
+  # attachment policy costs in stretch; the full-stack pair shows what it costs
+  # under failures, where a dead attachment has to be replaced.
+  "topological_nominal_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment"
+  "topological_nominal_progress_repair_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --local-repair square --exception-policy grow --gs-addressing attachment"
 )
 
 TIMING_CSV="$OUTPUT_BASE/job_timings.csv"
