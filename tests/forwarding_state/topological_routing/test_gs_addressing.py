@@ -7,10 +7,12 @@ is stable and every satellite minimises over all visible egresses instead.
 """
 
 import ephem
+import networkx as nx
 import pytest
 
 from leopath.network_state.routing_algorithms.topological_routing.fstate_calculation import (
     GS_ADDRESSING,
+    _exception_egresses,
     _select_gs_attachments,
     calculate_fstate_topological_routing_no_gs_relay,
 )
@@ -213,3 +215,47 @@ def test_a_steady_attachment_costs_no_renumbering() -> None:
     )
 
     assert report["aux_gs_renumberings"] == 0.0
+
+
+def test_exceptions_deliver_only_through_the_attachment() -> None:
+    visibility = [[(500.0, 10), (900.0, 11)]]
+    candidates = [[(500.0, 10, _address(0, 0)), (900.0, 11, _address(0, 1))]]
+    attached = _select_gs_attachments(candidates)
+
+    assert _exception_egresses(visibility, attached, "attachment") == [[(500.0, 10)]]
+
+
+def test_exceptions_keep_every_visible_egress_under_visibility() -> None:
+    visibility = [[(500.0, 10), (900.0, 11)]]
+    candidates = [[(500.0, 10, _address(0, 0)), (900.0, 11, _address(0, 1))]]
+
+    assert _exception_egresses(visibility, candidates, "visibility") is visibility
+
+
+def test_no_satellite_but_the_attachment_gets_a_ground_link_entry() -> None:
+    # Satellite 10 is the attachment but has lost both of its links; 11 and 12
+    # still talk to each other, and 11 also sees the station. An exception that
+    # treated every visible satellite as an egress would hand 11 a ground link
+    # the station does not have.
+    built = _topology([10, 11, 12], [100], [(11, 12, 1000.0)])
+    topology, _ = built
+    topology.nominal_graph = nx.Graph([(10, 11), (11, 12), (12, 10)])
+    fstate = calculate_fstate_topological_routing_no_gs_relay(
+        topology,
+        built[1],
+        [[(500.0, 10), (900.0, 11)]],
+        time_since_epoch_ns=0,
+        prev_fstate=None,
+        graph_has_changed=True,
+        algorithm_params={
+            "gs_addressing": "attachment",
+            "distance_mode": "torus_unit",
+            "forwarding_guard": "progress",
+            "exception_policy": "grow",
+        },
+    )
+
+    ground_links = {
+        sat for (sat, gs), entry in fstate.items() if gs == 100 and entry == ("GSL", 100)
+    }
+    assert ground_links <= {10}

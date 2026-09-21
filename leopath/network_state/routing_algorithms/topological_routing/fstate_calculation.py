@@ -309,7 +309,11 @@ def calculate_fstate_topological_routing_no_gs_relay(
         topology_with_isls.sat_neighbor_to_if,
         getattr(topology_with_isls, "nominal_graph", None),
         ground_stations,
-        ground_station_satellites_in_range,
+        _exception_egresses(
+            ground_station_satellites_in_range,
+            gs_destination_candidates,
+            str((algorithm_params or {}).get("gs_addressing", "visibility")),
+        ),
         str(algorithm_params.get("exception_policy", "none")),
         LOCAL_DETOUR,
         state_report,
@@ -1135,6 +1139,26 @@ def _select_gs_attachments(gs_destination_candidates: list) -> list:
     """
     return [
         [min(candidates, key=lambda candidate: candidate[0])] if candidates else []
+        for candidates in gs_destination_candidates
+    ]
+
+
+def _exception_egresses(
+    ground_station_satellites_in_range: list,
+    gs_destination_candidates: list,
+    gs_addressing: str,
+) -> list:
+    """Satellites an exception entry may deliver through, per ground station.
+
+    Exceptions must end where the rule does. Under ``attachment`` addressing that
+    is the attached satellite alone: the station holds no ground link to any other,
+    so an entry delivering through another visible satellite would use a link that
+    does not exist. Under ``visibility`` every visible satellite is an egress.
+    """
+    if gs_addressing != "attachment":
+        return ground_station_satellites_in_range
+    return [
+        [(dist_gs_to_sat_m, sat_id) for dist_gs_to_sat_m, sat_id, _address in candidates]
         for candidates in gs_destination_candidates
     ]
 
