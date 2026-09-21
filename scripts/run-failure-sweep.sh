@@ -22,6 +22,8 @@ ISL_SCENARIO=${ISL_SCENARIO:-grid}
 END_TIME_HOURS=${END_TIME_HOURS:-1}
 TIME_STEP_MINUTES=${TIME_STEP_MINUTES:-1}
 SEEDS=${SEEDS:-"1 2 3 4 5"}
+# Space-separated variant names to run; empty runs every variant below.
+VARIANT_FILTER=${VARIANT_FILTER:-}
 GS_CONFIG=${GS_CONFIG:-/app/leopath/config/ground_stations_dense.yaml}
 EXPLICIT_SLOW_REFRESH_STEPS=${EXPLICIT_SLOW_REFRESH_STEPS:-15}
 
@@ -71,6 +73,8 @@ VARIANTS=(
   # under failures, where a dead attachment has to be replaced.
   "topological_nominal_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment"
   "topological_nominal_progress_repair_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --local-repair square --exception-policy grow --gs-addressing attachment"
+  # The scheme as presented: the guarded rule plus exception entries, no repair.
+  "topological_nominal_progress_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --exception-policy grow --gs-addressing attachment"
 )
 
 TIMING_CSV="$OUTPUT_BASE/job_timings.csv"
@@ -123,6 +127,9 @@ launch_cell() {
   local cfg=$1 condition=$2 seed=$3 condition_flags=$4
   local variant_entry
   for variant_entry in "${VARIANTS[@]}"; do
+    if [ -n "$VARIANT_FILTER" ] && [[ " $VARIANT_FILTER " != *" ${variant_entry%%|*} "* ]]; then
+      continue
+    fi
     while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do wait -n; done
     run_job "$cfg" "$condition" "$seed" "${variant_entry%%|*}" \
       "$condition_flags ${variant_entry#*|}" &

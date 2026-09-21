@@ -62,6 +62,7 @@ VARIANT_ORDER = [
     "topological_nominal_progress_exceptions",
     "topological_nominal_progress_repair_exceptions",
     "topological_nominal_attach",
+    "topological_nominal_progress_exceptions_attach",
     "topological_nominal_progress_repair_exceptions_attach",
     "topological_observed",
     "topological_observed_progress",
