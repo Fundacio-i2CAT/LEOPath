@@ -12,7 +12,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .run_pooling import column_max, column_mean, pooled_delivery, read_rows, write_rows
+from .run_pooling import (
+    column_max,
+    column_mean,
+    pooled_delivery,
+    read_rows,
+    weighted_mean,
+    write_rows,
+)
 
 CONSTELLATION_ORDER = ["telesat", "oneweb", "kuiper", "starlink"]
 ALGORITHM_ORDER = [
@@ -27,6 +34,19 @@ DERIVED_SUMS = {
     "aux_geometry_entries": ("aux_geometry_row_edge_entries", "aux_geometry_plane_edge_entries"),
     "aux_path_cost_entries": ("aux_path_cost_row_entries", "aux_path_cost_plane_entries"),
     "aux_lsdb_entries": ("aux_lsdb_node_entries", "aux_lsdb_link_entries"),
+}
+
+# Explicit-path outcome rates and carried-header sizes, pooled here so the paper
+# figures can be drawn from this CSV instead of values typed in by hand. Each is
+# weighted by the pairs it describes rather than averaged over snapshots.
+EXPLICIT_WEIGHTED = {
+    "explicit_failover_delivered_rate": "explicit_failover_count",
+    "explicit_failover_protected_repair_rate": "explicit_failover_count",
+    "explicit_failover_egress_not_visible_rate": "explicit_failover_count",
+    "explicit_failover_dynamic_egress_repair_rate": "explicit_failover_count",
+    "explicit_failover_dynamic_egress_unavailable_rate": "explicit_failover_count",
+    "srv6_srh_bytes_mean": "srv6_srh_bytes_count",
+    "strict_header_bytes_mean": "strict_header_bytes_count",
 }
 
 Formatter = Callable[[float | None], str]
@@ -94,6 +114,9 @@ def summarize_run(run_dir: Path) -> dict[str, float | None]:
     }
     # Sizes and build times are averaged over snapshots; per-satellite maxima
     # are kept as the maximum over the run.
+    for value_key, weight_key in EXPLICIT_WEIGHTED.items():
+        if rows and value_key in rows[0]:
+            summary[value_key] = weighted_mean(rows, value_key, weight_key)
     aux_keys = [key for key in (rows[0] if rows else {}) if key.startswith("aux_")]
     for key in aux_keys:
         summary[key] = column_max(rows, key) if key.endswith("_max") else column_mean(rows, key)
