@@ -22,6 +22,10 @@ from leopath.main import (
 )
 from leopath.network_state.generate_network_state import _build_topologies
 from leopath.network_state.gsl_attachment.gsl_attachment_strategies import *  # noqa: F403, F401
+from leopath.network_state.gsl_attachment.multihoming import (
+    ATTACHMENT_POLICIES,
+    select_multihoming_attachments,
+)
 from leopath.network_state.helpers import (
     _compute_ground_station_satellites_in_range,
     _compute_isls,
@@ -121,6 +125,30 @@ def flatten_distribution(prefix: str, stats: dict) -> dict:
     }
 
 
+def _set_gs_addressing_params(
+    algorithm_params: dict,
+    algorithm_name: str,
+    gs_addressing: str | None,
+    gs_attachment_count: int | None,
+    gs_attachment_policy: str | None,
+) -> None:
+    if algorithm_name not in ("topological_routing", "shortest_path_link_state"):
+        return
+    if gs_addressing is not None:
+        algorithm_params["gs_addressing"] = gs_addressing
+    if gs_attachment_count is not None:
+        if gs_attachment_count < 1:
+            raise ValueError("gs_attachment_count must be at least 1")
+        algorithm_params["gs_attachment_count"] = gs_attachment_count
+    if gs_attachment_policy is not None:
+        if gs_attachment_policy not in ATTACHMENT_POLICIES:
+            raise ValueError(
+                f"Unknown gs_attachment_policy {gs_attachment_policy!r}, "
+                f"expected one of {ATTACHMENT_POLICIES}"
+            )
+        algorithm_params["gs_attachment_policy"] = gs_attachment_policy
+
+
 def prepare_algorithm_params(
     simulation_config: dict,
     algorithm_name: str,
@@ -138,6 +166,8 @@ def prepare_algorithm_params(
     local_repair: str | None = None,
     exception_policy: str | None = None,
     gs_addressing: str | None = None,
+    gs_attachment_count: int | None = None,
+    gs_attachment_policy: str | None = None,
 ) -> dict:
     algorithm_params = dict(simulation_config.get("algorithm_params") or {})
 
@@ -170,11 +200,13 @@ def prepare_algorithm_params(
         algorithm_params["local_repair"] = local_repair
     if exception_policy is not None and algorithm_name == "topological_routing":
         algorithm_params["exception_policy"] = exception_policy
-    if gs_addressing is not None and algorithm_name in (
-        "topological_routing",
-        "shortest_path_link_state",
-    ):
-        algorithm_params["gs_addressing"] = gs_addressing
+    _set_gs_addressing_params(
+        algorithm_params,
+        algorithm_name,
+        gs_addressing,
+        gs_attachment_count,
+        gs_attachment_policy,
+    )
     if explicit_backup_adjacencies and algorithm_name == "explicit_path_routing":
         algorithm_params["include_backup_adjacencies"] = True
 
@@ -207,6 +239,8 @@ def run_evaluation(
     local_repair: str | None = None,
     exception_policy: str | None = None,
     gs_addressing: str | None = None,
+    gs_attachment_count: int | None = None,
+    gs_attachment_policy: str | None = None,
 ) -> None:
     config = load_config(config_path)
     gs_override = load_ground_station_override(gs_override_path)
@@ -236,6 +270,8 @@ def run_evaluation(
         local_repair=local_repair,
         exception_policy=exception_policy,
         gs_addressing=gs_addressing,
+        gs_attachment_count=gs_attachment_count,
+        gs_attachment_policy=gs_attachment_policy,
     )
     if algorithm_params:
         config["simulation"]["algorithm_params"] = algorithm_params
@@ -326,27 +362,37 @@ def run_evaluation(
 
         interface_neighbor_map = build_interface_neighbor_map(topology_with_isls.sat_neighbor_to_if)
         algorithm_params = sim_config.get("algorithm_params") or {}
+        routing_gs_visibility = gs_sat_visibility
+        attachment_assignment_stats: dict[str, float] = {}
+        if algorithm_params.get("gs_addressing") == "attachment":
+            routing_gs_visibility, attachment_assignment_stats = select_multihoming_attachments(
+                gs_sat_visibility,
+                int(algorithm_params.get("gs_attachment_count", 1)),
+                str(algorithm_params.get("gs_attachment_policy", "independent")),
+            )
         compute_start = time.perf_counter()
         fstate_output = algorithm.compute_state(
             time_since_epoch_ns=time_since_epoch_ns,
             constellation_data=constellation_data,
             ground_stations=ground_stations,
             topology_with_isls=topology_with_isls,
-            ground_station_satellites_in_range=gs_sat_visibility,
+            ground_station_satellites_in_range=routing_gs_visibility,
             list_gsl_interfaces_info=topology_with_isls.gsl_interfaces_info,
             algorithm_params=algorithm_params,
         )
         compute_duration_ms = (time.perf_counter() - compute_start) * 1000.0
         fstate = fstate_output.get("fstate", {})
         route_plans = fstate_output.get("route_plans", {})
+        selected_egresses = fstate_output.get("selected_egresses", {})
         # Per-category auxiliary state: geometry and path-cost tables the
         # distance estimator maintains, reported separately from installed
         # forwarding entries rather than folded into them.
         auxiliary_state = fstate_output.get("auxiliary_state") or {}
+        auxiliary_state.update(attachment_assignment_stats)
         if control_plane_sample is None and fstate_output.get("control_plane"):
             control_plane_sample = fstate_output["control_plane"]
 
-        attachments = get_gs_attachments(gs_sat_visibility)
+        attachments = get_gs_attachments(routing_gs_visibility)
         fstate_stats = compute_forwarding_state_stats(
             fstate,
             topology_with_isls.graph,
@@ -391,6 +437,7 @@ def run_evaluation(
             max_hops,
             route_plans,
             gs_sat_visibility,
+            selected_egresses,
         )
 
         timestep_rows.append(
@@ -615,6 +662,24 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--gs-attachment-count",
+        type=int,
+        default=None,
+        help=(
+            "With --gs-addressing attachment, advertise the K nearest live "
+            "satellite addresses for each ground station (default: 1)"
+        ),
+    )
+    parser.add_argument(
+        "--gs-attachment-policy",
+        choices=ATTACHMENT_POLICIES,
+        default=None,
+        help=(
+            "How K satellite addresses are assigned: 'independent' is the top-K "
+            "upper bound; 'exclusive' lets each satellite serve at most one station"
+        ),
+    )
+    parser.add_argument(
         "--local-repair",
         choices=("none", "square"),
         default=None,
@@ -668,6 +733,8 @@ def main() -> None:
         local_repair=args.local_repair,
         exception_policy=args.exception_policy,
         gs_addressing=args.gs_addressing,
+        gs_attachment_count=args.gs_attachment_count,
+        gs_attachment_policy=args.gs_attachment_policy,
         failure_config=FailureConfig(
             failure_type=args.failure_type,
             rate=args.failure_rate,

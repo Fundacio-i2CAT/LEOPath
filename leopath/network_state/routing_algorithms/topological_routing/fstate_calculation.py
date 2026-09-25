@@ -6,6 +6,9 @@ from typing import Optional
 import networkx as nx
 
 from leopath import logger
+from leopath.network_state.gsl_attachment.multihoming import (
+    select_multihoming_attachments,
+)
 from leopath.network_state.routing_algorithms.topological_routing.exception_policy import (
     apply_exception_policy,
 )
@@ -129,6 +132,7 @@ def calculate_fstate_topological_routing_no_gs_relay(
     graph_has_changed: bool = True,
     algorithm_params: dict | None = None,
     state_report: dict | None = None,
+    selected_egresses: dict[tuple[int, int], int] | None = None,
 ) -> dict:
     """
     Calculates forwarding state using topological routing over ISLs only (no GS relays).
@@ -153,6 +157,11 @@ def calculate_fstate_topological_routing_no_gs_relay(
     log.debug("Calculating topological routing fstate object (no GS relay)")
     algorithm_params = algorithm_params or {}
     distance_mode = str(algorithm_params.get("distance_mode", "torus_weighted_lookahead"))
+    gs_addressing = str(algorithm_params.get("gs_addressing", "visibility"))
+    gs_attachment_count = int(algorithm_params.get("gs_attachment_count", 1))
+    gs_attachment_policy = str(algorithm_params.get("gs_attachment_policy", "independent"))
+    if gs_attachment_count < 1:
+        raise ValueError("gs_attachment_count must be at least 1")
 
     if constellation_data is None:
         constellation_data = topology_with_isls.constellation_data
@@ -222,13 +231,6 @@ def calculate_fstate_topological_routing_no_gs_relay(
             constellation_data,
         )
 
-    if state_report is not None:
-        # Attachment changes are what a ground station has to renumber for, and
-        # under attachment addressing each one costs a directory update and a
-        # flow update to the far end of every active flow. The harness adds the
-        # aux_ prefix, so the column reaches the summaries as aux_gs_renumberings.
-        state_report["gs_renumberings"] = float(len(gsl_changes))
-
     # Step 4: Calculate satellite-to-GS forwarding state
     fstate: dict[tuple, tuple] = {}
     satellite_addresses = {
@@ -279,8 +281,24 @@ def calculate_fstate_topological_routing_no_gs_relay(
     gs_destination_candidates = _build_gs_destination_candidates(
         ground_station_satellites_in_range,
         satellite_addresses,
-        str((algorithm_params or {}).get("gs_addressing", "visibility")),
+        gs_addressing,
+        gs_attachment_count,
+        gs_attachment_policy,
     )
+    if state_report is not None:
+        # Attachment changes are what a ground station has to renumber for, and
+        # under attachment addressing each one costs a directory update and a
+        # flow update to the far end of every active flow. The harness adds the
+        # aux_ prefix, so the column reaches the summaries as aux_gs_renumberings.
+        selected = gs_destination_candidates if gs_addressing == "attachment" else []
+        address_set_changes = _update_gs_attachment_sets(
+            ground_stations,
+            selected,
+            gs_attachment_count,
+        )
+        state_report["gs_renumberings"] = float(address_set_changes["stations"])
+        state_report["gs_address_additions"] = float(address_set_changes["additions"])
+        state_report["gs_address_removals"] = float(address_set_changes["removals"])
 
     _calculate_sat_to_gs_fstate(
         topology_with_isls,
@@ -302,6 +320,7 @@ def calculate_fstate_topological_routing_no_gs_relay(
             weight_model,
         ),
         forwarding_guard=_resolve_forwarding_guard(algorithm_params, distance_mode),
+        selected_egresses=selected_egresses,
     )
 
     apply_exception_policy(
@@ -313,7 +332,7 @@ def calculate_fstate_topological_routing_no_gs_relay(
         _exception_egresses(
             ground_station_satellites_in_range,
             gs_destination_candidates,
-            str((algorithm_params or {}).get("gs_addressing", "visibility")),
+            gs_addressing,
         ),
         str(algorithm_params.get("exception_policy", "none")),
         LOCAL_DETOUR,
@@ -415,6 +434,46 @@ def _detect_gsl_changes(
             gs.previous_attached_satellite_id = current_sat_id
 
     return gsl_changes
+
+
+def _update_gs_attachment_sets(
+    ground_stations: list[GroundStation],
+    ground_station_satellites_in_range: list,
+    attachment_count: int,
+) -> dict[str, int]:
+    """Track changes to the K satellite addresses advertised by each station.
+
+    A station renumbers when its advertised set changes. The first snapshot
+    establishes the set and costs no update, matching the K=1 accounting used
+    before multihoming was introduced.
+    """
+    changed_stations = 0
+    additions = 0
+    removals = 0
+    for gs_idx, gs in enumerate(ground_stations):
+        visible = (
+            ground_station_satellites_in_range[gs_idx]
+            if gs_idx < len(ground_station_satellites_in_range)
+            else []
+        )
+        current = tuple(
+            item[1]
+            for item in sorted(visible, key=lambda item: (item[0], item[1]))[:attachment_count]
+        )
+        previous = gs.previous_advertised_satellite_ids
+        if previous is not None:
+            previous_set = set(previous)
+            current_set = set(current)
+            if previous_set != current_set:
+                changed_stations += 1
+                additions += len(current_set - previous_set)
+                removals += len(previous_set - current_set)
+        gs.previous_advertised_satellite_ids = current
+    return {
+        "stations": changed_stations,
+        "additions": additions,
+        "removals": removals,
+    }
 
 
 def _assign_gs_address_from_satellite(
@@ -589,6 +648,7 @@ def _calculate_sat_to_gs_fstate(
     per_satellite_work: dict | None = None,
     potential: "_EgressPotential | None" = None,
     forwarding_guard: str = "none",
+    selected_egresses: dict[tuple[int, int], int] | None = None,
 ):
     """
     Calculate satellite-to-ground-station forwarding state using topological routing.
@@ -626,6 +686,7 @@ def _calculate_sat_to_gs_fstate(
 
             # Find the best destination satellite using topological distance
             best_destination_address = None
+            best_destination_sat_id = None
             best_total_distance = float("inf")
             heuristic_costs = _estimate_axis_step_costs(
                 curr_satellite_address,
@@ -651,12 +712,15 @@ def _calculate_sat_to_gs_fstate(
                     if total_distance < best_total_distance:
                         best_total_distance = total_distance
                         best_destination_address = dest_sat_address
+                        best_destination_sat_id = visible_sat_id
                 except Exception as e:
                     log.warning(f"Failed to process destination satellite {visible_sat_id}: {e}")
                     continue
 
             if best_destination_address is None:
                 continue
+            if selected_egresses is not None and best_destination_sat_id is not None:
+                selected_egresses[(curr_sat_id, dst_gs_node_id)] = best_destination_sat_id
 
             if per_satellite_work is not None:
                 # What this satellite alone evaluates for this destination: one
@@ -1121,8 +1185,12 @@ def _routing_topological_distance(
 GS_ADDRESSING = ("visibility", "attachment")
 
 
-def _select_gs_attachments(gs_destination_candidates: list) -> list:
-    """Reduce each ground station's egress candidates to its attachment.
+def _select_gs_attachments(
+    gs_destination_candidates: list,
+    attachment_count: int = 1,
+    attachment_policy: str = "independent",
+) -> list:
+    """Reduce each ground station's egress candidates to its K attachments.
 
     Under ``attachment`` addressing a ground station's 6G-RUPA address names the
     satellite it is attached to, so the destination a packet carries is that one
@@ -1138,10 +1206,12 @@ def _select_gs_attachments(gs_destination_candidates: list) -> list:
     minimises over all visible egresses instead, which needs the ground station's
     position on board.
     """
-    return [
-        [min(candidates, key=lambda candidate: candidate[0])] if candidates else []
-        for candidates in gs_destination_candidates
-    ]
+    selected, _stats = select_multihoming_attachments(
+        gs_destination_candidates,
+        attachment_count,
+        attachment_policy,
+    )
+    return selected
 
 
 def _exception_egresses(
@@ -1168,6 +1238,8 @@ def _build_gs_destination_candidates(
     ground_station_satellites_in_range: list,
     satellite_addresses: dict,
     gs_addressing: str,
+    gs_attachment_count: int = 1,
+    gs_attachment_policy: str = "independent",
 ) -> list:
     """Egress candidates per ground station, under the chosen addressing policy."""
     if gs_addressing not in GS_ADDRESSING:
@@ -1183,7 +1255,11 @@ def _build_gs_destination_candidates(
         for visible in ground_station_satellites_in_range
     ]
     if gs_addressing == "attachment":
-        return _select_gs_attachments(candidates_per_gs)
+        return _select_gs_attachments(
+            candidates_per_gs,
+            gs_attachment_count,
+            gs_attachment_policy,
+        )
     return candidates_per_gs
 
 

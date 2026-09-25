@@ -701,8 +701,10 @@ def compute_path_stretch(
     max_hops: int,
     route_plans: dict | None = None,
     ground_station_satellites_in_range: list | None = None,
+    selected_egresses: dict[tuple[int, int], int] | None = None,
 ) -> dict:
     route_plans = route_plans or {}
+    selected_egresses = selected_egresses or {}
     sat_set = set(satellite_ids)
     sat_graph = topology_graph.subgraph(satellite_ids)
     distances = _SourceDistanceCache(sat_graph)
@@ -733,6 +735,8 @@ def compute_path_stretch(
     deliverable = 0
     delivered = 0
     non_optimal_egress = 0
+    switched_egress = 0
+    source_selected_egress = 0
     failure_causes = dict.fromkeys(FORWARDING_FAILURE_CAUSES, 0)
 
     for src_index, src_gs_id in enumerate(ground_station_ids):
@@ -823,6 +827,11 @@ def compute_path_stretch(
             delivered += 1
             if dst_sat != best_dist_sat:
                 non_optimal_egress += 1
+            selected_at_source = selected_egresses.get((src_sat, dst_gs_id))
+            if selected_at_source is not None:
+                source_selected_egress += 1
+                if dst_sat != selected_at_source:
+                    switched_egress += 1
 
             if opt_hops_total > 0:
                 hop_stretches.append(algo_hops / opt_hops_total)
@@ -854,6 +863,11 @@ def compute_path_stretch(
             "delivery_rate": (delivered / deliverable) if deliverable else 0.0,
             "non_optimal_egress": float(non_optimal_egress),
             "non_optimal_egress_rate": ((non_optimal_egress / delivered) if delivered else 0.0),
+            "source_selected_egress": float(source_selected_egress),
+            "switched_egress": float(switched_egress),
+            "switched_egress_rate": (
+                (switched_egress / source_selected_egress) if source_selected_egress else 0.0
+            ),
         },
     }
 

@@ -53,6 +53,11 @@ CONDITION_ORDER = [
 VARIANT_ORDER = [
     "link_state",
     "link_state_attach",
+    "link_state_attach_k2",
+    "link_state_attach_k4",
+    "link_state_attach_k1_exclusive",
+    "link_state_attach_k2_exclusive",
+    "link_state_attach_k4_exclusive",
     "explicit_r1",
     "explicit_r15",
     "dra",
@@ -62,6 +67,11 @@ VARIANT_ORDER = [
     "topological_nominal_progress_exceptions",
     "topological_nominal_progress_repair_exceptions",
     "topological_nominal_attach",
+    "topological_nominal_attach_k2",
+    "topological_nominal_attach_k4",
+    "topological_nominal_attach_k1_exclusive",
+    "topological_nominal_attach_k2_exclusive",
+    "topological_nominal_attach_k4_exclusive",
     "topological_nominal_progress_exceptions_attach",
     "topological_nominal_progress_repair_exceptions_attach",
     "topological_observed",
@@ -79,7 +89,14 @@ METRICS = (
     "stretch_dist_egress",
     "stretch_dist_forwarding",
     "non_optimal_egress_rate",
+    "switched_egress_rate",
     "gs_renumberings_per_snapshot",
+    "gs_address_additions_per_snapshot",
+    "gs_address_removals_per_snapshot",
+    "gs_attachments_assigned_per_snapshot",
+    "gs_attachment_shortfall_per_snapshot",
+    "gs_fully_attached_per_snapshot",
+    "gs_attachment_conflicts_unconstrained_per_snapshot",
     "isls_removed_per_snapshot",
     "satellites_down_per_snapshot",
     "fstate_updates_per_snapshot",
@@ -131,6 +148,14 @@ def summarize_run(run_dir: Path) -> dict[str, float | None]:
         "live_minima_per_snapshot": _live_minima(rows, metadata),
         "detour_entries_per_snapshot": column_mean(rows, "aux_local_detour_entries"),
         "gs_renumberings_per_snapshot": column_mean(rows, "aux_gs_renumberings"),
+        "gs_address_additions_per_snapshot": column_mean(rows, "aux_gs_address_additions"),
+        "gs_address_removals_per_snapshot": column_mean(rows, "aux_gs_address_removals"),
+        "gs_attachments_assigned_per_snapshot": column_mean(rows, "aux_gs_attachment_assigned"),
+        "gs_attachment_shortfall_per_snapshot": column_mean(rows, "aux_gs_attachment_shortfall"),
+        "gs_fully_attached_per_snapshot": column_mean(rows, "aux_gs_fully_attached"),
+        "gs_attachment_conflicts_unconstrained_per_snapshot": column_mean(
+            rows, "aux_gs_attachment_conflicts_unconstrained"
+        ),
         "failure_events_per_snapshot": column_mean(rows, "failure_events"),
         **_exception_state(rows, metadata),
     }
@@ -331,6 +356,14 @@ def _count_cell(metric: str, digits: int = 1) -> Callable[[dict[str, Any]], str]
     return render
 
 
+def _percent_cell(metric: str, digits: int = 1) -> Callable[[dict[str, Any]], str]:
+    def render(row: dict[str, Any]) -> str:
+        value = row[f"{metric}_mean"]
+        return "—" if value is None else f"{100 * value:.{digits}f}"
+
+    return render
+
+
 def _exception_cell(row: dict[str, Any]) -> str:
     entries = row["exception_entries_per_snapshot_mean"]
     bound = row["exception_entries_one_pass_per_snapshot_mean"]
@@ -360,6 +393,19 @@ TABLES: tuple[tuple[str, Callable[[dict[str, Any]], str]], ...] = (
         "Ground station renumberings per snapshot",
         _count_cell("gs_renumberings_per_snapshot"),
     ),
+    (
+        "Assigned ground-station links per snapshot",
+        _count_cell("gs_attachments_assigned_per_snapshot"),
+    ),
+    (
+        "Requested attachment shortfall per snapshot",
+        _count_cell("gs_attachment_shortfall_per_snapshot"),
+    ),
+    (
+        "Unconstrained satellite-radio conflicts per snapshot",
+        _count_cell("gs_attachment_conflicts_unconstrained_per_snapshot"),
+    ),
+    ("Transit egress switches, %", _percent_cell("switched_egress_rate")),
     ("Dominant forwarding-failure cause, share of failures", _cause_cell),
     ("Forwarding loops, looping pairs per snapshot", _count_cell("loop_pairs_per_snapshot")),
     ("Exception entries per snapshot, one-pass bound in brackets", _exception_cell),

@@ -69,6 +69,15 @@ Attachment addressing gives a ground station one ground link, and it would be an
 
 `aux_gs_renumberings` counts attachment changes per snapshot. Under `attachment` addressing each one costs a directory update and a flow update to the far end of every active flow, so it belongs in the accounting rather than in an assumption. Under `visibility` it stays at zero, because the address never moves.
 
+The multihoming experiment varies `gs_attachment_count` over K=1,2,4. Its
+`independent` policy is an upper bound that can assign one satellite to several
+stations. Its physical `exclusive` policy permits at most one ground-station
+assignment per satellite, while allowing each station up to K satellites. The
+CSV also reports assignment shortfall, unconstrained conflicts, address-set
+additions/removals, and `delivery_switched_egress_rate`. The last metric checks
+whether set-based forwarding reached a different satellite from the one selected
+at the source; a non-zero value must not be presented as fixed-address A'.
+
 Optional metrics to add later:
 
 - **Stability window**: time between next-hop changes.

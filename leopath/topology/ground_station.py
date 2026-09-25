@@ -38,3 +38,6 @@ class GroundStation:
         # Topological routing attributes
         self.sixgrupa_addr: Optional[TopologicalNetworkAddress] = None
         self.previous_attached_satellite_id: Optional[int] = None
+        # Satellite addresses currently advertised for destination multihoming.
+        # ``None`` distinguishes the first snapshot from an empty advertised set.
+        self.previous_advertised_satellite_ids: Optional[tuple[int, ...]] = None

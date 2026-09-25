@@ -24,6 +24,8 @@ TIME_STEP_MINUTES=${TIME_STEP_MINUTES:-1}
 SEEDS=${SEEDS:-"1 2 3 4 5"}
 # Space-separated variant names to run; empty runs every variant below.
 VARIANT_FILTER=${VARIANT_FILTER:-}
+# Space-separated condition names to run; empty runs every condition below.
+CONDITION_FILTER=${CONDITION_FILTER:-}
 GS_CONFIG=${GS_CONFIG:-/app/leopath/config/ground_stations_dense.yaml}
 EXPLICIT_SLOW_REFRESH_STEPS=${EXPLICIT_SLOW_REFRESH_STEPS:-15}
 
@@ -55,6 +57,11 @@ VARIANTS=(
   # so it is the like-for-like peer of the *_attach variants below; link_state
   # above stays the any-egress optimum everything is scored against.
   "link_state_attach|--algorithm shortest_path_link_state --gs-addressing attachment"
+  "link_state_attach_k2|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 2"
+  "link_state_attach_k4|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 4"
+  "link_state_attach_k1_exclusive|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 1 --gs-attachment-policy exclusive"
+  "link_state_attach_k2_exclusive|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 2 --gs-attachment-policy exclusive"
+  "link_state_attach_k4_exclusive|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 4 --gs-attachment-policy exclusive"
   "explicit_r1|--algorithm explicit_path_routing --segment-refresh-interval-steps 1 --explicit-final-egress-mode dynamic --explicit-backup-adjacencies"
   "explicit_r${EXPLICIT_SLOW_REFRESH_STEPS}|--algorithm explicit_path_routing --segment-refresh-interval-steps ${EXPLICIT_SLOW_REFRESH_STEPS} --explicit-final-egress-mode dynamic --explicit-backup-adjacencies"
   "dra|--algorithm dra_routing"
@@ -72,6 +79,11 @@ VARIANTS=(
   # attachment policy costs in stretch; the full-stack pair shows what it costs
   # under failures, where a dead attachment has to be replaced.
   "topological_nominal_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment"
+  "topological_nominal_attach_k2|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 2"
+  "topological_nominal_attach_k4|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 4"
+  "topological_nominal_attach_k1_exclusive|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 1 --gs-attachment-policy exclusive"
+  "topological_nominal_attach_k2_exclusive|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 2 --gs-attachment-policy exclusive"
+  "topological_nominal_attach_k4_exclusive|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 4 --gs-attachment-policy exclusive"
   "topological_nominal_progress_repair_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --local-repair square --exception-policy grow --gs-addressing attachment"
   # The scheme as presented: the guarded rule plus exception entries, no repair.
   "topological_nominal_progress_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --exception-policy grow --gs-addressing attachment"
@@ -142,9 +154,15 @@ echo "    ${ISL_SCENARIO}, ${END_TIME_HOURS}h at ${TIME_STEP_MINUTES}min steps, 
 
 for cfg in $CONFIGS; do
   for condition_entry in "${FIXED_CONDITIONS[@]}"; do
+    if [ -n "$CONDITION_FILTER" ] && [[ " $CONDITION_FILTER " != *" ${condition_entry%%|*} "* ]]; then
+      continue
+    fi
     launch_cell "$cfg" "${condition_entry%%|*}" "${seed_list[0]}" "${condition_entry#*|}"
   done
   for condition_entry in "${RANDOM_CONDITIONS[@]}"; do
+    if [ -n "$CONDITION_FILTER" ] && [[ " $CONDITION_FILTER " != *" ${condition_entry%%|*} "* ]]; then
+      continue
+    fi
     for seed in "${seed_list[@]}"; do
       launch_cell "$cfg" "${condition_entry%%|*}" "$seed" "${condition_entry#*|}"
     done

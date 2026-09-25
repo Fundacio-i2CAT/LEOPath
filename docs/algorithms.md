@@ -40,6 +40,8 @@ Parameter notes:
 
 - `plane_weight`, `sat_weight`, `shell_weight`: relative costs used by the weighted modes.
 - `gs_addressing`: `attachment` makes a ground station's address name the satellite it is attached to; `visibility` (the default) keeps the address stable and minimises over every visible egress instead.
+- `gs_attachment_count`: under attachment addressing, advertise the K nearest assigned satellite addresses (default 1).
+- `gs_attachment_policy`: `independent` gives every station its unconstrained top-K set; `exclusive` solves a minimum-cost assignment in which each satellite can serve at most one ground station. The latter models one expensive ground-facing radio per satellite.
 
 #### Where the destination address comes from
 
@@ -121,9 +123,11 @@ simulation:
   dynamic_state_algorithm: shortest_path_link_state
   algorithm_params:
     gs_addressing: attachment   # optional; default visibility
+    gs_attachment_count: 2      # optional; default 1
+    gs_attachment_policy: exclusive
 ```
 
-- `gs_addressing`: `visibility` (the default) lets link-state reach a ground station through any satellite above its horizon. `attachment` restricts it to the station's single attachment, the nearest live visible satellite, so it faces the same constraint as topological routing under attachment addressing.
+- `gs_addressing`: `visibility` (the default) lets link-state reach a ground station through any satellite above its horizon. `attachment` restricts it to the same K assigned satellites used by topological routing. `exclusive` assignment prevents a satellite from being assigned to more than one station.
 
 ### Topological routing
 
@@ -133,6 +137,8 @@ simulation:
   algorithm_params:
     distance_mode: torus_weighted_pivot
     gs_addressing: attachment
+    gs_attachment_count: 2
+    gs_attachment_policy: exclusive
     plane_weight: 100.0
     sat_weight: 1.0
     shell_weight: 1000.0

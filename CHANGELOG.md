@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 ### Added
+- Ground-station attachment addressing now accepts `gs_attachment_count` and
+  `gs_attachment_policy`. The `exclusive` policy uses a minimum-cost bipartite
+  assignment so each station can advertise up to K satellite addresses while
+  each satellite serves at most one station; `independent` remains an explicit
+  unconstrained upper bound. The sweep reports assignment shortfall, conflicts,
+  address-set churn, and whether forwarding switched away from the egress chosen
+  at the source.
 - `--gs-addressing attachment` makes a ground station's 6G-RUPA address name the
   satellite it is attached to, which is what the addressing scheme describes: a
   forwarding satellite reads the address and forwards toward that slot. It then

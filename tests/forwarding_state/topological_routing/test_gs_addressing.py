@@ -78,6 +78,14 @@ def test_attachment_leaves_one_egress_to_evaluate_instead_of_many() -> None:
     assert len(_select_gs_attachments(candidates)[0]) == 1
 
 
+def test_attachment_count_keeps_k_nearest_addresses() -> None:
+    candidates = [_candidates((900.0, 12), (400.0, 7), (650.0, 20))]
+
+    selected = _select_gs_attachments(candidates, attachment_count=2)
+
+    assert [candidate[1] for candidate in selected[0]] == [7, 20]
+
+
 def test_only_the_two_addressing_policies_exist() -> None:
     assert GS_ADDRESSING == ("visibility", "attachment")
 

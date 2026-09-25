@@ -70,6 +70,10 @@ def pooled_delivery(rows: list[dict[str, str]]) -> dict[str, float | None]:
         "non_optimal_egress_rate": ratio(
             column_sum(rows, "delivery_non_optimal_egress"), delivered
         ),
+        "switched_egress_rate": ratio(
+            column_sum(rows, "delivery_switched_egress"),
+            column_sum(rows, "delivery_source_selected_egress"),
+        ),
         "stretch_dist_shared": weighted_mean(
             rows, "stretch_dist_shared_mean", "stretch_dist_shared_count"
         ),

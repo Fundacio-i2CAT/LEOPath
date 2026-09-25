@@ -2,6 +2,9 @@ from astropy import units as astro_units
 from astropy.time import Time
 
 from leopath.network_state.gsl_attachment.gsl_attachment_factory import GSLAttachmentFactory
+from leopath.network_state.gsl_attachment.multihoming import (
+    select_multihoming_attachments,
+)
 from leopath.network_state.routing_algorithms.routing_algorithm import RoutingAlgorithm
 
 # Import to trigger strategy registration
@@ -13,7 +16,12 @@ from .one_iface_free_bw_allocation_only_over_isls import algorithm_free_one_only
 GS_ADDRESSING = ("visibility", "attachment")
 
 
-def egresses_for_addressing(ground_station_satellites_in_range: list, gs_addressing: str) -> list:
+def egresses_for_addressing(
+    ground_station_satellites_in_range: list,
+    gs_addressing: str,
+    attachment_count: int = 1,
+    attachment_policy: str = "independent",
+) -> list:
     """Satellites each ground station can be reached through, under the addressing policy.
 
     Under ``visibility`` every satellite above the station's horizon is an egress.
@@ -29,10 +37,12 @@ def egresses_for_addressing(ground_station_satellites_in_range: list, gs_address
         )
     if gs_addressing == "visibility":
         return ground_station_satellites_in_range
-    return [
-        [min(visible, key=lambda egress: egress[0])] if visible else []
-        for visible in ground_station_satellites_in_range
-    ]
+    selected, _stats = select_multihoming_attachments(
+        ground_station_satellites_in_range,
+        attachment_count,
+        attachment_policy,
+    )
+    return selected
 
 
 class ShortestPathLinkStateRoutingAlgorithm(RoutingAlgorithm):
@@ -78,5 +88,7 @@ class ShortestPathLinkStateRoutingAlgorithm(RoutingAlgorithm):
             egresses_for_addressing(
                 ground_station_satellites_in_range,
                 str((algorithm_params or {}).get("gs_addressing", "visibility")),
+                int((algorithm_params or {}).get("gs_attachment_count", 1)),
+                str((algorithm_params or {}).get("gs_attachment_policy", "independent")),
             ),
         )
