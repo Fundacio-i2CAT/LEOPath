@@ -697,11 +697,13 @@ def compute_fixed_address_path_stretch(
     satellite_ids: list[int],
     ground_station_ids: list[int],
     ground_station_satellites_in_range: list[list[tuple[float, int]]],
+    attachments: list[tuple[int | None, float | None]],
 ) -> dict:
     """Score walks whose source and destination synonyms were fixed at ingress.
 
-    The shared lower bound may use every currently visible GSL, preserving the
-    previous attachment-cost interpretation.  Forwarding is instead graded
+    The shared lower bound is the one ``compute_path_stretch`` uses, so these
+    rows compare with every other variant: from the source's nearest
+    attachment to the best of any satellite the destination can see.  Forwarding is instead graded
     against the shortest live path between the exact selected satellites.  The
     address-choice factor therefore includes both the K-attachment constraint
     and the routing policy's one-time selection; transit forwarding cannot
@@ -736,16 +738,19 @@ def compute_fixed_address_path_stretch(
             if src_gs_id == dst_gs_id:
                 continue
             total_pairs += 1
-            source_visibility = visibility.get(src_gs_id, [])
+            src_index = ground_station_ids.index(src_gs_id)
+            nearest_sat, nearest_gsl = (
+                attachments[src_index] if src_index < len(attachments) else (None, None)
+            )
             destination_visibility = visibility.get(dst_gs_id, [])
-            if not source_visibility:
+            if nearest_sat is None or nearest_sat not in sat_graph:
                 no_src_visibility += 1
                 continue
             if not destination_visibility:
                 no_dst_visibility += 1
                 continue
-            best_hops, best_distance = _best_reachable_address_pair(
-                distances, source_visibility, destination_visibility
+            _hop_sat, best_hops, _dist_sat, best_distance = _best_reachable_egress(
+                distances, nearest_sat, nearest_gsl, destination_visibility
             )
             if best_distance is None:
                 disconnected += 1
@@ -840,27 +845,6 @@ def compute_fixed_address_path_stretch(
             "switched_egress_rate": 0.0,
         },
     }
-
-
-def _best_reachable_address_pair(
-    distances: "_SourceDistanceCache",
-    source_visibility: list[tuple[float, int]],
-    destination_visibility: list[tuple[float, int]],
-) -> tuple[int | None, float | None]:
-    best_hops: int | None = None
-    best_distance: float | None = None
-    for src_gsl, src_sat in source_visibility:
-        for dst_gsl, dst_sat in destination_visibility:
-            core_hops, core_distance = distances.lengths(src_sat, dst_sat)
-            if core_hops is None or core_distance is None:
-                continue
-            hops_total = core_hops + 2
-            distance_total = float(core_distance) + float(src_gsl) + float(dst_gsl)
-            if best_hops is None or hops_total < best_hops:
-                best_hops = hops_total
-            if best_distance is None or distance_total < best_distance:
-                best_distance = distance_total
-    return best_hops, best_distance
 
 
 def compute_path_stretch(

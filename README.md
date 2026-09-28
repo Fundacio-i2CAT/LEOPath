@@ -90,6 +90,7 @@ leopath --config leopath/config/ether_simple.yaml
 | How much state does each satellite need? | Forwarding-state size metrics |
 | How expensive is route recomputation? | Per-step compute-time metrics |
 | How does topology shape behavior? | Ring and +grid ISL scenarios |
+| What does a ground station attached to several satellites cost? | Address changes, flow-update messages and stretch per address policy |
 
 ## Routing Algorithms
 

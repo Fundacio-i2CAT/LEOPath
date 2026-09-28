@@ -450,6 +450,7 @@ def run_evaluation(
                 satellite_ids,
                 ground_station_ids,
                 gs_sat_visibility,
+                attachments,
             )
         else:
             stretch_stats = compute_path_stretch(

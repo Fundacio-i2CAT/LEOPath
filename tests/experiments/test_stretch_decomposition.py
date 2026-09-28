@@ -127,6 +127,7 @@ def test_fixed_address_walk_keeps_the_flow_allocator_selection() -> None:
         [0, 1, 2],
         [GS_SRC, GS_DST],
         [[(1.0, 0)], [(1.0, 2)]],
+        [(0, 1.0), (2, 1.0)],
     )
 
     assert stats["delivery"]["delivered"] == 2.0
@@ -164,6 +165,7 @@ def test_fixed_address_walk_cannot_finish_at_an_unselected_synonym() -> None:
         [0, 1, 2],
         [GS_SRC, GS_DST],
         [[(1.0, 0)], [(1.0, 1), (1.0, 2)]],
+        [(0, 1.0), (1, 1.0)],
     )
 
     assert stats["delivery"]["delivered"] == 1.0

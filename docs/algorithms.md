@@ -41,7 +41,8 @@ Parameter notes:
 - `plane_weight`, `sat_weight`, `shell_weight`: relative costs used by the weighted modes.
 - `gs_addressing`: `attachment` makes a ground station's address name the satellite it is attached to; `visibility` (the default) keeps the address stable and minimises over every visible egress instead.
 - `gs_attachment_count`: under attachment addressing, advertise the K nearest assigned satellite addresses (default 1).
-- `gs_attachment_policy`: `independent` gives every station its unconstrained top-K set; `exclusive` solves a minimum-cost assignment in which each satellite can serve at most one ground station. The latter models one expensive ground-facing radio per satellite.
+- `gs_attachment_policy`: `independent` gives every station its unconstrained top-K set, so one satellite can serve many stations, as real satellites do; `exclusive` solves a minimum-cost assignment in which each satellite serves at most one ground station, a deliberately pessimistic case.
+- `gs_address_policy`: with K above 1, which of a station's K addresses its flows use. `sticky_nearest` (the default), `nearest` or `per_flow_pair`; see [A station with several attachments](#a-station-with-several-attachments).
 
 #### Where the destination address comes from
 
@@ -82,7 +83,36 @@ What it costs is renumbering. A satellite stays above a fixed point for a few mi
   name    "madrid-gw-3"    unchanged                unchanged
 ```
 
-Each change costs a directory update and a flow update to the far end of every active flow, counted per snapshot as `aux_gs_renumberings`. Connections survive it, since EFCP keys on port-ids rather than addresses.
+Each change costs a directory update and a flow update to the far end of every active flow; `aux_gs_renumberings` counts the stations whose advertised addresses changed in a snapshot. Connections survive it, since EFCP keys on port-ids rather than addresses.
+
+#### A station with several attachments
+
+Set `gs_attachment_count` above 1 and a station is attached to K satellites at once, holding one address under each. Its IPC process accepts packets sent to any of them, the way a RINA IPC process accepts any of its synonyms. A packet still carries exactly one destination address, though, and no satellite along the way may swap it for another of the station's addresses, so something has to decide which of the K a flow uses. That decision is a policy, `gs_address_policy`:
+
+```
+  station g, K = 2                     sticky_nearest (the default)
+
+    e1 = (p3,s1)     e2 = (p3,s2)      g's current address sits under e1;
+     |                |                the one under e2 is a standby that
+    ~~~~             ~~~~              is already live
+        \          /
+            g                          e1 drifts off but stays one of g's
+                                       two attachments: keep it, no cost
+
+                                       e1 drops out of the pair: g moves to
+                                       its nearest remaining attachment and
+                                       every flow of g moves with it
+```
+
+| `gs_address_policy` | a station renumbers when | where it comes from |
+| --- | --- | --- |
+| `sticky_nearest` | its current attachment leaves its K | the RINA flow allocator and IRATI: one current address per IPC process, and all its flows move together when it changes |
+| `nearest` | its nearest satellite changes | the same model without the hysteresis; at K=1 it's identical to `sticky_nearest` |
+| `per_flow_pair` | per flow, when either end's pinned address disappears | goes beyond RINA: each flow pins the source and destination pair its routing metric likes best, and the source picks both |
+
+The directory hands out a station's current address, so under the first two policies link-state and topological routing route to the same pair of satellites and differ only in how they forward. Under `sticky_nearest` a second attachment buys fewer renumberings, plus a standby address that is already live when the current one goes, which lets a station renumber make-before-break. It doesn't buy a shorter path; if anything the current address drifts away from the nearest satellite until it has to move. Only `per_flow_pair` turns extra attachments into route choice, and it gets there by letting a source choose its peer's address flow by flow, which neither the RINA specification nor IRATI does. Treat it as a bound.
+
+A station that renumbers sends one flow update to each peer, counted as `aux_gs_current_address_changes` and `aux_flow_update_messages`. The simulator counts those messages but doesn't time them, so the window in which the old address still works and the packets in flight across a change sit outside what a snapshot can show.
 
 Failures need no special handling here. `apply_failures` strips dead satellites from the visibility list before routing runs, so a station whose attachment dies simply attaches to the best survivor at the next snapshot. That is multihoming doing its job, and it is why attachment addressing does not turn every satellite outage into a ground-station outage.
 
@@ -124,10 +154,11 @@ simulation:
   algorithm_params:
     gs_addressing: attachment   # optional; default visibility
     gs_attachment_count: 2      # optional; default 1
-    gs_attachment_policy: exclusive
+    gs_attachment_policy: independent
+    gs_address_policy: sticky_nearest
 ```
 
-- `gs_addressing`: `visibility` (the default) lets link-state reach a ground station through any satellite above its horizon. `attachment` restricts it to the same K assigned satellites used by topological routing. `exclusive` assignment prevents a satellite from being assigned to more than one station.
+- `gs_addressing`: `visibility` (the default) lets link-state reach a ground station through any satellite above its horizon. `attachment` restricts it to the same K assigned satellites used by topological routing, and `gs_address_policy` then picks the same current addresses for both, so the two differ only in forwarding. `exclusive` assignment prevents a satellite from being assigned to more than one station.
 
 ### Topological routing
 
@@ -138,7 +169,8 @@ simulation:
     distance_mode: torus_weighted_pivot
     gs_addressing: attachment
     gs_attachment_count: 2
-    gs_attachment_policy: exclusive
+    gs_attachment_policy: independent
+    gs_address_policy: sticky_nearest
     plane_weight: 100.0
     sat_weight: 1.0
     shell_weight: 1000.0

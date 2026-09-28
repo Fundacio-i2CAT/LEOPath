@@ -67,16 +67,16 @@ Under `gs_addressing: visibility` every satellite minimises over all visible egr
 
 Attachment addressing gives a ground station one ground link, and it would be an uneven comparison if topological routing were held to that link while link-state kept every visible one. Link-state therefore also accepts `gs_addressing: attachment`, which routes it to the same single satellite. Its forwarding factor stays at 1.000 (still a shortest path, just to a fixed egress), while its egress factor now carries the same attachment cost topological routing pays. In the failure sweep that variant is `link_state_attach`: set it beside the `*_attach` topological variants to compare forwarding like for like, and keep `link_state` as the any-egress optimum that every algorithm is scored against.
 
-`aux_gs_renumberings` counts attachment changes per snapshot. Under `attachment` addressing each one costs a directory update and a flow update to the far end of every active flow, so it belongs in the accounting rather than in an assumption. Under `visibility` it stays at zero, because the address never moves.
+`aux_gs_renumberings` counts the stations whose advertised addresses changed in a snapshot, which is what the directory has to be told. Under `visibility` it stays at zero, because the address never moves.
 
-The multihoming experiment varies `gs_attachment_count` over K=1,2,4. Its
-`independent` policy is an upper bound that can assign one satellite to several
-stations. Its physical `exclusive` policy permits at most one ground-station
-assignment per satellite, while allowing each station up to K satellites. The
-CSV also reports assignment shortfall, unconstrained conflicts, address-set
-additions/removals, and `delivery_switched_egress_rate`. The last metric checks
-whether set-based forwarding reached a different satellite from the one selected
-at the source; a non-zero value must not be presented as fixed-address A'.
+The multihoming experiment varies `gs_attachment_count` over K=1, 2 and 4 and crosses it with `gs_address_policy` (see [Routing Algorithms](algorithms.md#a-station-with-several-attachments)); in the failure sweep those runs are the `*_addr_*` variants. Under attachment addressing every flow runs a fixed-address walk, with its source and destination addresses set when the flow is allocated and never changed by a transit satellite. Stretch for these walks uses the same lower bound as every other variant, source at its nearest attachment and destination at any satellite it can see, so a K=1 run reproduces the single-attachment numbers exactly. The columns to read:
+
+- `fixed_address_forwarding` is 1 when a snapshot ran the fixed-address walk. Topological runs with an exception policy still use the older walk, in which every satellite minimises over all K attachments, and report 0; keep them apart from the fixed-address rows.
+- `aux_gs_current_address_changes` counts stations that moved their current address.
+- `aux_flow_updates` and `aux_flow_update_messages` are what those moves cost. Every station has a flow to every other station in the evaluation, so one renumbering sends G-1 updates.
+- `delivery_switched_egress_rate` stays at 0 on fixed-address walks. It's the check that no packet left the constellation at a satellite its address didn't name.
+
+The `independent` attachment policy lets one satellite serve several stations; `exclusive` allows each satellite one station at most, a deliberately pessimistic case. The CSV also reports assignment shortfall, unconstrained conflicts and address-set additions and removals.
 
 Optional metrics to add later:
 

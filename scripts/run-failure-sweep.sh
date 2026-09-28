@@ -87,6 +87,22 @@ VARIANTS=(
   "topological_nominal_progress_repair_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --local-repair square --exception-policy grow --gs-addressing attachment"
   # The scheme as presented: the guarded rule plus exception entries, no repair.
   "topological_nominal_progress_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --exception-policy grow --gs-addressing attachment"
+  # GS address policies (notes/gs-address-policy.md in the paper repo). Every
+  # flow carries one fixed address pair; the policy decides which of a station's
+  # K synonyms that is. At K=1 sticky and nearest coincide, so K1 runs once.
+  # per_flow_pair goes beyond RINA and is only a labelled bound.
+  "link_state_addr_k1|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 1"
+  "link_state_addr_k2_sticky|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 2 --gs-address-policy sticky_nearest"
+  "link_state_addr_k2_nearest|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 2 --gs-address-policy nearest"
+  "link_state_addr_k4_sticky|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 4 --gs-address-policy sticky_nearest"
+  "link_state_addr_k4_nearest|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 4 --gs-address-policy nearest"
+  "link_state_addr_k2_perflow|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 2 --gs-address-policy per_flow_pair"
+  "topological_nominal_addr_k1|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 1"
+  "topological_nominal_addr_k2_sticky|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 2 --gs-address-policy sticky_nearest"
+  "topological_nominal_addr_k2_nearest|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 2 --gs-address-policy nearest"
+  "topological_nominal_addr_k4_sticky|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 4 --gs-address-policy sticky_nearest"
+  "topological_nominal_addr_k4_nearest|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 4 --gs-address-policy nearest"
+  "topological_nominal_addr_k2_perflow|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 2 --gs-address-policy per_flow_pair"
 )
 
 TIMING_CSV="$OUTPUT_BASE/job_timings.csv"
