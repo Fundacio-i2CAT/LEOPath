@@ -70,6 +70,9 @@ def pooled_delivery(rows: list[dict[str, str]]) -> dict[str, float | None]:
         "non_optimal_egress_rate": ratio(
             column_sum(rows, "delivery_non_optimal_egress"), delivered
         ),
+        # 1.0 when every snapshot pinned one address pair at flow allocation;
+        # 0.0 for any-attachment walks, including runs that predate the column.
+        "fixed_address_forwarding": ratio(column_sum(rows, "fixed_address_forwarding"), len(rows)),
         "switched_egress_rate": ratio(
             column_sum(rows, "delivery_switched_egress"),
             column_sum(rows, "delivery_source_selected_egress"),

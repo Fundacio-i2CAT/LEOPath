@@ -9,7 +9,10 @@ forwarding factor, and only the second is about forwarding.
 
 import networkx as nx
 
-from leopath.experiments.metrics import compute_path_stretch
+from leopath.experiments.metrics import (
+    compute_fixed_address_path_stretch,
+    compute_path_stretch,
+)
 
 GS_SRC = 100
 GS_DST = 101
@@ -95,3 +98,74 @@ def test_hop_counts_decompose_the_same_way() -> None:
     stats = _stretch(fstate, graph, [0, 1, 2, 3], visible)
 
     assert stats["hop_shared"]["mean"] == stats["hop_egress"]["mean"] * stats["hop"]["mean"]
+
+
+def test_fixed_address_walk_keeps_the_flow_allocator_selection() -> None:
+    graph = _line((0, 1, 4.0), (1, 2, 4.0))
+    routes = {
+        (GS_SRC, GS_DST): {
+            "source_satellite": 0,
+            "destination_satellite": 2,
+            "source_gsl_distance": 1.0,
+            "destination_gsl_distance": 1.0,
+            "satellite_path": [0, 1, 2],
+            "failure": None,
+        },
+        (GS_DST, GS_SRC): {
+            "source_satellite": 2,
+            "destination_satellite": 0,
+            "source_gsl_distance": 1.0,
+            "destination_gsl_distance": 1.0,
+            "satellite_path": [2, 1, 0],
+            "failure": None,
+        },
+    }
+
+    stats = compute_fixed_address_path_stretch(
+        routes,
+        graph,
+        [0, 1, 2],
+        [GS_SRC, GS_DST],
+        [[(1.0, 0)], [(1.0, 2)]],
+    )
+
+    assert stats["delivery"]["delivered"] == 2.0
+    assert stats["delivery"]["source_selected_egress"] == 2.0
+    assert stats["delivery"]["switched_egress"] == 0.0
+    assert stats["distance_shared"]["mean"] == (
+        stats["distance_egress"]["mean"] * stats["distance"]["mean"]
+    )
+
+
+def test_fixed_address_walk_cannot_finish_at_an_unselected_synonym() -> None:
+    graph = _line((0, 1, 1.0), (1, 2, 1.0))
+    routes = {
+        (GS_SRC, GS_DST): {
+            "source_satellite": 0,
+            "destination_satellite": 2,
+            "source_gsl_distance": 1.0,
+            "destination_gsl_distance": 1.0,
+            "satellite_path": [0, 1],
+            "failure": None,
+        },
+        (GS_DST, GS_SRC): {
+            "source_satellite": 1,
+            "destination_satellite": 0,
+            "source_gsl_distance": 1.0,
+            "destination_gsl_distance": 1.0,
+            "satellite_path": [1, 0],
+            "failure": None,
+        },
+    }
+
+    stats = compute_fixed_address_path_stretch(
+        routes,
+        graph,
+        [0, 1, 2],
+        [GS_SRC, GS_DST],
+        [[(1.0, 0)], [(1.0, 1), (1.0, 2)]],
+    )
+
+    assert stats["delivery"]["delivered"] == 1.0
+    assert stats["delivery"]["failure_dead_end"] == 1.0
+    assert stats["delivery"]["switched_egress"] == 0.0

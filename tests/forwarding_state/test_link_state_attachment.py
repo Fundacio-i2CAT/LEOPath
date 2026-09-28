@@ -6,9 +6,21 @@ restriction here, so the two are compared on equal terms, while plain link-state
 keeps every visible egress and stays the optimum both are scored against.
 """
 
+from types import SimpleNamespace
+
+import networkx as nx
+import numpy as np
 import pytest
 
 from leopath.experiments.eval_harness import prepare_algorithm_params
+from leopath.network_state.routing_algorithms.flow_allocation import (
+    new_flow_allocation_counters,
+    update_current_addresses,
+)
+from leopath.network_state.routing_algorithms.shortest_path_link_state_routing.fstate_calculation import (  # noqa: E501
+    _build_fixed_address_routes,
+    _select_link_state_address_pair,
+)
 from leopath.network_state.routing_algorithms.shortest_path_link_state_routing.shortest_path_link_state_routing import (  # noqa: E501
     egresses_for_addressing,
 )
@@ -53,6 +65,25 @@ def test_link_state_attaches_where_topological_routing_does() -> None:
     topological = [[(c[0], c[1]) for c in cands] for cands in _select_gs_attachments(candidates)]
 
     assert egresses_for_addressing(VISIBILITY, "attachment") == topological
+
+
+def test_link_state_selects_one_best_address_pair_at_flow_allocation() -> None:
+    distances = np.asarray(
+        [
+            [0.0, 10.0, 2.0],
+            [10.0, 0.0, 3.0],
+            [2.0, 3.0, 0.0],
+        ]
+    )
+
+    selected = _select_link_state_address_pair(
+        [(1.0, 0), (1.0, 1)],
+        [(1.0, 1), (1.0, 2)],
+        {0: 0, 1: 1, 2: 2},
+        distances,
+    )
+
+    assert selected == (1.0, 1, 1.0, 1)
 
 
 def test_an_unknown_addressing_policy_is_rejected() -> None:
@@ -108,3 +139,24 @@ def test_the_harness_passes_the_policy_to_link_state_and_topological(
     )
 
     assert params.get("gs_addressing") == expected
+
+
+def test_link_state_routes_between_the_same_current_addresses_as_topological() -> None:
+    graph = nx.Graph()
+    graph.add_edge(0, 1, weight=1.0)
+    graph.add_edge(1, 2, weight=1.0)
+    distances = np.asarray([[0.0, 1.0, 2.0], [1.0, 0.0, 1.0], [2.0, 1.0, 0.0]])
+    stations = [
+        SimpleNamespace(id=100, current_address_satellite_id=None, allocated_address_pairs={}),
+        SimpleNamespace(id=101, current_address_satellite_id=None, allocated_address_pairs={}),
+    ]
+    # Sat 1 would give a zero-hop best pair; current addresses are the nearest.
+    candidates = [[(100.0, 0), (200.0, 1)], [(100.0, 2), (200.0, 1)]]
+    counters = new_flow_allocation_counters()
+    update_current_addresses(stations, candidates, "sticky_nearest", counters)
+
+    routes = _build_fixed_address_routes(
+        "sticky_nearest", stations, candidates, graph, {0: 0, 1: 1, 2: 2}, distances, counters
+    )
+
+    assert routes[(100, 101)]["satellite_path"] == [0, 1, 2]

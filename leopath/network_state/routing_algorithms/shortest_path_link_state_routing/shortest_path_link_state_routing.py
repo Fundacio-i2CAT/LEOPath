@@ -2,6 +2,7 @@ from astropy import units as astro_units
 from astropy.time import Time
 
 from leopath.network_state.gsl_attachment.gsl_attachment_factory import GSLAttachmentFactory
+from leopath.network_state.routing_algorithms.flow_allocation import DEFAULT_GS_ADDRESS_POLICY
 from leopath.network_state.gsl_attachment.multihoming import (
     select_multihoming_attachments,
 )
@@ -77,6 +78,7 @@ class ShortestPathLinkStateRoutingAlgorithm(RoutingAlgorithm):
         # egress, and the fstate calculation picks whichever minimises path
         # length plus GSL length. Attachment addressing narrows that to the one
         # satellite the station is attached to.
+        params = algorithm_params or {}
         return algorithm_free_one_only_over_isls(
             time_since_epoch_ns,
             constellation_data,
@@ -91,4 +93,6 @@ class ShortestPathLinkStateRoutingAlgorithm(RoutingAlgorithm):
                 int((algorithm_params or {}).get("gs_attachment_count", 1)),
                 str((algorithm_params or {}).get("gs_attachment_policy", "independent")),
             ),
+            build_fixed_address_routes=params.get("gs_addressing") == "attachment",
+            gs_address_policy=str(params.get("gs_address_policy", DEFAULT_GS_ADDRESS_POLICY)),
         )

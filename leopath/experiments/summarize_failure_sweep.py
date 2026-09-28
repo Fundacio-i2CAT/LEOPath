@@ -89,10 +89,16 @@ METRICS = (
     "stretch_dist_egress",
     "stretch_dist_forwarding",
     "non_optimal_egress_rate",
+    "fixed_address_forwarding",
     "switched_egress_rate",
     "gs_renumberings_per_snapshot",
     "gs_address_additions_per_snapshot",
     "gs_address_removals_per_snapshot",
+    # Fixed-address flows move only when a synonym they carry is withdrawn;
+    # each moved end is one flow-update message.
+    "gs_current_address_changes_per_snapshot",
+    "flow_updates_per_snapshot",
+    "flow_update_messages_per_snapshot",
     "gs_attachments_assigned_per_snapshot",
     "gs_attachment_shortfall_per_snapshot",
     "gs_fully_attached_per_snapshot",
@@ -150,6 +156,11 @@ def summarize_run(run_dir: Path) -> dict[str, float | None]:
         "gs_renumberings_per_snapshot": column_mean(rows, "aux_gs_renumberings"),
         "gs_address_additions_per_snapshot": column_mean(rows, "aux_gs_address_additions"),
         "gs_address_removals_per_snapshot": column_mean(rows, "aux_gs_address_removals"),
+        "gs_current_address_changes_per_snapshot": column_mean(
+            rows, "aux_gs_current_address_changes"
+        ),
+        "flow_updates_per_snapshot": column_mean(rows, "aux_flow_updates"),
+        "flow_update_messages_per_snapshot": column_mean(rows, "aux_flow_update_messages"),
         "gs_attachments_assigned_per_snapshot": column_mean(rows, "aux_gs_attachment_assigned"),
         "gs_attachment_shortfall_per_snapshot": column_mean(rows, "aux_gs_attachment_shortfall"),
         "gs_fully_attached_per_snapshot": column_mean(rows, "aux_gs_fully_attached"),

@@ -211,3 +211,12 @@ def test_failure_sweep_reports_the_stretch_factors_and_renumberings(tmp_path: Pa
         visibility["stretch_dist_forwarding"]
     )
     assert attachment["gs_renumberings_per_snapshot"] == pytest.approx(3.0)
+
+
+def test_pooled_delivery_reports_the_share_of_fixed_address_snapshots() -> None:
+    fixed = {**_as_text(_snapshot(10, 9, stretch=1.0)), "fixed_address_forwarding": "1.0"}
+    legacy = _as_text(_snapshot(10, 9, stretch=1.0))
+
+    assert pooled_delivery([fixed, fixed])["fixed_address_forwarding"] == pytest.approx(1.0)
+    # Runs written before the column existed walked any attachment.
+    assert pooled_delivery([legacy])["fixed_address_forwarding"] == pytest.approx(0.0)

@@ -26,6 +26,7 @@ from leopath.network_state.gsl_attachment.multihoming import (
     ATTACHMENT_POLICIES,
     select_multihoming_attachments,
 )
+from leopath.network_state.routing_algorithms.flow_allocation import GS_ADDRESS_POLICIES
 from leopath.network_state.helpers import (
     _compute_ground_station_satellites_in_range,
     _compute_isls,
@@ -40,6 +41,7 @@ from .metrics import (
     build_interface_neighbor_map,
     compute_explicit_failover_stats,
     compute_explicit_header_stats,
+    compute_fixed_address_path_stretch,
     compute_forwarding_state_stats,
     compute_gs_handover_rate,
     compute_gs_renumbering_stats,
@@ -131,6 +133,7 @@ def _set_gs_addressing_params(
     gs_addressing: str | None,
     gs_attachment_count: int | None,
     gs_attachment_policy: str | None,
+    gs_address_policy: str | None = None,
 ) -> None:
     if algorithm_name not in ("topological_routing", "shortest_path_link_state"):
         return
@@ -147,6 +150,13 @@ def _set_gs_addressing_params(
                 f"expected one of {ATTACHMENT_POLICIES}"
             )
         algorithm_params["gs_attachment_policy"] = gs_attachment_policy
+    if gs_address_policy is not None:
+        if gs_address_policy not in GS_ADDRESS_POLICIES:
+            raise ValueError(
+                f"Unknown gs_address_policy {gs_address_policy!r}, "
+                f"expected one of {GS_ADDRESS_POLICIES}"
+            )
+        algorithm_params["gs_address_policy"] = gs_address_policy
 
 
 def prepare_algorithm_params(
@@ -168,6 +178,7 @@ def prepare_algorithm_params(
     gs_addressing: str | None = None,
     gs_attachment_count: int | None = None,
     gs_attachment_policy: str | None = None,
+    gs_address_policy: str | None = None,
 ) -> dict:
     algorithm_params = dict(simulation_config.get("algorithm_params") or {})
 
@@ -206,6 +217,7 @@ def prepare_algorithm_params(
         gs_addressing,
         gs_attachment_count,
         gs_attachment_policy,
+        gs_address_policy,
     )
     if explicit_backup_adjacencies and algorithm_name == "explicit_path_routing":
         algorithm_params["include_backup_adjacencies"] = True
@@ -241,6 +253,7 @@ def run_evaluation(
     gs_addressing: str | None = None,
     gs_attachment_count: int | None = None,
     gs_attachment_policy: str | None = None,
+    gs_address_policy: str | None = None,
 ) -> None:
     config = load_config(config_path)
     gs_override = load_ground_station_override(gs_override_path)
@@ -272,6 +285,7 @@ def run_evaluation(
         gs_addressing=gs_addressing,
         gs_attachment_count=gs_attachment_count,
         gs_attachment_policy=gs_attachment_policy,
+        gs_address_policy=gs_address_policy,
     )
     if algorithm_params:
         config["simulation"]["algorithm_params"] = algorithm_params
@@ -384,6 +398,8 @@ def run_evaluation(
         fstate = fstate_output.get("fstate", {})
         route_plans = fstate_output.get("route_plans", {})
         selected_egresses = fstate_output.get("selected_egresses", {})
+        fixed_address_routes = fstate_output.get("fixed_address_routes", {})
+        fixed_address_forwarding = bool(fstate_output.get("fixed_address_forwarding", False))
         # Per-category auxiliary state: geometry and path-cost tables the
         # distance estimator maintains, reported separately from installed
         # forwarding entries rather than folded into them.
@@ -427,18 +443,27 @@ def run_evaluation(
             gs_sat_visibility,
             attachments,
         )
-        stretch_stats = compute_path_stretch(
-            fstate,
-            topology_with_isls.graph,
-            satellite_ids,
-            ground_station_ids,
-            attachments,
-            interface_neighbor_map,
-            max_hops,
-            route_plans,
-            gs_sat_visibility,
-            selected_egresses,
-        )
+        if fixed_address_forwarding:
+            stretch_stats = compute_fixed_address_path_stretch(
+                fixed_address_routes,
+                topology_with_isls.graph,
+                satellite_ids,
+                ground_station_ids,
+                gs_sat_visibility,
+            )
+        else:
+            stretch_stats = compute_path_stretch(
+                fstate,
+                topology_with_isls.graph,
+                satellite_ids,
+                ground_station_ids,
+                attachments,
+                interface_neighbor_map,
+                max_hops,
+                route_plans,
+                gs_sat_visibility,
+                selected_egresses,
+            )
 
         timestep_rows.append(
             {
@@ -463,6 +488,7 @@ def run_evaluation(
                     for key, value in explicit_failover_stats.items()
                 },
                 **{f"failure_{key}": value for key, value in failure_stats.items()},
+                "fixed_address_forwarding": float(fixed_address_forwarding),
                 "compute_time_ms": compute_duration_ms,
             }
         )
@@ -680,6 +706,17 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--gs-address-policy",
+        choices=GS_ADDRESS_POLICIES,
+        default=None,
+        help=(
+            "With --gs-addressing attachment, which of a station's K addresses flows "
+            "use: 'sticky_nearest' (default, RINA: one current address, moved only "
+            "when its attachment is lost), 'nearest', or 'per_flow_pair' (extension "
+            "beyond RINA: each flow pins its own best pair)"
+        ),
+    )
+    parser.add_argument(
         "--local-repair",
         choices=("none", "square"),
         default=None,
@@ -735,6 +772,7 @@ def main() -> None:
         gs_addressing=args.gs_addressing,
         gs_attachment_count=args.gs_attachment_count,
         gs_attachment_policy=args.gs_attachment_policy,
+        gs_address_policy=args.gs_address_policy,
         failure_config=FailureConfig(
             failure_type=args.failure_type,
             rate=args.failure_rate,

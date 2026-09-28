@@ -25,6 +25,7 @@ from astropy.time import Time
 
 from leopath import logger
 from leopath.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
+from leopath.network_state.routing_algorithms.flow_allocation import DEFAULT_GS_ADDRESS_POLICY
 from leopath.topology.topology import ConstellationData, GroundStation, LEOTopology
 
 from .fstate_calculation import calculate_fstate_shortest_path_object_no_gs_relay
@@ -41,6 +42,8 @@ def algorithm_free_one_only_over_isls(
     current_time: Time,
     list_gsl_interfaces_info: list,  # Info about bandwidth per node/interface
     ground_station_satellites_in_range: list | None = None,
+    build_fixed_address_routes: bool = False,
+    gs_address_policy: str = DEFAULT_GS_ADDRESS_POLICY,
 ) -> dict:
     """
     Calculates bandwidth and forwarding state (shortest paths via ISLs only, no GS relaying)
@@ -72,6 +75,7 @@ def algorithm_free_one_only_over_isls(
         constellation_data, ground_stations, list_gsl_interfaces_info
     )
     state_report: dict = {}
+    fixed_address_routes: dict[tuple[int, int], dict] = {}
     fstate = _calculate_forwarding_state(
         topology_with_isls,
         ground_stations,
@@ -79,12 +83,16 @@ def algorithm_free_one_only_over_isls(
         current_time,
         ground_station_satellites_in_range,
         state_report=state_report,
+        fixed_address_routes=(fixed_address_routes if build_fixed_address_routes else None),
+        gs_address_policy=gs_address_policy,
     )
 
     return {
         "fstate": fstate,
         "bandwidth": bandwidth_state,
         "auxiliary_state": state_report,
+        "fixed_address_routes": fixed_address_routes,
+        "fixed_address_forwarding": build_fixed_address_routes,
     }
 
 
@@ -131,19 +139,33 @@ def _calculate_forwarding_state(
     current_time: Time,
     ground_station_satellites_in_range: list | None = None,
     state_report: dict | None = None,
+    fixed_address_routes: dict[tuple[int, int], dict] | None = None,
+    gs_address_policy: str = DEFAULT_GS_ADDRESS_POLICY,
 ) -> dict:
     """
     Returns the forwarding state object using shortest path calculation.
     """
     try:
-        fstate = calculate_fstate_shortest_path_object_no_gs_relay(
-            topology_with_isls,
-            ground_stations,
-            gsl_attachment_strategy,
-            current_time,
-            ground_station_satellites_in_range,
-            state_report=state_report,
-        )
+        if fixed_address_routes is None:
+            fstate = calculate_fstate_shortest_path_object_no_gs_relay(
+                topology_with_isls,
+                ground_stations,
+                gsl_attachment_strategy,
+                current_time,
+                ground_station_satellites_in_range,
+                state_report=state_report,
+            )
+        else:
+            fstate = calculate_fstate_shortest_path_object_no_gs_relay(
+                topology_with_isls,
+                ground_stations,
+                gsl_attachment_strategy,
+                current_time,
+                ground_station_satellites_in_range,
+                state_report=state_report,
+                fixed_address_routes=fixed_address_routes,
+                gs_address_policy=gs_address_policy,
+            )
         log.debug("Calculated forwarding state object.")
         return fstate
     except NameError:

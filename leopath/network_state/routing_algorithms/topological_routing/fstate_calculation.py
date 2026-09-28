@@ -9,6 +9,12 @@ from leopath import logger
 from leopath.network_state.gsl_attachment.multihoming import (
     select_multihoming_attachments,
 )
+from leopath.network_state.routing_algorithms.flow_allocation import (
+    DEFAULT_GS_ADDRESS_POLICY,
+    new_flow_allocation_counters,
+    resolve_flow_address_pair,
+    update_current_addresses,
+)
 from leopath.network_state.routing_algorithms.topological_routing.exception_policy import (
     apply_exception_policy,
 )
@@ -133,6 +139,7 @@ def calculate_fstate_topological_routing_no_gs_relay(
     algorithm_params: dict | None = None,
     state_report: dict | None = None,
     selected_egresses: dict[tuple[int, int], int] | None = None,
+    fixed_address_routes: dict[tuple[int, int], dict] | None = None,
 ) -> dict:
     """
     Calculates forwarding state using topological routing over ISLs only (no GS relays).
@@ -323,6 +330,31 @@ def calculate_fstate_topological_routing_no_gs_relay(
         selected_egresses=selected_egresses,
     )
 
+    if fixed_address_routes is not None:
+        flow_counters = new_flow_allocation_counters()
+        address_policy = str(
+            (algorithm_params or {}).get("gs_address_policy", DEFAULT_GS_ADDRESS_POLICY)
+        )
+        update_current_addresses(
+            ground_stations, gs_destination_candidates, address_policy, flow_counters
+        )
+        fixed_address_routes.update(
+            _build_fixed_address_routes(
+                address_policy,
+                ground_stations,
+                gs_destination_candidates,
+                satellite_addresses,
+                neighbor_candidates,
+                constellation_data,
+                distance_mode,
+                weight_model,
+                _resolve_forwarding_guard(algorithm_params, distance_mode),
+                flow_counters,
+            )
+        )
+        if state_report is not None:
+            state_report.update({key: float(value) for key, value in flow_counters.items()})
+
     apply_exception_policy(
         fstate,
         satellite_only_subgraph,
@@ -341,6 +373,192 @@ def calculate_fstate_topological_routing_no_gs_relay(
     _report_forwarding_work(state_report, per_satellite_work, weight_model, fstate)
     log.debug(f"Calculated fstate with {len(fstate)} entries")
     return fstate
+
+
+def _build_fixed_address_routes(
+    address_policy: str,
+    ground_stations: list[GroundStation],
+    gs_candidates: list,
+    satellite_addresses: dict[int, TopologicalNetworkAddress],
+    neighbor_candidates: dict[int, list],
+    constellation_data: ConstellationData,
+    distance_mode: str,
+    weight_model: dict | None,
+    forwarding_guard: str,
+    flow_counters: dict[str, int],
+) -> dict[tuple[int, int], dict]:
+    """Select one address pair per flow and keep its destination fixed.
+
+    A directory may return K attachment-dependent address synonyms.  The flow
+    allocator applies this routing family's cost once, at ingress.  Transit
+    satellites then see the selected destination address, never the K-element
+    set.  The returned paths are realised forwarding walks used by the
+    evaluation harness; they are not packet-carried source routes.
+    """
+    routes: dict[tuple[int, int], dict] = {}
+    for src_idx, src_gs in enumerate(ground_stations):
+        if src_idx >= len(gs_candidates):
+            continue
+        for dst_idx, dst_gs in enumerate(ground_stations):
+            if src_gs.id == dst_gs.id or dst_idx >= len(gs_candidates):
+                continue
+            selected = resolve_flow_address_pair(
+                address_policy,
+                "topological",
+                src_gs,
+                dst_gs,
+                gs_candidates[src_idx],
+                gs_candidates[dst_idx],
+                lambda sources, destinations: _select_topological_address_pair(
+                    sources,
+                    destinations,
+                    satellite_addresses,
+                    neighbor_candidates,
+                    constellation_data,
+                    distance_mode,
+                    weight_model,
+                ),
+                flow_counters,
+            )
+            if selected is None:
+                continue
+            src_dist, src_sat, dst_dist, dst_sat, dst_address = selected
+            path, failure = _walk_fixed_topological_address(
+                src_sat,
+                dst_sat,
+                dst_address,
+                satellite_addresses,
+                neighbor_candidates,
+                constellation_data,
+                distance_mode,
+                weight_model,
+                forwarding_guard,
+            )
+            routes[(src_gs.id, dst_gs.id)] = {
+                "source_satellite": src_sat,
+                "destination_satellite": dst_sat,
+                "source_gsl_distance": float(src_dist),
+                "destination_gsl_distance": float(dst_dist),
+                "satellite_path": path,
+                "failure": failure,
+            }
+    return routes
+
+
+def _select_topological_address_pair(
+    source_candidates: list,
+    destination_candidates: list,
+    satellite_addresses: dict[int, TopologicalNetworkAddress],
+    neighbor_candidates: dict[int, list],
+    constellation_data: ConstellationData,
+    distance_mode: str,
+    weight_model: dict | None,
+) -> tuple[float, int, float, int, TopologicalNetworkAddress] | None:
+    best_key: tuple[float, int, int] | None = None
+    best: tuple[float, int, float, int, TopologicalNetworkAddress] | None = None
+    for src_dist, src_sat, src_address in source_candidates:
+        if src_sat not in satellite_addresses:
+            continue
+        plane_cost, sat_cost = _estimate_axis_step_costs(
+            src_address, neighbor_candidates.get(src_sat, [])
+        )
+        for dst_dist, dst_sat, dst_address in destination_candidates:
+            if dst_sat not in satellite_addresses:
+                continue
+            route_cost = _routing_topological_distance(
+                src_address,
+                dst_address,
+                constellation_data,
+                distance_mode=distance_mode,
+                plane_step_cost=plane_cost,
+                sat_step_cost=sat_cost,
+                weight_model=weight_model,
+            )
+            total = (
+                _scaled_gsl_distance(src_dist, distance_mode)
+                + route_cost
+                + _scaled_gsl_distance(dst_dist, distance_mode)
+            )
+            key = (total, src_sat, dst_sat)
+            if best_key is None or key < best_key:
+                best_key = key
+                best = (src_dist, src_sat, dst_dist, dst_sat, dst_address)
+    return best
+
+
+def _walk_fixed_topological_address(
+    source_satellite: int,
+    destination_satellite: int,
+    destination_address: TopologicalNetworkAddress,
+    satellite_addresses: dict[int, TopologicalNetworkAddress],
+    neighbor_candidates: dict[int, list],
+    constellation_data: ConstellationData,
+    distance_mode: str,
+    weight_model: dict | None,
+    forwarding_guard: str,
+) -> tuple[list[int], str | None]:
+    """Realise rule forwarding for one already-selected destination address."""
+    current = source_satellite
+    path = [current]
+    seen = {current}
+    hop_budget = len(satellite_addresses) + 1
+
+    def fixed_potential(satellite_id: int, _unused_gs_idx: int) -> float:
+        address = satellite_addresses.get(satellite_id)
+        if address is None:
+            return float("inf")
+        return _routing_topological_distance(
+            address,
+            destination_address,
+            constellation_data,
+            distance_mode=distance_mode,
+            weight_model=weight_model,
+        )
+
+    while current != destination_satellite and len(path) <= hop_budget:
+        current_address = satellite_addresses.get(current)
+        if current_address is None:
+            return path, "dead_end"
+        neighbours = _admissible_neighbours(
+            current,
+            neighbor_candidates.get(current, []),
+            0,
+            fixed_potential,
+            forwarding_guard,
+        )
+        decision, _distance = _get_next_hop_decision_topological(
+            current,
+            current_address,
+            destination_address,
+            neighbours,
+            -1,
+            constellation_data,
+            distance_mode,
+            weight_model,
+        )
+        if decision is None or (isinstance(decision, tuple) and decision[:1] == ("GSL",)):
+            return path, "dead_end"
+        if _is_local_detour_entry(decision):
+            physical_hops = [decision[1], decision[2], decision[3]]
+        else:
+            physical_hops = [
+                neighbor_id
+                for neighbor_id, interface, _address, _weight in neighbours
+                if interface == decision
+            ][:1]
+        if not physical_hops:
+            return path, "dead_end"
+        for next_satellite in physical_hops:
+            if next_satellite in seen:
+                path.append(next_satellite)
+                return path, "loop"
+            path.append(next_satellite)
+            seen.add(next_satellite)
+        current = physical_hops[-1]
+
+    if current == destination_satellite:
+        return path, None
+    return path, "hop_limit"
 
 
 def _set_sixgrupa_addresses_to_all_nodes(

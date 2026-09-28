@@ -41,3 +41,9 @@ class GroundStation:
         # Satellite addresses currently advertised for destination multihoming.
         # ``None`` distinguishes the first snapshot from an empty advertised set.
         self.previous_advertised_satellite_ids: Optional[tuple[int, ...]] = None
+        # (routing family, destination GS id) -> (source satellite, destination
+        # satellite) of the address pair each flow from this station carries.
+        self.allocated_address_pairs: dict[tuple[str, int], tuple[int, int]] = {}
+        # Satellite whose locator the station's current address embeds, under the
+        # one-current-address policies. ``None`` until the first attachment.
+        self.current_address_satellite_id: Optional[int] = None

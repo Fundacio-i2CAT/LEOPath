@@ -277,3 +277,88 @@ def test_state_report_keys_leave_the_aux_prefix_to_the_harness() -> None:
 
     assert "gs_renumberings" in report
     assert not [key for key in report if key.startswith("aux_")]
+
+
+def test_per_flow_pair_policy_selects_the_best_pair_before_forwarding() -> None:
+    built = _topology([0, 1, 2], [100, 101], [(0, 1, 1000.0), (1, 2, 1000.0)])
+    routes: dict = {}
+
+    calculate_fstate_topological_routing_no_gs_relay(
+        built[0],
+        built[1],
+        [
+            [(100.0, 0), (200.0, 1)],
+            [(100.0, 2), (200.0, 1)],
+        ],
+        time_since_epoch_ns=0,
+        prev_fstate=None,
+        graph_has_changed=True,
+        algorithm_params={
+            "gs_addressing": "attachment",
+            "gs_attachment_count": 2,
+            "gs_address_policy": "per_flow_pair",
+            "distance_mode": "torus_unit",
+        },
+        fixed_address_routes=routes,
+    )
+
+    selected = routes[(100, 101)]
+    assert selected["source_satellite"] == 1
+    assert selected["destination_satellite"] == 1
+    assert selected["satellite_path"] == [1]
+    assert selected["failure"] is None
+
+
+def _route_with_current_addresses(built, visibility, report=None) -> dict:
+    routes: dict = {}
+    calculate_fstate_topological_routing_no_gs_relay(
+        built[0],
+        built[1],
+        visibility,
+        time_since_epoch_ns=0,
+        prev_fstate=None,
+        graph_has_changed=True,
+        algorithm_params={
+            "gs_addressing": "attachment",
+            "gs_attachment_count": 2,
+            "distance_mode": "torus_unit",
+        },
+        state_report=report,
+        fixed_address_routes=routes,
+    )
+    return routes
+
+
+def test_default_policy_routes_between_current_addresses_not_the_best_pair() -> None:
+    built = _topology([0, 1, 2], [100, 101], [(0, 1, 1000.0), (1, 2, 1000.0)])
+
+    # Sat 1 serves both stations, but each station's current address is its
+    # nearest attachment, and the directory hands out current addresses.
+    routes = _route_with_current_addresses(
+        built, [[(100.0, 0), (200.0, 1)], [(100.0, 2), (200.0, 1)]]
+    )
+
+    selected = routes[(100, 101)]
+    assert (selected["source_satellite"], selected["destination_satellite"]) == (0, 2)
+    assert selected["satellite_path"] == [0, 1, 2]
+    assert routes[(101, 100)]["satellite_path"] == [2, 1, 0]
+
+
+def test_current_address_is_sticky_until_its_attachment_is_lost() -> None:
+    built = _topology([0, 1, 2], [100, 101], [(0, 1, 1000.0), (1, 2, 1000.0)])
+    _route_with_current_addresses(built, [[(100.0, 0), (200.0, 1)], [(100.0, 2), (200.0, 1)]])
+
+    # Sat 1 is now nearer to station 100, but sat 0 is still attached.
+    report: dict = {}
+    routes = _route_with_current_addresses(
+        built, [[(300.0, 0), (50.0, 1)], [(100.0, 2), (200.0, 1)]], report
+    )
+    assert routes[(100, 101)]["source_satellite"] == 0
+    assert report["gs_current_address_changes"] == 0.0
+
+    # Sat 0 is lost: station 100 moves to sat 1 and updates its one flow.
+    report = {}
+    routes = _route_with_current_addresses(built, [[(50.0, 1)], [(100.0, 2), (200.0, 1)]], report)
+    assert routes[(100, 101)]["source_satellite"] == 1
+    assert report["gs_current_address_changes"] == 1.0
+    assert report["flow_update_messages"] == 1.0
