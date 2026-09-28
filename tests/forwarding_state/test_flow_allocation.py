@@ -17,7 +17,12 @@ def _cheapest(sources: list, destinations: list) -> tuple | None:
 
 
 def _allocate(station, sources, destinations, counters):
-    return allocate_address_pair("family", station, 7, sources, destinations, _cheapest, counters)
+    # The source has the lower id, so it holds the flow's pin.
+    station.id = 1
+    peer = SimpleNamespace(id=7, allocated_address_pairs={})
+    return allocate_address_pair(
+        "family", station, peer, sources, destinations, _cheapest, counters
+    )
 
 
 def test_first_allocation_picks_the_cheapest_pair() -> None:
@@ -110,3 +115,27 @@ def test_detached_station_keeps_its_last_address_and_first_address_is_free() -> 
     assert stations[0].current_address_satellite_id == 5
     assert stations[1].current_address_satellite_id is None
     assert counters == new_flow_allocation_counters()
+
+
+def test_both_directions_of_a_flow_share_one_pin_and_pay_once() -> None:
+    low = SimpleNamespace(id=1, allocated_address_pairs={})
+    high = SimpleNamespace(id=7, allocated_address_pairs={})
+    low_sats, high_sats = [(1.0, 1), (2.0, 2)], [(1.0, 10), (2.0, 11)]
+    counters = new_flow_allocation_counters()
+
+    allocate_address_pair("family", low, high, low_sats, high_sats, _cheapest, counters)
+    reverse = allocate_address_pair("family", high, low, high_sats, low_sats, _cheapest, counters)
+
+    assert high.allocated_address_pairs == {}
+    assert low.allocated_address_pairs[("family", 7)] == (1, 10)
+    assert (reverse[1], reverse[3]) == (10, 1)
+    assert counters["flow_allocations"] == 1
+
+    # Sat 10 goes: the first direction to notice moves the flow, the other keeps it.
+    high_sats = [(2.0, 11)]
+    allocate_address_pair("family", high, low, high_sats, low_sats, _cheapest, counters)
+    allocate_address_pair("family", low, high, low_sats, high_sats, _cheapest, counters)
+
+    assert low.allocated_address_pairs[("family", 7)] == (1, 11)
+    assert counters["flow_updates"] == 1
+    assert counters["flow_update_messages"] == 1

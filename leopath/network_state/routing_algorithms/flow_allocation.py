@@ -17,9 +17,10 @@ provided:
     Same, without stickiness: the current address is always the nearest
     attachment, so the station renumbers whenever its nearest satellite changes.
 ``per_flow_pair``
-    Extension beyond RINA. Each flow pins its own source/destination pair,
-    chosen by the routing family's metric, and the source reselects the whole
-    pair when either synonym is withdrawn. Kept as a labelled alternative.
+    Extension beyond RINA. Each flow, one per station pair and shared by both
+    directions, pins its own address pair, chosen by the routing family's
+    metric; the whole pair is reselected when either synonym is withdrawn.
+    Kept as a labelled alternative.
 
 The satellite id sits at index 1 of every candidate tuple.
 """
@@ -95,7 +96,7 @@ def resolve_flow_address_pair(
         return allocate_address_pair(
             routing_family,
             source_gs,
-            destination_gs.id,
+            destination_gs,
             source_candidates,
             destination_candidates,
             select,
@@ -110,7 +111,7 @@ def resolve_flow_address_pair(
 def allocate_address_pair(
     routing_family: str,
     source_gs: GroundStation,
-    destination_gs_id: int,
+    destination_gs: GroundStation,
     source_candidates: list,
     destination_candidates: list,
     select: Callable[[list, list], tuple | None],
@@ -118,13 +119,21 @@ def allocate_address_pair(
 ) -> tuple | None:
     """``per_flow_pair``: keep the flow's pinned pair while both synonyms are valid.
 
+    A flow is bidirectional, so both directions between two stations share one
+    pin, stored on the station with the lower id as (its satellite, the other
+    end's satellite). Whichever direction first finds a synonym withdrawn moves
+    the flow and pays for it; the other direction then finds the new pin valid.
+
     ``select`` is the routing family's own pair selection. It returns a tuple
     whose items 1 and 3 are the source and destination satellites, or ``None``.
     A pinned pair is re-evaluated through ``select`` restricted to that pair, so
     the caller gets the same tuple shape whether the flow was kept or moved.
     """
-    key = (routing_family, destination_gs_id)
-    pinned = source_gs.allocated_address_pairs.get(key)
+    source_is_owner = source_gs.id < destination_gs.id
+    owner, peer = (source_gs, destination_gs) if source_is_owner else (destination_gs, source_gs)
+    key = (routing_family, peer.id)
+    stored = owner.allocated_address_pairs.get(key)
+    pinned = None if stored is None else (stored if source_is_owner else stored[::-1])
     if pinned is not None:
         pinned_src, pinned_dst = pinned
         kept = select(
@@ -147,5 +156,5 @@ def allocate_address_pair(
         counters["flow_update_messages"] += int(new_pair[0] != pinned[0]) + int(
             new_pair[1] != pinned[1]
         )
-    source_gs.allocated_address_pairs[key] = new_pair
+    owner.allocated_address_pairs[key] = new_pair if source_is_owner else new_pair[::-1]
     return selected
