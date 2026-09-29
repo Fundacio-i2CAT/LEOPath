@@ -13,6 +13,7 @@ from leopath.network_state.generate_network_state import generate_dynamic_state
 from leopath.network_state.gsl_attachment.gsl_attachment_strategies import *  # noqa: F403, F401
 from leopath.tles.generate_tles_from_scratch import generate_tles_from_scratch_with_sgp
 from leopath.tles.read_tles import read_tles
+from leopath.topology.walker_geometry import walker_shell_from_config
 from leopath.topology.distance_tools import geodetic2cartesian
 from leopath.topology.satellite.satellite import Satellite
 from leopath.topology.topology import ConstellationData, GroundStation
@@ -159,6 +160,63 @@ def generate_plus_grid_isls(n_orbits, n_sats_per_orbit, isl_shift=0, idx_offset=
     return list_isls
 
 
+BRICK_SPLITS = ("a", "b")
+
+
+def generate_brick_isls(n_orbits, n_sats_per_orbit, split="a", idx_offset=0, seam=False):
+    """
+    Generate the ISLs of a three-terminal shell, the brick wall.
+
+    With three laser terminals a satellite buys one kind of neighbour twice and
+    the other once. A terminal bought once can only form pairs, and the pairs
+    have to alternate or the shell falls into islands (docs/isl-topology.md).
+    Alternation keyed on (plane + slot) parity gives the two possible layouts:
+
+    - split ``a``: every in-plane link, and the cross-plane link from (p, s) to
+      (p + 1, s) only where p + s is even;
+    - split ``b``: every cross-plane link, and the in-plane link from (p, s) to
+      (p, s + 1) only where p + s is even.
+
+    Each is one graph with the axes swapped. The alternation must close around
+    whichever ring it runs along: split ``a`` needs an even plane count unless
+    the shell is a cylinder (``seam``), split ``b`` an even number of
+    satellites per plane.
+
+    :param seam: omit the cross-plane wrap from the last plane to the first, as
+                 in the cylinder a Walker star forces
+    """
+    if split not in BRICK_SPLITS:
+        raise ValueError(f"Unknown brick split {split!r}, expected one of {BRICK_SPLITS}")
+    if n_orbits < 3 or n_sats_per_orbit < 3:
+        raise ValueError("Number of x and y must each be at least 3")
+    if split == "a" and not seam and n_orbits % 2 == 1:
+        raise ValueError("Brick split a on a torus needs an even number of planes")
+    if split == "b" and n_sats_per_orbit % 2 == 1:
+        raise ValueError("Brick split b needs an even number of satellites per plane")
+
+    list_isls = []
+    for i in range(n_orbits):
+        for j in range(n_sats_per_orbit):
+            sat = i * n_sats_per_orbit + j
+            staggered_here = (i + j) % 2 == 0
+            if split == "a" or staggered_here:
+                sat_same_orbit = i * n_sats_per_orbit + ((j + 1) % n_sats_per_orbit)
+                list_isls.append(
+                    (idx_offset + min(sat, sat_same_orbit), idx_offset + max(sat, sat_same_orbit))
+                )
+            if seam and i == n_orbits - 1:
+                continue
+            if split == "b" or staggered_here:
+                sat_adjacent_orbit = ((i + 1) % n_orbits) * n_sats_per_orbit + j
+                list_isls.append(
+                    (
+                        idx_offset + min(sat, sat_adjacent_orbit),
+                        idx_offset + max(sat, sat_adjacent_orbit),
+                    )
+                )
+    return list_isls
+
+
 def calculate_link_params(config):
     """Calculates maximum link lengths based on configuration."""
     sat_config = config["satellite"]
@@ -192,6 +250,7 @@ def execute_simulation_run(config, parsed_tles_data, sim_satellites, ground_stat
         max_gsl_length_m=max_gsl,
         max_isl_length_m=max_isl,
         satellites=sim_satellites,
+        walker=walker_shell_from_config(config["constellation"]),
     )
 
     num_sats = len(sim_satellites)

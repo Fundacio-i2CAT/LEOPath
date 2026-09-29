@@ -274,17 +274,24 @@ def calculate_fstate_topological_routing_no_gs_relay(
     per_satellite_work: dict | None = {} if state_report is not None else None
     weight_model = None
     if distance_mode == "torus_weighted_pivot":
+        geometry_source = str(algorithm_params.get("geometry_source", "observed"))
         weight_model = _build_reported_torus_weight_model(
             _geometry_subgraph(
                 topology_with_isls,
                 satellite_node_ids,
                 satellite_only_subgraph,
-                str(algorithm_params.get("geometry_source", "observed")),
+                geometry_source,
+                satellite_addresses=satellite_addresses,
+                constellation_data=constellation_data,
+                time_s=time_since_epoch_ns / 1e9,
             ),
             satellite_addresses,
             constellation_data,
             state_report,
+            wiring=str(algorithm_params.get("isl_wiring", "plus_grid")),
         )
+        if state_report is not None:
+            state_report.update(_describe_geometry_source(geometry_source, constellation_data))
     gs_destination_candidates = _build_gs_destination_candidates(
         ground_station_satellites_in_range,
         satellite_addresses,
@@ -1481,7 +1488,7 @@ def _build_gs_destination_candidates(
     return candidates_per_gs
 
 
-GEOMETRY_SOURCES = ("observed", "nominal")
+GEOMETRY_SOURCES = ("observed", "nominal", "derived")
 
 
 def _geometry_subgraph(
@@ -1489,22 +1496,85 @@ def _geometry_subgraph(
     satellite_node_ids: list[int],
     satellite_only_subgraph: nx.Graph,
     geometry_source: str,
+    satellite_addresses: dict[int, TopologicalNetworkAddress] | None = None,
+    constellation_data: ConstellationData | None = None,
+    time_s: float = 0.0,
 ) -> nx.Graph:
     """Graph the pivot geometry is built from.
 
     ``observed`` is the snapshot graph as routed, so an injected link failure
     reaches every satellite's distance estimates at once: global failure
     knowledge the design never distributes. ``nominal`` is the failure-free
-    graph, as a satellite deriving geometry from ephemerides would see it,
-    while next hops still consider only live neighbours. Without injected
-    failures the two are the same graph.
+    graph with its SGP4-measured lengths, as if every satellite knew every
+    ISL's length. ``derived`` keeps the failure-free wiring but computes each
+    length from the shell's Walker constants and the clock, which is all a
+    satellite needs to hold. Next hops always consider only live neighbours,
+    over their measured first-hop lengths.
     """
     if geometry_source not in GEOMETRY_SOURCES:
         raise ValueError(f"Unknown geometry source: {geometry_source}")
     nominal_graph = getattr(topology_with_isls, "nominal_graph", None)
-    if geometry_source == "observed" or nominal_graph is None:
+    if geometry_source == "observed":
         return satellite_only_subgraph
-    return nominal_graph.subgraph(satellite_node_ids)
+    wiring = (
+        satellite_only_subgraph
+        if nominal_graph is None
+        else nominal_graph.subgraph(satellite_node_ids)
+    )
+    if geometry_source == "nominal":
+        return wiring
+    walker = getattr(constellation_data, "walker", None)
+    if walker is None or satellite_addresses is None:
+        raise ValueError("geometry_source=derived needs the shell's Walker constants")
+    return _derived_geometry_graph(wiring, satellite_addresses, walker, time_s)
+
+
+def _derived_geometry_graph(
+    wiring: nx.Graph,
+    satellite_addresses: dict[int, TopologicalNetworkAddress],
+    walker,
+    time_s: float,
+) -> nx.Graph:
+    """The designed ISLs, each weighted by its Walker-derived length."""
+    derived = nx.Graph()
+    derived.add_nodes_from(wiring.nodes())
+    for sat_a_id, sat_b_id in wiring.edges():
+        addr_a = satellite_addresses.get(sat_a_id)
+        addr_b = satellite_addresses.get(sat_b_id)
+        if addr_a is None or addr_b is None:
+            continue
+        a = addr_a.get_satellite_address()
+        b = addr_b.get_satellite_address()
+        length = walker.distance_m((a.plane_id, a.sat_index), (b.plane_id, b.sat_index), time_s)
+        derived.add_edge(sat_a_id, sat_b_id, weight=length)
+    return derived
+
+
+# Planes, satellites per plane, inclination, mean motion, node spread, phasing
+# and epoch: what a satellite holds to derive every ISL length in its shell.
+WALKER_CONSTANT_COUNT = 7
+
+
+def _describe_geometry_source(
+    geometry_source: str, constellation_data: ConstellationData | None
+) -> dict:
+    """What a satellite must hold to know the geometry, apart from any cache.
+
+    Under ``observed`` and ``nominal`` the estimator uses every ISL length in
+    the shell, which would have to be measured and flooded: one entry per
+    rail and per rung. Under ``derived`` it holds the Walker constants only.
+    The path-cost tables built from either are a cache on top.
+    """
+    if geometry_source == "derived":
+        required = float(WALKER_CONSTANT_COUNT)
+    elif constellation_data is not None:
+        required = float(2 * constellation_data.n_orbits * constellation_data.n_sats_per_orbit)
+    else:
+        required = float("nan")
+    return {
+        "geometry_derived": 1.0 if geometry_source == "derived" else 0.0,
+        "geometry_required_entries": required,
+    }
 
 
 def _build_reported_torus_weight_model(
@@ -1512,18 +1582,20 @@ def _build_reported_torus_weight_model(
     satellite_addresses: dict[int, TopologicalNetworkAddress],
     constellation_data: ConstellationData,
     state_report: dict | None,
+    wiring: str = "plus_grid",
 ) -> dict:
     """Build the pivot weight model, recording its cost when a report is requested.
 
-    The pivot estimator rebuilds its geometry every snapshot. Reviewers asked
-    for that cost, so both the build time and the resident size of each
-    structure are recorded rather than left implicit.
+    The pivot estimator rebuilds its geometry every snapshot, so both the build
+    time and the resident size of each structure are recorded rather than left
+    implicit.
     """
     build_start = time.perf_counter()
     weight_model = _build_torus_weight_model(
         satellite_only_subgraph,
         satellite_addresses,
         constellation_data,
+        wiring=wiring,
     )
     build_ms = (time.perf_counter() - build_start) * 1000.0
     if state_report is not None:
@@ -1606,11 +1678,17 @@ def _describe_weight_model(weight_model: dict, build_ms: float) -> dict:
     }
 
 
+ISL_WIRINGS = ("plus_grid", "brick_a", "brick_b")
+
+
 def _build_torus_weight_model(
     satellite_only_subgraph: nx.Graph,
     satellite_addresses: dict[int, TopologicalNetworkAddress],
     constellation_data: ConstellationData,
+    wiring: str = "plus_grid",
 ) -> dict:
+    if wiring not in ISL_WIRINGS:
+        raise ValueError(f"Unknown ISL wiring {wiring!r}, expected one of {ISL_WIRINGS}")
     plane_modulus = constellation_data.n_orbits
     sat_modulus = constellation_data.n_sats_per_orbit
     row_edge_costs = [[float("inf")] * sat_modulus for _ in range(plane_modulus)]
@@ -1663,13 +1741,19 @@ def _build_torus_weight_model(
         for row_index in range(sat_modulus)
     ]
 
+    brick = None
+    if wiring in ("brick_a", "brick_b"):
+        brick = _brick_lengths(row_edge_costs, plane_edge_costs, wiring)
+
     return {
         "plane_modulus": plane_modulus,
         "sat_modulus": sat_modulus,
+        "wiring": wiring,
         "row_edge_costs": row_edge_costs,
         "plane_edge_costs": plane_edge_costs,
         "row_path_costs": row_path_costs,
         "plane_path_costs": plane_path_costs,
+        "brick": brick,
         "pivot_distance_cache": {},
     }
 
@@ -1717,6 +1801,11 @@ def _torus_weighted_pivot_distance(
     if cached_distance is not None:
         return cached_distance
 
+    if weight_model.get("brick") is not None:
+        best_distance = _brick_pivot_distance(source_sat, destination_sat, weight_model)
+        distance_cache[cache_key] = best_distance
+        return best_distance
+
     row_path_costs = weight_model["row_path_costs"]
     plane_path_costs = weight_model["plane_path_costs"]
     sat_modulus = int(weight_model["sat_modulus"])
@@ -1735,6 +1824,142 @@ def _torus_weighted_pivot_distance(
 
     distance_cache[cache_key] = best_distance
     return best_distance
+
+
+def _brick_lengths(
+    row_edge_costs: list[list[float]],
+    plane_edge_costs: list[list[float]],
+    wiring: str,
+) -> dict:
+    """Link lengths a brick-wall estimate needs, per row.
+
+    Every rail of a circular shell has the same length, so one mean serves. A
+    rung's length depends on its row, so each row keeps the mean of its rungs;
+    under split a a row only carries rungs of one plane parity anyway.
+    """
+
+    def mean(values: list[float]) -> float:
+        finite = [v for v in values if math.isfinite(v)]
+        return sum(finite) / len(finite) if finite else math.inf
+
+    rail = mean([cost for plane in row_edge_costs for cost in plane])
+    return {
+        "rail": rail,
+        "rung_by_row": [mean(row) for row in plane_edge_costs],
+        "plane_wrap": (
+            all(math.isfinite(row[-1]) for row in plane_edge_costs)
+            if wiring == "brick_b"
+            else any(math.isfinite(row[-1]) for row in plane_edge_costs)
+        ),
+    }
+
+
+def _brick_hops(
+    start: int,
+    start_row: int,
+    end: int,
+    end_row: int,
+    crossings_modulus: int,
+    rows_modulus: int,
+    crossing_wraps: bool,
+    rows_wrap: bool,
+) -> tuple[int, int] | None:
+    """Fewest (staggered crossings, complete-axis moves) between two satellites.
+
+    The closed form of docs/isl-topology.md, verified against BFS: crossing a
+    staggered link needs start + row to be even (going up) or odd (going down),
+    and each crossing flips that parity, so the path zigzags one row per
+    crossing. Zigzag rows it wanted anyway are free; the rest are paid twice.
+    It is exact when both ring sizes are even. With an odd ring, stepping
+    across its wrap keeps the parity instead of flipping it, and the result is
+    an estimate; no shell evaluated with a brick wall has an odd ring.
+    Returns (crossings, moves) for the cheaper direction, or None if neither
+    direction is allowed (a cylinder never crosses its seam).
+    """
+    if rows_wrap:
+        row_steps = (end_row - start_row) % rows_modulus
+        row_distance = min(row_steps, rows_modulus - row_steps)
+    else:
+        row_distance = abs(end_row - start_row)
+    best = None
+    for crossings, needs_shift, wraps in (
+        ((end - start) % crossings_modulus, (start + start_row) % 2 == 1, end < start),
+        ((start - end) % crossings_modulus, (start + start_row) % 2 == 0, end > start),
+    ):
+        if wraps and crossings and not crossing_wraps:
+            continue
+        if crossings == 0:
+            candidate = (0, row_distance)
+        else:
+            span = max(row_distance, (crossings - 1) + (1 if needs_shift else 0))
+            if (span - row_distance) % 2:
+                span += 1
+            candidate = (crossings, span)
+        if best is None or sum(candidate) < sum(best):
+            best = candidate
+    return best
+
+
+def _brick_pivot_distance(source_sat, destination_sat, weight_model: dict) -> float:
+    """Pivot distance on a three-terminal brick wall.
+
+    Split a (rungs staggered): walk the source plane to a pivot row, then take
+    the closed-form staircase to the destination, its rungs priced at the mean
+    rung length and its rails at the rail length. Split b swaps the roles of
+    planes and rows. With unit link costs this is exactly the hop distance.
+
+    The staircase is priced at one mean rung length rather than the pivot
+    row's own. Pricing it per row would let the estimate prefer short
+    high-latitude rungs, but a satellite's best pivot row then shifts as the
+    packet moves, the estimate stops being consistent between neighbours, and
+    greedy forwarding loops: on Starlink that lost 71% of pairs.
+    """
+    planes = int(weight_model["plane_modulus"])
+    sats = int(weight_model["sat_modulus"])
+    brick = weight_model["brick"]
+    rail, rungs = brick["rail"], brick["rung_by_row"]
+    finite_rungs = [r for r in rungs if math.isfinite(r)]
+    mean_rung = sum(finite_rungs) / len(finite_rungs) if finite_rungs else math.inf
+    best = math.inf
+    if weight_model["wiring"] == "brick_a":
+        leg = weight_model["row_path_costs"][source_sat.plane_id][source_sat.sat_index]
+        for pivot_row in range(sats):
+            hops = _brick_hops(
+                source_sat.plane_id,
+                pivot_row,
+                destination_sat.plane_id,
+                destination_sat.sat_index,
+                planes,
+                sats,
+                crossing_wraps=brick["plane_wrap"],
+                rows_wrap=True,
+            )
+            if hops is None:
+                continue
+            crossings, moves = hops
+            best = min(best, leg[pivot_row] + crossings * mean_rung + moves * rail)
+    else:
+        leg = weight_model["plane_path_costs"][source_sat.sat_index][source_sat.plane_id]
+        for pivot_plane in range(planes):
+            if not math.isfinite(leg[pivot_plane]):
+                continue
+            # Transposed: the staggered links are rails, crossed along the slot
+            # ring; the zigzag moves between planes, over rungs.
+            hops = _brick_hops(
+                source_sat.sat_index,
+                pivot_plane,
+                destination_sat.sat_index,
+                destination_sat.plane_id,
+                sats,
+                planes,
+                crossing_wraps=True,
+                rows_wrap=brick["plane_wrap"],
+            )
+            if hops is None:
+                continue
+            crossings, moves = hops
+            best = min(best, leg[pivot_plane] + crossings * rail + moves * mean_rung)
+    return best
 
 
 def _torus_path_cost(edge_costs: list[float], start_index: int, end_index: int) -> float:

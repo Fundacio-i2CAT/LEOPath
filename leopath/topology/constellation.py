@@ -1,4 +1,5 @@
 from leopath.topology.satellite.satellite import Satellite
+from leopath.topology.walker_geometry import WalkerShell
 
 
 class ConstellationData:
@@ -10,6 +11,7 @@ class ConstellationData:
         max_gsl_length_m: float,
         max_isl_length_m: float,
         satellites: list[Satellite],
+        walker: "WalkerShell | None" = None,
     ):
         """
         Class to hold the orbital configuration data.
@@ -29,3 +31,6 @@ class ConstellationData:
         self.max_isl_length_m = max_isl_length_m
         self.number_of_satellites = orbits * sats_per_orbit
         self.satellites = satellites
+        # The constants the shell's geometry follows from, for estimators that
+        # derive ISL lengths instead of measuring them. None when unknown.
+        self.walker = walker

@@ -87,6 +87,14 @@ VARIANTS=(
   "topological_nominal_progress_repair_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --local-repair square --exception-policy grow --gs-addressing attachment"
   # The scheme as presented: the guarded rule plus exception entries, no repair.
   "topological_nominal_progress_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --exception-policy grow --gs-addressing attachment"
+  # Derived geometry: the pivot estimator computes every ISL length beyond the
+  # first hop from the shell's Walker constants and the clock, holding no
+  # P*S^2 + S*P^2 tables. Each variant is the twin of a nominal one above; the
+  # pair measures what deriving instead of measuring costs in stretch and delivery.
+  "topological_derived|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived"
+  "topological_derived_progress_repair_exceptions|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --forwarding-guard progress --local-repair square --exception-policy grow"
+  "topological_derived_progress_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --forwarding-guard progress --exception-policy grow --gs-addressing attachment"
+  "topological_derived_progress_repair_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --forwarding-guard progress --local-repair square --exception-policy grow --gs-addressing attachment"
   # GS address policies (notes/gs-address-policy.md in the paper repo). Every
   # flow carries one fixed address pair; the policy decides which of a station's
   # K synonyms that is. At K=1 sticky and nearest coincide, so K1 runs once.

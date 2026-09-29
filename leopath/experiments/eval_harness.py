@@ -15,6 +15,7 @@ from astropy import units as astro_units
 from leopath import logger
 from leopath.main import (
     calculate_link_params,
+    generate_brick_isls,
     generate_plus_grid_isls,
     setup_ground_stations,
     setup_isls_in_the_same_orbit,
@@ -35,6 +36,7 @@ from leopath.network_state.routing_algorithms.routing_algorithm_factory import (
     get_routing_algorithm,
 )
 from leopath.topology.topology import ConstellationData
+from leopath.topology.walker_geometry import walker_shell_from_config
 
 from .failures import FAILURE_TYPES, FailureConfig, FailureProcess, satellite_latitudes_deg
 from .metrics import (
@@ -113,7 +115,27 @@ def select_isls(
             idx_offset=0,
             seam=True,
         )
+    if scenario in ("brick_a", "brick_b"):
+        # Three terminals per satellite; like grid, a star shell stays a cylinder.
+        return generate_brick_isls(
+            n_orbits=constellation.n_orbits,
+            n_sats_per_orbit=constellation.n_sats_per_orbit,
+            split=scenario[-1],
+            idx_offset=0,
+            seam=has_counter_rotating_seam(raan_spread_degree),
+        )
     raise ValueError(f"Unknown ISL scenario: {scenario}")
+
+
+def isl_wiring(scenario: str) -> str:
+    """The wiring policy a topological estimator is configured with.
+
+    Which neighbours a satellite's terminals point at is a property of the
+    layer, set when a satellite joins it, not something it detects. The pivot
+    estimator needs it: on a brick wall no single row or plane carries a
+    crossing, so it pivots over a band of two.
+    """
+    return {"brick_a": "brick_a", "brick_b": "brick_b"}.get(scenario, "plus_grid")
 
 
 def flatten_distribution(prefix: str, stats: dict) -> dict:
@@ -287,6 +309,8 @@ def run_evaluation(
         gs_attachment_policy=gs_attachment_policy,
         gs_address_policy=gs_address_policy,
     )
+    if effective_algorithm_name == "topological_routing":
+        algorithm_params["isl_wiring"] = isl_wiring(isl_scenario)
     if algorithm_params:
         config["simulation"]["algorithm_params"] = algorithm_params
 
@@ -305,6 +329,7 @@ def run_evaluation(
         max_gsl_length_m=max_gsl,
         max_isl_length_m=max_isl,
         satellites=sim_satellites,
+        walker=walker_shell_from_config(config["constellation"]),
     )
 
     raan_spread_degree = float(config["constellation"].get("raan_spread_degree", 360.0))
@@ -567,7 +592,7 @@ def run_evaluation(
         "isl_scenario": isl_scenario,
         # Whether the +Grid wrap between the last and first plane was built. It is
         # absent for ring and grid_seam, and for grid on a Walker star shell.
-        "isl_seam_wrap": isl_scenario == "grid"
+        "isl_seam_wrap": isl_scenario in ("grid", "brick_a", "brick_b")
         and not has_counter_rotating_seam(raan_spread_degree),
         "raan_spread_degree": raan_spread_degree,
         "failure_model": failure_process.describe(),
@@ -640,9 +665,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True, help="Output directory for CSV/JSON")
     parser.add_argument(
         "--isl-scenario",
-        choices=("ring", "grid", "grid_seam"),
+        choices=("ring", "grid", "grid_seam", "brick_a", "brick_b"),
         default="grid",
-        help="ISL scenario to evaluate",
+        help=(
+            "ISL scenario to evaluate: ring, +Grid (four terminals), +Grid with the "
+            "plane wrap removed, or a three-terminal brick wall with its cross-plane "
+            "(a) or in-plane (b) links staggered"
+        ),
     )
     parser.add_argument("--algorithm", default=None, help="Routing algorithm name override")
     parser.add_argument("--gs-config", default=None, help="Ground station list override YAML")
@@ -666,9 +695,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--geometry-source",
-        choices=("observed", "nominal"),
+        choices=("observed", "nominal", "derived"),
         default=None,
-        help="Graph the topological pivot geometry is built from under failures",
+        help=(
+            "Where the topological pivot geometry comes from: the live snapshot graph, "
+            "the failure-free graph, or ISL lengths derived from the shell's Walker "
+            "constants and the clock"
+        ),
     )
     parser.add_argument(
         "--forwarding-guard",

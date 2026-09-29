@@ -218,8 +218,8 @@ class FailureProcess:
             "polar_latitude_deg": self.config.polar_latitude_deg,
             "knowledge": (
                 "all algorithms route over the post-failure graph of each snapshot; "
-                "topological routing with geometry_source=nominal builds its pivot "
-                "geometry from the failure-free graph"
+                "topological routing with geometry_source=nominal or derived builds "
+                "its pivot geometry from the failure-free wiring"
             ),
         }
 
