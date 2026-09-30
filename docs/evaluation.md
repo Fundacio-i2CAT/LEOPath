@@ -89,6 +89,9 @@ Optional metrics to add later:
 - OneWeb (synthetic)
 - Telesat (synthetic)
 - Dense LEO (synthetic, stress case)
+- The individual shells of Starlink Gen1, Kuiper and Starlink Gen2 as filed with the FCC, one config each under `leopath/config/shells/` (see [Configuration](configuration.md#per-shell-configs)). A constellation reaches tens of thousands of satellites only by adding shells, and each shell runs as its own 6G-RUPA layer, so per-shell runs measure what a satellite holds at that scale.
+
+All of them model the geometry an operator filed, not the constellation as it flies on a given day. The two can differ a lot: on 29 September 2026 most of Starlink flew 80-90 km below its filings, in different plane counts (`scripts/celestrak_shell_geometry.py` measures that from a CelesTrak snapshot).
 
 ## Algorithms
 
@@ -100,7 +103,9 @@ Optional metrics to add later:
 ## ISL scenarios
 
 - `ring`: intra-plane only
-- `grid`: intra-plane + inter-plane (+grid)
+- `grid`: intra-plane + inter-plane (+grid), four terminals per satellite; a Walker star builds it as a cylinder
+- `grid_seam`: +grid with the wrap from the last plane to the first removed, a stress test on delta shells
+- `brick_a`, `brick_b`: three terminals per satellite, cross-plane (a) or in-plane (b) links staggered on (plane + slot) parity; see [ISL Topology](isl-topology.md)
 
 ## Failure injection
 

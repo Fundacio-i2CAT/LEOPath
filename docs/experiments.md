@@ -107,6 +107,29 @@ python -m leopath.experiments.summarize_failure_sweep --input /path/to/sweep --o
 
 writes one row per run, a per-cell summary with 95% intervals across seeds, and Markdown tables per constellation.
 
+`ISL_SCENARIO=brick_a` (or `brick_b`, `grid_seam`, `ring`) runs the whole sweep on another wiring, and `CONFIGS="shells/kuiper_610 shells/starlink_gen2_525"` on per-shell configs.
+
+## Estimator cost per shell
+
+```bash
+python scripts/benchmark_pivot_estimators.py            # every config in leopath/config/shells
+python scripts/benchmark_pivot_estimators.py kuiper_610 # one shell
+```
+
+For each shell it builds the pivot tables from derived ISL lengths, times a table lookup against a table-free `DerivedPivotEstimator` query, and checks the two agree on 200 random pairs. Timings are single-threaded CPython and only comparable with each other; the entries a satellite holds and the O(S) operations per query are what carry over. On the Gen2 shells the tables reach 497 280 entries and take over 20 s to build per snapshot on a busy server, against 7 constants for the derived estimator at about twice the lookup time.
+
+## Real constellations
+
+Two scripts compare a CelesTrak TLE snapshot with the grids the configs assume. Both read a TLE file and propagate every satellite to the same instant with SGP4.
+
+```bash
+curl -o starlink.tle "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle"
+python scripts/celestrak_shell_geometry.py starlink.tle 43 480 --alt-tol 10
+python scripts/celestrak_lattice_fit.py
+```
+
+`celestrak_shell_geometry.py` keeps one inclination and altitude window, groups planes by clustering node angles, and reports plane count, occupancy and how evenly planes and slots are spread. `celestrak_lattice_fit.py` asks the sharper question of whether satellites sit on a slot lattice with empty slots or scatter: per plane it fits the slot count and phase and measures the residual to the nearest slot. On the 29 September 2026 snapshot the residual was about 20 km, far below what scattered satellites would give, so the irregularity in flying shells comes mostly from empty slots. The fitted slot count is ambiguous up to multiples; the residual isn't.
+
 ## Notes
 
 - Use the same time step across every algorithm in a matrix, otherwise churn numbers are not comparable: a tighter sampling interval mechanically raises the link-state update rate while leaving topological forwarding untouched.

@@ -34,7 +34,26 @@ The `distance_mode` parameter selects that metric:
 
 - `torus_unit`: hop count on the logical torus. Every edge costs 1, so the estimator is blind to how much physically longer an inter-plane ISL is near the equator than near the poles. This is what `dra_routing` pins.
 - `torus_weighted_lookahead` (the default): weighted progress with a one-hop lookahead.
-- `torus_weighted_pivot`: builds a per-snapshot weight model from the measured edge lengths, then estimates distance through row and column pivots. This is the mode the Computer Networks paper evaluates.
+- `torus_weighted_pivot`: builds a per-snapshot weight model from ISL lengths, then estimates distance through row and column pivots. This is the mode the Computer Networks paper evaluates.
+
+#### Where the geometry comes from
+
+A satellite can range its own links and nothing else. To rank its neighbours it still needs every other ISL length in the shell, and `geometry_source` decides where those come from:
+
+```
+  observed    the snapshot as routed, failures included    every satellite knows every failure: not realistic
+  nominal     the failure-free graph, SGP4-measured        every length measured, would have to be flooded
+  derived     the failure-free wiring, lengths computed    7 constants and the clock, nothing flooded
+              from the shell's Walker constants
+```
+
+`derived` is the one that matches the design. `leopath/topology/walker_geometry.py` holds a shell as its constants (planes, satellites per plane, inclination, mean motion, how far the nodes are spread, the half-slot phasing of odd planes, the epoch) and carries every satellite forward on a circular orbit with SGP4's own secular rates. Those rates come from SGP4's initialisation, which is itself a closed-form function of the same constants, so a satellite can compute them once when it joins the layer. Against SGP4 on the four built-in shells the derived lengths are off by 0.05-0.09% on rails and at most 0.26% on rungs (1% on one short Kuiper rung, 1.6 km of 154), with about 10 km of position error left over from SGP4's periodic terms.
+
+That turns the pivot tables into a cache. Every rail of a circular shell has one length, and a rung's length depends only on its row, the parity of its plane and the time, so `DerivedPivotEstimator` in `topological_routing/derived_pivot.py` answers a pivot query in O(S) from the constants alone. `tests/forwarding_state/topological_routing/test_derived_pivot.py` checks it against the tabled estimator on every satellite pair of four shell shapes, delta, odd plane count, star and unphased, at three times, and they agree to 1e-9. The simulator still builds the tables because they're faster to query; nothing it reports depends on them being there. Per snapshot it records `aux_geometry_required_entries`, what the estimator needs a satellite to hold: 7 under `derived`, one length per rail and rung otherwise.
+
+Measured and derived geometry route the same way. Over 1 536 paired runs, four constellations and every failure condition, switching changed delivery of the full scheme by nothing and of the plain rule by at most 0.00044, and distance stretch by at most 0.0033.
+
+The pivot estimator also needs to know how the shell is wired, which the harness passes as `isl_wiring`: `plus_grid`, or `brick_a` / `brick_b` for the three-terminal layouts of [ISL Topology](isl-topology.md), where no single row carries a crossing and the estimator prices a closed-form staircase instead.
 
 Parameter notes:
 
@@ -120,7 +139,7 @@ One consequence to keep in mind when reading results: the address fixes the egre
 
 #### Forwarding under failures
 
-Greedy forwarding on a damaged grid can loop. With `geometry_source: nominal`, a satellite whose best link has failed picks another neighbour, and that neighbour's estimate, which knows nothing about the failure, sends the packet straight back. Three options deal with this, and they stack:
+Greedy forwarding on a damaged grid can loop. With `geometry_source: nominal` or `derived`, a satellite whose best link has failed picks another neighbour, and that neighbour's estimate, which knows nothing about the failure, sends the packet straight back. Three options deal with this, and they stack:
 
 - `forwarding_guard: progress` forwards only to a neighbour strictly lower in a potential Φ: the estimated distance to the closest satellite that sees the destination, plus that satellite's ground-link length, with ties broken by satellite id. Every hop goes downhill, so a packet can't revisit a satellite, and one with no lower neighbour is at a local minimum, counted in `aux_forwarding_exceptions`. Φ has to be the same whichever satellite computes it, so only `torus_unit` and `torus_weighted_pivot` accept the guard.
 - `local_repair: square` keeps a next hop whose link has failed and reaches it over the shortest live three-hop detour, which on +Grid runs around one grid square. It follows RINA's two-step routing, where the path to the next hop is the lower layer's business, and because the decision still names the same next hop the guard's argument holds. A satellite needs the state of links within two hops, nothing more.
@@ -202,7 +221,7 @@ simulation:
   dynamic_state_algorithm: topological_routing
   algorithm_params:
     distance_mode: torus_weighted_pivot
-    geometry_source: nominal
+    geometry_source: derived     # or nominal: same routes, measured lengths
     forwarding_guard: progress
     local_repair: square
     exception_policy: grow
