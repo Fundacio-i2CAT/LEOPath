@@ -129,15 +129,23 @@ def main() -> None:
     def pct(values, q):
         return float(np.percentile(values, q)) * 100.0
 
-    print(f"{args.tle}  inc {args.inclination}±{args.inc_tol}  alt {args.altitude}±{args.alt_tol} km  at {now:%Y-%m-%d %H:%M} UTC")
-    print(f"  satellites {len(members)}   planes {len(planes)}   sats/plane min {sizes[0]} median {statistics.median(sizes)} max {sizes[-1]}")
+    print(
+        f"{args.tle}  inc {args.inclination}±{args.inc_tol}  alt {args.altitude}±{args.alt_tol} km  at {now:%Y-%m-%d %H:%M} UTC"
+    )
+    print(
+        f"  satellites {len(members)}   planes {len(planes)}   sats/plane min {sizes[0]} median {statistics.median(sizes)} max {sizes[-1]}"
+    )
     print(
         f"  plane node spacing: median {median_node_gap:.2f} deg, "
         f"relative deviation p50 {statistics.median(abs(g - median_node_gap) / median_node_gap for g in node_gaps) * 100:.1f}% "
         f"max {max(abs(g - median_node_gap) / median_node_gap for g in node_gaps) * 100:.0f}%"
     )
-    print(f"  in-plane slot spacing vs 360/S: p50 {pct(slot_errors, 50):.1f}%  p90 {pct(slot_errors, 90):.1f}%  max {max(slot_errors) * 100:.0f}%")
-    print(f"  in-plane neighbour distance vs ideal rail: p50 {pct(rail_errors, 50):.1f}%  p90 {pct(rail_errors, 90):.1f}%  max {max(rail_errors) * 100:.0f}%")
+    print(
+        f"  in-plane slot spacing vs 360/S: p50 {pct(slot_errors, 50):.1f}%  p90 {pct(slot_errors, 90):.1f}%  max {max(slot_errors) * 100:.0f}%"
+    )
+    print(
+        f"  in-plane neighbour distance vs ideal rail: p50 {pct(rail_errors, 50):.1f}%  p90 {pct(rail_errors, 90):.1f}%  max {max(rail_errors) * 100:.0f}%"
+    )
 
 
 if __name__ == "__main__":
