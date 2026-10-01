@@ -93,5 +93,10 @@ def pooled_delivery(rows: list[dict[str, str]]) -> dict[str, float | None]:
             rows, "stretch_hop_egress_mean", "stretch_hop_egress_count"
         ),
         "stretch_dist_forwarding": weighted_mean(rows, "stretch_dist_mean", "stretch_dist_count"),
+        # One-way propagation delay over delivered paths, and its gap to the
+        # any-egress shortest path, in milliseconds.
+        "delay_ms": weighted_mean(rows, "delay_ms_mean", "delay_ms_count"),
+        "delay_extra_ms": weighted_mean(rows, "delay_extra_ms_mean", "delay_extra_ms_count"),
+        "delay_extra_p95_ms": weighted_mean(rows, "delay_extra_ms_p95", "delay_extra_ms_count"),
         "stretch_hop_forwarding": weighted_mean(rows, "stretch_hop_mean", "stretch_hop_count"),
     }

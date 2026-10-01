@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from leopath.network_state.routing_algorithms.flow_allocation import (
     allocate_address_pair,
+    resolve_flow_address_pair,
     update_current_addresses,
     new_flow_allocation_counters,
 )
@@ -139,3 +140,63 @@ def test_both_directions_of_a_flow_share_one_pin_and_pay_once() -> None:
     assert low.allocated_address_pairs[("family", 7)] == (1, 11)
     assert counters["flow_updates"] == 1
     assert counters["flow_update_messages"] == 1
+
+
+def _requester_station(gs_id: int, current: int | None) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=gs_id,
+        current_address_satellite_id=current,
+        previous_current_address_satellite_id=current,
+        requested_synonyms={},
+    )
+
+
+def test_requester_aware_resolves_the_best_synonym_and_keeps_it() -> None:
+    a, b = _requester_station(1, 1), _requester_station(7, 10)
+    counters = new_flow_allocation_counters()
+    a_sats, b_sats = [(1.0, 1), (5.0, 2)], [(3.0, 10), (1.0, 11)]
+
+    first = resolve_flow_address_pair(
+        "requester_aware", "family", a, b, a_sats, b_sats, _cheapest, counters
+    )
+    assert (first[1], first[3]) == (1, 11)  # B's synonym 11 is best for A, though 10 is B's current
+    assert counters["flow_allocations"] == 1
+
+    # A cheaper uplink appears: the source end moves freely, the destination synonym stays.
+    later = resolve_flow_address_pair(
+        "requester_aware",
+        "family",
+        a,
+        b,
+        [(9.0, 1), (0.5, 2)],
+        [(0.1, 10), (1.0, 11)],
+        _cheapest,
+        counters,
+    )
+    assert (later[1], later[3]) == (2, 11)
+    assert counters["flow_updates"] == 0
+
+
+def test_requester_aware_moves_a_withdrawn_synonym_to_the_current_address() -> None:
+    a, b = _requester_station(1, 1), _requester_station(7, 10)
+    a.requested_synonyms[("family", 7)] = 11
+    counters = new_flow_allocation_counters()
+
+    moved = resolve_flow_address_pair(
+        "requester_aware", "family", a, b, [(1.0, 1)], [(3.0, 10)], _cheapest, counters
+    )
+    assert moved[3] == 10
+    assert counters["flow_updates"] == 1 and counters["flow_update_messages"] == 1
+
+
+def test_requester_aware_does_not_double_count_a_renumbering() -> None:
+    a, b = _requester_station(1, 1), _requester_station(7, 12)
+    b.previous_current_address_satellite_id = 11  # B renumbered 11 -> 12 this snapshot
+    a.requested_synonyms[("family", 7)] = 11
+    counters = new_flow_allocation_counters()
+
+    moved = resolve_flow_address_pair(
+        "requester_aware", "family", a, b, [(1.0, 1)], [(3.0, 12)], _cheapest, counters
+    )
+    assert moved[3] == 12
+    assert counters["flow_update_messages"] == 0

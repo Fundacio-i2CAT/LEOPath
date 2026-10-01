@@ -76,6 +76,8 @@ The multihoming experiment varies `gs_attachment_count` over K=1, 2 and 4 and cr
 - `aux_flow_updates` and `aux_flow_update_messages` are what those moves cost. Every station has a flow to every other station in the evaluation, so one renumbering sends G-1 updates.
 - `delivery_switched_egress_rate` stays at 0 on fixed-address walks. It's the check that no packet left the constellation at a satellite its address didn't name.
 
+Every run also reports one-way propagation delay over the paths it delivered: `delay_ms` for the path taken, GSL legs included, `delay_best_ms` for the same lower bound the shared stretch uses, and `delay_extra_ms` for the gap between them, each as a per-snapshot distribution. It's path length divided by the speed of light, so it says what a routing choice costs in milliseconds; queueing, processing and transmission delay aren't modelled. The sweep summaries pool them as `delay_ms`, `delay_extra_ms` and `delay_extra_p95_ms`.
+
 The `independent` attachment policy lets one satellite serve several stations; `exclusive` allows each satellite one station at most, a deliberately pessimistic case. The CSV also reports assignment shortfall, unconstrained conflicts and address-set additions and removals.
 
 Optional metrics to add later:

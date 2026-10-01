@@ -8,6 +8,7 @@ forwarding factor, and only the second is about forwarding.
 """
 
 import networkx as nx
+import pytest
 
 from leopath.experiments.metrics import (
     compute_fixed_address_path_stretch,
@@ -171,3 +172,16 @@ def test_fixed_address_walk_cannot_finish_at_an_unselected_synonym() -> None:
     assert stats["delivery"]["delivered"] == 1.0
     assert stats["delivery"]["failure_dead_end"] == 1.0
     assert stats["delivery"]["switched_egress"] == 0.0
+
+
+def test_delay_is_path_length_over_the_speed_of_light() -> None:
+    from leopath.experiments.metrics import _record_delays
+
+    delays, best, extra = [], [], []
+    # 299 792.458 km takes one second; a 3 000 km path against a 2 400 km optimum.
+    _record_delays(299_792_458.0, 299_792_458.0, delays, best, extra)
+    _record_delays(3_000_000.0, 2_400_000.0, delays, best, extra)
+    assert delays[0] == pytest.approx(1000.0)
+    assert extra[0] == pytest.approx(0.0)
+    assert delays[1] == pytest.approx(10.007, abs=1e-3)
+    assert extra[1] == pytest.approx(2.001, abs=1e-3)

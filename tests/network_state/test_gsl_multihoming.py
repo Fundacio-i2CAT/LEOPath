@@ -63,3 +63,28 @@ def test_attachment_count_must_be_positive(count: int) -> None:
 def test_unknown_policy_is_rejected() -> None:
     with pytest.raises(ValueError, match="Unknown gs_attachment_policy"):
         select_multihoming_attachments([], 1, "shared")
+
+
+VISIBLE = [[(500.0, 1), (600.0, 2), (700.0, 3), (800.0, 4)]]  # satellites 2 and 4 northbound
+
+
+def test_nearest_ascending_prefers_a_northbound_satellite() -> None:
+    selected, _ = select_multihoming_attachments(
+        VISIBLE, 1, order="nearest_ascending", ascending={2, 4}
+    )
+    assert [item[1] for item in selected[0]] == [2]
+
+
+def test_one_per_half_gives_one_address_on_each_half() -> None:
+    selected, _ = select_multihoming_attachments(VISIBLE, 2, order="one_per_half", ascending={2, 4})
+    assert sorted(item[1] for item in selected[0]) == [1, 2]
+
+
+def test_one_per_half_falls_back_to_length_when_a_half_is_empty() -> None:
+    selected, _ = select_multihoming_attachments(VISIBLE, 2, order="one_per_half", ascending=set())
+    assert sorted(item[1] for item in selected[0]) == [1, 2]
+
+
+def test_direction_aware_orders_need_the_pass_directions() -> None:
+    with pytest.raises(ValueError, match="pass directions"):
+        select_multihoming_attachments(VISIBLE, 1, order="one_per_half")

@@ -1,3 +1,4 @@
+import math
 import argparse
 import datetime
 import logging
@@ -24,6 +25,7 @@ from leopath.main import (
 from leopath.network_state.generate_network_state import _build_topologies
 from leopath.network_state.gsl_attachment.gsl_attachment_strategies import *  # noqa: F403, F401
 from leopath.network_state.gsl_attachment.multihoming import (
+    ATTACHMENT_ORDERS,
     ATTACHMENT_POLICIES,
     select_multihoming_attachments,
 )
@@ -127,6 +129,22 @@ def select_isls(
     raise ValueError(f"Unknown ISL scenario: {scenario}")
 
 
+def northbound_satellites(
+    constellation_data: ConstellationData, time_since_epoch_ns: int
+) -> set[int]:
+    """Satellites currently on the northbound (ascending) half of their orbit."""
+    shell = constellation_data.walker
+    if shell is None:
+        raise ValueError("Pass-direction-aware attachment needs the shell's Walker constants")
+    time_s = time_since_epoch_ns / 1e9
+    return {
+        plane * shell.sats_per_plane + slot
+        for plane in range(shell.planes)
+        for slot in range(shell.sats_per_plane)
+        if math.cos(shell.argument_of_latitude_rad(plane, slot, time_s)) > 0.0
+    }
+
+
 def isl_wiring(scenario: str) -> str:
     """The wiring policy a topological estimator is configured with.
 
@@ -156,6 +174,7 @@ def _set_gs_addressing_params(
     gs_attachment_count: int | None,
     gs_attachment_policy: str | None,
     gs_address_policy: str | None = None,
+    gs_attachment_order: str | None = None,
 ) -> None:
     if algorithm_name not in ("topological_routing", "shortest_path_link_state"):
         return
@@ -179,6 +198,13 @@ def _set_gs_addressing_params(
                 f"expected one of {GS_ADDRESS_POLICIES}"
             )
         algorithm_params["gs_address_policy"] = gs_address_policy
+    if gs_attachment_order is not None:
+        if gs_attachment_order not in ATTACHMENT_ORDERS:
+            raise ValueError(
+                f"Unknown gs_attachment_order {gs_attachment_order!r}, "
+                f"expected one of {ATTACHMENT_ORDERS}"
+            )
+        algorithm_params["gs_attachment_order"] = gs_attachment_order
 
 
 def prepare_algorithm_params(
@@ -201,6 +227,7 @@ def prepare_algorithm_params(
     gs_attachment_count: int | None = None,
     gs_attachment_policy: str | None = None,
     gs_address_policy: str | None = None,
+    gs_attachment_order: str | None = None,
 ) -> dict:
     algorithm_params = dict(simulation_config.get("algorithm_params") or {})
 
@@ -240,6 +267,7 @@ def prepare_algorithm_params(
         gs_attachment_count,
         gs_attachment_policy,
         gs_address_policy,
+        gs_attachment_order,
     )
     if explicit_backup_adjacencies and algorithm_name == "explicit_path_routing":
         algorithm_params["include_backup_adjacencies"] = True
@@ -276,6 +304,7 @@ def run_evaluation(
     gs_attachment_count: int | None = None,
     gs_attachment_policy: str | None = None,
     gs_address_policy: str | None = None,
+    gs_attachment_order: str | None = None,
 ) -> None:
     config = load_config(config_path)
     gs_override = load_ground_station_override(gs_override_path)
@@ -308,6 +337,7 @@ def run_evaluation(
         gs_attachment_count=gs_attachment_count,
         gs_attachment_policy=gs_attachment_policy,
         gs_address_policy=gs_address_policy,
+        gs_attachment_order=gs_attachment_order,
     )
     if effective_algorithm_name == "topological_routing":
         algorithm_params["isl_wiring"] = isl_wiring(isl_scenario)
@@ -404,10 +434,17 @@ def run_evaluation(
         routing_gs_visibility = gs_sat_visibility
         attachment_assignment_stats: dict[str, float] = {}
         if algorithm_params.get("gs_addressing") == "attachment":
+            attachment_order = str(algorithm_params.get("gs_attachment_order", "nearest"))
             routing_gs_visibility, attachment_assignment_stats = select_multihoming_attachments(
                 gs_sat_visibility,
                 int(algorithm_params.get("gs_attachment_count", 1)),
                 str(algorithm_params.get("gs_attachment_policy", "independent")),
+                order=attachment_order,
+                ascending=(
+                    None
+                    if attachment_order == "nearest"
+                    else northbound_satellites(constellation_data, time_since_epoch_ns)
+                ),
             )
         compute_start = time.perf_counter()
         fstate_output = algorithm.compute_state(
@@ -501,6 +538,9 @@ def run_evaluation(
                 **flatten_distribution("fstate_neighbors", installed_state["neighbor_entries"]),
                 **flatten_distribution("strict_header_bytes", explicit_header_stats),
                 **flatten_distribution("srv6_srh_bytes", explicit_srv6_srh_stats),
+                **flatten_distribution("delay_ms", stretch_stats["delay_ms"]),
+                **flatten_distribution("delay_best_ms", stretch_stats["delay_best_ms"]),
+                **flatten_distribution("delay_extra_ms", stretch_stats["delay_extra_ms"]),
                 **flatten_distribution("stretch_hop", stretch_stats["hop"]),
                 **flatten_distribution("stretch_dist", stretch_stats["distance"]),
                 **flatten_distribution("stretch_hop_shared", stretch_stats["hop_shared"]),
@@ -740,6 +780,16 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--gs-attachment-order",
+        choices=ATTACHMENT_ORDERS,
+        default=None,
+        help=(
+            "With --gs-addressing attachment, which visible satellites a station prefers: "
+            "'nearest' (default), 'nearest_ascending' (northbound first) or 'one_per_half' "
+            "(the nearest northbound and the nearest southbound satellite first)"
+        ),
+    )
+    parser.add_argument(
         "--gs-address-policy",
         choices=GS_ADDRESS_POLICIES,
         default=None,
@@ -807,6 +857,7 @@ def main() -> None:
         gs_attachment_count=args.gs_attachment_count,
         gs_attachment_policy=args.gs_attachment_policy,
         gs_address_policy=args.gs_address_policy,
+        gs_attachment_order=args.gs_attachment_order,
         failure_config=FailureConfig(
             failure_type=args.failure_type,
             rate=args.failure_rate,

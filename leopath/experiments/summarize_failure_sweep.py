@@ -88,6 +88,9 @@ METRICS = (
     # forwarding itself. Under visibility addressing the egress factor is 1.
     "stretch_dist_egress",
     "stretch_dist_forwarding",
+    "delay_ms",
+    "delay_extra_ms",
+    "delay_extra_p95_ms",
     "non_optimal_egress_rate",
     "fixed_address_forwarding",
     "switched_egress_rate",

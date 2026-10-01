@@ -61,7 +61,8 @@ Parameter notes:
 - `gs_addressing`: `attachment` makes a ground station's address name the satellite it is attached to; `visibility` (the default) keeps the address stable and minimises over every visible egress instead.
 - `gs_attachment_count`: under attachment addressing, advertise the K nearest assigned satellite addresses (default 1).
 - `gs_attachment_policy`: `independent` gives every station its unconstrained top-K set, so one satellite can serve many stations, as real satellites do; `exclusive` solves a minimum-cost assignment in which each satellite serves at most one ground station, a deliberately pessimistic case.
-- `gs_address_policy`: with K above 1, which of a station's K addresses its flows use. `sticky_nearest` (the default), `nearest` or `per_flow_pair`; see [A station with several attachments](#a-station-with-several-attachments).
+- `gs_address_policy`: with K above 1, which of a station's K addresses its flows use. `sticky_nearest` (the default), `nearest`, `requester_aware` or `per_flow_pair`; see [A station with several attachments](#a-station-with-several-attachments).
+- `gs_attachment_order`: which visible satellites a station attaches to first. `nearest` (the default), `nearest_ascending` or `one_per_half`; see [Two halves of a shell](#two-halves-of-a-shell).
 
 #### Where the destination address comes from
 
@@ -127,11 +128,34 @@ Set `gs_attachment_count` above 1 and a station is attached to K satellites at o
 | --- | --- | --- |
 | `sticky_nearest` | its current attachment leaves its K | the RINA flow allocator and IRATI: one current address per IPC process, and all its flows move together when it changes |
 | `nearest` | its nearest satellite changes | the same model without the hysteresis; at K=1 it's identical to `sticky_nearest` |
+| `requester_aware` | its current attachment leaves its K, as `sticky_nearest`; a flow's own synonym moves only when that synonym disappears | inside RINA: the directory resolves a destination to the synonym best for the requester at allocation, and the source's uplink is a forwarding choice |
 | `per_flow_pair` | per flow, when either end's pinned address disappears | goes beyond RINA: each flow pins the source and destination pair its routing metric likes best, and the source picks both |
 
 The directory hands out a station's current address, so under the first two policies link-state and topological routing route to the same pair of satellites and differ only in how they forward. Under `sticky_nearest` a second attachment buys fewer renumberings, plus a standby address that is already live when the current one goes, which lets a station renumber make-before-break. It doesn't buy a shorter path; if anything the current address drifts away from the nearest satellite until it has to move. Only `per_flow_pair` turns extra attachments into route choice, and it gets there by letting a source choose its peer's address flow by flow, which neither the RINA specification nor IRATI does. Treat it as a bound.
 
 A station that renumbers sends one flow update to each peer, counted as `aux_gs_current_address_changes` and `aux_flow_update_messages`. The simulator counts those messages but doesn't time them, so the window in which the old address still works and the packets in flight across a change sit outside what a snapshot can show.
+
+#### Two halves of a shell
+
+Attaching to the nearest satellite is cheap, and on a Walker delta shell it can send a packet around the planet. Over any station, satellites cross the sky on two kinds of pass, northbound (ascending) and southbound (descending), and on the logical grid the two kinds sit about half the shell apart:
+
+```
+  Nairobi at t = 0 on Starlink, both satellites 682 km away
+
+  northbound (28, 0)  --  6 275 km from Mumbai's satellite (31, 1)  -> 23 ms
+  southbound (64, 11) -- 52 665 km from the same satellite          -> 178 ms
+
+  36 planes and 11 slots apart: half of 72 and half of 22
+```
+
+Link-state pays exactly the same, since the address names the far satellite and forwarding only follows it. Over 24 stations, about three quarters of station pairs have at least one end on the half the best route doesn't use, and those pairs carry 93-95% of the extra delay on Starlink, Kuiper and Telesat (`scripts/pass_direction_check.py`, `scripts/decompose_attachment_cost.py`). OneWeb, a Walker star, barely has the problem.
+
+Which half suits a flow depends on both ends, so no rule a station applies alone can always get it right. The cost splits along a line RINA already draws. The source end is which satellite A transmits through: A has K ports, and picking the uplink for a destination is ordinary forwarding. The destination end is which of B's addresses the flow carries, and that's settled at flow allocation, where the directory may take the requester's location into account. Two settings follow:
+
+- `gs_attachment_order: nearest_ascending` prefers northbound satellites. A station can apply it alone and it helps, but for about a third of pairs the best route uses the southbound half at both ends.
+- `gs_attachment_order: one_per_half` with `gs_attachment_count: 2` gives every station an address on each half, and `gs_address_policy: requester_aware` uses it: the directory resolves B to the synonym on the half that suits A, and A uplinks through whichever attachment suits that address. After B's next address change the flow moves to B's current address, as the RINA flow allocator prescribes.
+
+Holding an address on each half changes nothing by itself: `one_per_half` with `sticky_nearest` costs the same as one attachment, because every flow still uses the current address. The gain comes from the directory choosing per requester.
 
 Failures need no special handling here. `apply_failures` strips dead satellites from the visibility list before routing runs, so a station whose attachment dies simply attaches to the best survivor at the next snapshot. That is multihoming doing its job, and it is why attachment addressing does not turn every satellite outage into a ground-station outage.
 

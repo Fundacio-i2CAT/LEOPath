@@ -2,7 +2,7 @@
 
 Under attachment addressing a ground station attached to K satellites holds K
 topological addresses, one per attachment, and its RMT accepts PDUs sent to any
-of them. Which of those addresses flows use is a layer policy. Three are
+of them. Which of those addresses flows use is a layer policy. Four are
 provided:
 
 ``sticky_nearest`` (default)
@@ -16,6 +16,16 @@ provided:
 ``nearest``
     Same, without stickiness: the current address is always the nearest
     attachment, so the station renumbers whenever its nearest satellite changes.
+``requester_aware``
+    Inside RINA, and route-aware where RINA allows it. The station keeps one
+    sticky current address as under ``sticky_nearest``. When A allocates a
+    flow to B, the directory resolves B to whichever of B's synonyms is best
+    for A, a location-aware directory policy; the flow keeps that synonym while
+    B advertises it and otherwise moves to B's current address. The source end
+    is a forwarding decision, not an address: A transmits through whichever of
+    its attachments is best for the destination, chosen afresh each snapshot.
+    Meant for K >= 2 with ``one_per_half`` attachment, so every station has an
+    address on each half of a Walker delta shell.
 ``per_flow_pair``
     Extension beyond RINA. Each flow, one per station pair and shared by both
     directions, pins its own address pair, chosen by the routing family's
@@ -29,7 +39,8 @@ from collections.abc import Callable
 
 from leopath.topology.topology import GroundStation
 
-GS_ADDRESS_POLICIES = ("sticky_nearest", "nearest", "per_flow_pair")
+GS_ADDRESS_POLICIES = ("sticky_nearest", "nearest", "requester_aware", "per_flow_pair")
+STICKY_POLICIES = ("sticky_nearest", "requester_aware")
 DEFAULT_GS_ADDRESS_POLICY = "sticky_nearest"
 
 FLOW_ALLOCATION_COUNTERS = (
@@ -71,7 +82,8 @@ def update_current_addresses(
             continue
         attached = [item[1] for item in sorted(candidates, key=lambda item: (item[0], item[1]))]
         previous = gs.current_address_satellite_id
-        if policy == "sticky_nearest" and previous in attached:
+        gs.previous_current_address_satellite_id = previous
+        if policy in STICKY_POLICIES and previous in attached:
             continue
         current = attached[0]
         if previous is not None and current != previous:
@@ -102,10 +114,62 @@ def resolve_flow_address_pair(
             select,
             counters,
         )
+    if policy == "requester_aware":
+        return _requester_aware_pair(
+            routing_family,
+            source_gs,
+            destination_gs,
+            source_candidates,
+            destination_candidates,
+            select,
+            counters,
+        )
     return select(
         [c for c in source_candidates if c[1] == source_gs.current_address_satellite_id],
         [c for c in destination_candidates if c[1] == destination_gs.current_address_satellite_id],
     )
+
+
+def _requester_aware_pair(
+    routing_family: str,
+    source_gs: GroundStation,
+    destination_gs: GroundStation,
+    source_candidates: list,
+    destination_candidates: list,
+    select: Callable[[list, list], tuple | None],
+    counters: dict[str, int],
+) -> tuple | None:
+    """Destination synonym from a location-aware directory, source uplink by forwarding.
+
+    The synonym is pinned per requesting station and destination. When B
+    withdraws it, the flow moves to B's current address and B sends A one
+    flow update, unless the withdrawn synonym was B's current address and B
+    renumbered this snapshot, in which case B's renumbering already sent it.
+    """
+    key = (routing_family, destination_gs.id)
+    pinned = source_gs.requested_synonyms.get(key)
+    advertised = {c[1] for c in destination_candidates}
+    if pinned is None:
+        chosen = select(source_candidates, destination_candidates)
+        if chosen is None:
+            return None
+        counters["flow_allocations"] += 1
+        destination = chosen[3]
+    elif pinned in advertised:
+        destination = pinned
+    else:
+        destination = destination_gs.current_address_satellite_id
+        if destination not in advertised:
+            return None
+        renumbered_from_it = (
+            pinned == destination_gs.previous_current_address_satellite_id and destination != pinned
+        )
+        if not renumbered_from_it:
+            counters["flow_updates"] += 1
+            counters["flow_update_messages"] += 1
+    source_gs.requested_synonyms[key] = destination
+    # The uplink is a forwarding choice among A's own attachments: no address changes.
+    return select(source_candidates, [c for c in destination_candidates if c[1] == destination])
 
 
 def allocate_address_pair(

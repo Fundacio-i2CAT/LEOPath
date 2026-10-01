@@ -5,12 +5,19 @@ from collections import Counter
 import networkx as nx
 
 ATTACHMENT_POLICIES = ("independent", "exclusive")
+# Which visible satellites a station prefers before the K are taken. A Walker
+# delta shell has two halves: satellites passing northbound and southbound sit
+# about half the logical grid apart, so which half an address lands on decides
+# how far traffic travels to reach it (notes/gs-address-policy.md).
+ATTACHMENT_ORDERS = ("nearest", "nearest_ascending", "one_per_half")
 
 
 def select_multihoming_attachments(
     visibility: list,
     attachment_count: int,
     policy: str = "independent",
+    order: str = "nearest",
+    ascending: set[int] | None = None,
 ) -> tuple[list, dict[str, float]]:
     """Select up to K visible satellites per ground station.
 
@@ -19,6 +26,13 @@ def select_multihoming_attachments(
     may serve at most one ground station. Lower attachment ranks are preferred
     before distance, so scarce radios are spread across stations before a station
     receives its second or later link.
+
+    ``order`` decides which satellites count as a station's first choices:
+    ``nearest`` by ground-link length; ``nearest_ascending`` northbound
+    satellites first, nearest first within each half; ``one_per_half`` the
+    nearest northbound and the nearest southbound satellite, then the rest by
+    length, so with K = 2 a station holds an address on each half of the shell.
+    ``ascending`` is the set of satellite ids currently moving northbound.
     """
     if attachment_count < 1:
         raise ValueError("gs_attachment_count must be at least 1")
@@ -27,7 +41,11 @@ def select_multihoming_attachments(
             f"Unknown gs_attachment_policy {policy!r}, expected one of {ATTACHMENT_POLICIES}"
         )
 
-    ordered = [sorted(candidates, key=lambda item: (item[0], item[1])) for candidates in visibility]
+    if order not in ATTACHMENT_ORDERS:
+        raise ValueError(f"Unknown attachment order {order!r}, expected one of {ATTACHMENT_ORDERS}")
+    if order != "nearest" and ascending is None:
+        raise ValueError(f"Attachment order {order!r} needs the satellites' pass directions")
+    ordered = [_ordered(candidates, order, ascending or set()) for candidates in visibility]
     independent = [candidates[:attachment_count] for candidates in ordered]
     claims = Counter(item[1] for candidates in independent for item in candidates)
     conflicts = sum(count - 1 for count in claims.values() if count > 1)
@@ -46,6 +64,19 @@ def select_multihoming_attachments(
         "gs_fully_attached": float(fully_attached),
         "gs_attachment_conflicts_unconstrained": float(conflicts),
     }
+
+
+def _ordered(candidates: list, order: str, ascending: set[int]) -> list:
+    by_length = sorted(candidates, key=lambda item: (item[0], item[1]))
+    if order == "nearest":
+        return by_length
+    if order == "nearest_ascending":
+        return sorted(by_length, key=lambda item: item[1] not in ascending)
+    north = [item for item in by_length if item[1] in ascending]
+    south = [item for item in by_length if item[1] not in ascending]
+    firsts = [half[0] for half in (north, south) if half]
+    firsts.sort(key=lambda item: (item[0], item[1]))
+    return firsts + [item for item in by_length if item not in firsts]
 
 
 def _exclusive_assignment(visibility: list, attachment_count: int) -> list:

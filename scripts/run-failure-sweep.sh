@@ -95,6 +95,19 @@ VARIANTS=(
   "topological_derived_progress_repair_exceptions|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --forwarding-guard progress --local-repair square --exception-policy grow"
   "topological_derived_progress_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --forwarding-guard progress --exception-policy grow --gs-addressing attachment"
   "topological_derived_progress_repair_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --forwarding-guard progress --local-repair square --exception-policy grow --gs-addressing attachment"
+  # Pass-direction-aware attachment (notes/gs-address-policy.md). On a Walker
+  # delta shell northbound and southbound satellites sit half the grid apart;
+  # these variants pick which half a station's addresses land on, and with
+  # requester_aware the directory resolves each flow to the synonym on the
+  # half that suits its source.
+  "link_state_dir_k1|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 1"
+  "link_state_dir_asc|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 1 --gs-attachment-order nearest_ascending"
+  "link_state_dir_half|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy sticky_nearest"
+  "link_state_dir_half_req|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy requester_aware"
+  "topological_derived_dir_k1|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --gs-attachment-count 1"
+  "topological_derived_dir_asc|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --gs-attachment-count 1 --gs-attachment-order nearest_ascending"
+  "topological_derived_dir_half|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy sticky_nearest"
+  "topological_derived_dir_half_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy requester_aware"
   # GS address policies (notes/gs-address-policy.md in the paper repo). Every
   # flow carries one fixed address pair; the policy decides which of a station's
   # K synonyms that is. At K=1 sticky and nearest coincide, so K1 runs once.

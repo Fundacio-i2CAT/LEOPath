@@ -691,6 +691,30 @@ def _derive_gs_to_gs_next_hop(
 FORWARDING_FAILURE_CAUSES = ("loop", "dead_end", "link_down", "hop_limit", "egress_lost")
 
 
+SPEED_OF_LIGHT_M_S = 299_792_458.0
+
+
+def _record_delays(
+    path_m: float,
+    best_m: float | None,
+    delays_ms: list[float],
+    best_delays_ms: list[float],
+    extra_delays_ms: list[float],
+) -> None:
+    """One-way propagation delay of a delivered path, GSL legs included.
+
+    The lower bound is the same any-egress shortest path the shared stretch is
+    measured against, so the extra delay is the shared stretch in milliseconds.
+    Queueing, processing and transmission delay are not modelled.
+    """
+    delay = float(path_m) / SPEED_OF_LIGHT_M_S * 1000.0
+    delays_ms.append(delay)
+    if best_m is not None and best_m > 0.0:
+        best = float(best_m) / SPEED_OF_LIGHT_M_S * 1000.0
+        best_delays_ms.append(best)
+        extra_delays_ms.append(delay - best)
+
+
 def compute_fixed_address_path_stretch(
     fixed_address_routes: dict[tuple[int, int], dict],
     topology_graph: nx.Graph,
@@ -718,6 +742,10 @@ def compute_fixed_address_path_stretch(
     }
 
     hop_stretches: list[float] = []
+    # One-way propagation delay over the delivered path, its lower bound, and the gap.
+    delays_ms: list[float] = []
+    best_delays_ms: list[float] = []
+    extra_delays_ms: list[float] = []
     dist_stretches: list[float] = []
     shared_hop_stretches: list[float] = []
     shared_dist_stretches: list[float] = []
@@ -820,8 +848,14 @@ def compute_fixed_address_path_stretch(
             if best_distance > 0.0:
                 shared_dist_stretches.append(algorithm_distance / best_distance)
                 egress_dist_stretches.append(selected_dist_total / best_distance)
+            _record_delays(
+                algorithm_distance, best_distance, delays_ms, best_delays_ms, extra_delays_ms
+            )
 
     return {
+        "delay_ms": summarize_distribution(delays_ms),
+        "delay_best_ms": summarize_distribution(best_delays_ms),
+        "delay_extra_ms": summarize_distribution(extra_delays_ms),
         "hop": summarize_distribution(hop_stretches),
         "distance": summarize_distribution(dist_stretches),
         "hop_shared": summarize_distribution(shared_hop_stretches),
@@ -871,6 +905,10 @@ def compute_path_stretch(
     # yardstick moves with the algorithm; it is the second factor of the shared
     # basis below. Also the basis earlier runs reported.
     hop_stretches: list[float] = []
+    # One-way propagation delay over the delivered path, its lower bound, and the gap.
+    delays_ms: list[float] = []
+    best_delays_ms: list[float] = []
+    extra_delays_ms: list[float] = []
     dist_stretches: list[float] = []
     # Shared basis: every algorithm graded against the same lower bound, the
     # best end-to-end route to any satellite the destination can see.
@@ -999,8 +1037,12 @@ def compute_path_stretch(
             if best_dist_total > 0.0:
                 shared_dist_stretches.append(algo_dist / best_dist_total)
                 egress_dist_stretches.append(opt_dist_total / best_dist_total)
+            _record_delays(algo_dist, best_dist_total, delays_ms, best_delays_ms, extra_delays_ms)
 
     return {
+        "delay_ms": summarize_distribution(delays_ms),
+        "delay_best_ms": summarize_distribution(best_delays_ms),
+        "delay_extra_ms": summarize_distribution(extra_delays_ms),
         "hop": summarize_distribution(hop_stretches),
         "distance": summarize_distribution(dist_stretches),
         "hop_shared": summarize_distribution(shared_hop_stretches),

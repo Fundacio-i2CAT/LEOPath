@@ -47,3 +47,8 @@ class GroundStation:
         # Satellite whose locator the station's current address embeds, under the
         # one-current-address policies. ``None`` until the first attachment.
         self.current_address_satellite_id: Optional[int] = None
+        # The current address before this snapshot's update, and, under the
+        # requester_aware policy, the synonym of each destination this station
+        # resolved at allocation: (routing family, destination id) -> satellite.
+        self.previous_current_address_satellite_id: Optional[int] = None
+        self.requested_synonyms: dict[tuple[str, int], int] = {}
