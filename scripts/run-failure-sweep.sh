@@ -108,6 +108,12 @@ VARIANTS=(
   "topological_derived_dir_asc|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --gs-attachment-count 1 --gs-attachment-order nearest_ascending"
   "topological_derived_dir_half|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy sticky_nearest"
   "topological_derived_dir_half_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy requester_aware"
+  # The scheme as the revised paper presents it: derived geometry, attachment
+  # addressing, the guarded rule plus exception entries keyed on the destination
+  # address, under the two attachment policies the paper reports.
+  "topological_scheme_asc|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 1 --gs-attachment-order nearest_ascending"
+  "topological_scheme_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy requester_aware"
+  "explicit_r3|--algorithm explicit_path_routing --segment-refresh-interval-steps 3 --explicit-final-egress-mode dynamic --explicit-backup-adjacencies"
   # GS address policies (notes/gs-address-policy.md in the paper repo). Every
   # flow carries one fixed address pair; the policy decides which of a station's
   # K synonyms that is. At K=1 sticky and nearest coincide, so K1 runs once.

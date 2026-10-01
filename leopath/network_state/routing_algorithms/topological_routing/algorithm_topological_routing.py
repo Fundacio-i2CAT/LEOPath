@@ -45,10 +45,9 @@ def algorithm_topological_routing(
     selected_egresses: dict[tuple[int, int], int] = {}
     fixed_address_routes: dict[tuple[int, int], dict] = {}
     params = algorithm_params or {}
-    use_fixed_addresses = (
-        params.get("gs_addressing") == "attachment"
-        and params.get("exception_policy", "none") == "none"
-    )
+    # Every attachment-addressed flow walks one fixed address; exception entries,
+    # when enabled, are keyed on that address.
+    use_fixed_addresses = params.get("gs_addressing") == "attachment"
     fstate = calculate_fstate_topological_routing_no_gs_relay(
         topology_with_isls,
         ground_stations,
@@ -77,8 +76,6 @@ def algorithm_topological_routing(
         "auxiliary_state": state_report,
         "selected_egresses": selected_egresses,
         "fixed_address_routes": fixed_address_routes,
-        # Exception policies still reselect among the K synonyms in transit, so
-        # they keep the any-attachment walk and are flagged as such.
         "fixed_address_forwarding": use_fixed_addresses,
     }
 

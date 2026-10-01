@@ -337,6 +337,7 @@ def calculate_fstate_topological_routing_no_gs_relay(
         selected_egresses=selected_egresses,
     )
 
+    fixed_exception_report: dict = {}
     if fixed_address_routes is not None:
         flow_counters = new_flow_allocation_counters()
         address_policy = str(
@@ -357,6 +358,9 @@ def calculate_fstate_topological_routing_no_gs_relay(
                 weight_model,
                 _resolve_forwarding_guard(algorithm_params, distance_mode),
                 flow_counters,
+                exception_policy=str(algorithm_params.get("exception_policy", "none")),
+                live_graph=satellite_only_subgraph,
+                exception_report=fixed_exception_report,
             )
         )
         if state_report is not None:
@@ -377,6 +381,18 @@ def calculate_fstate_topological_routing_no_gs_relay(
         LOCAL_DETOUR,
         state_report,
     )
+    if state_report is not None and fixed_exception_report:
+        # Under fixed addresses the entries that matter are the ones keyed on the
+        # destination address; the station-keyed figures above describe a walk
+        # these flows don't take.
+        state_report.update(fixed_exception_report)
+        for stale in (
+            "exception_entries_one_pass",
+            "exception_groups",
+            "exception_hops_to_failure_mean",
+            "exception_hops_to_failure_max",
+        ):
+            state_report[stale] = float("nan")
     _report_forwarding_work(state_report, per_satellite_work, weight_model, fstate)
     log.debug(f"Calculated fstate with {len(fstate)} entries")
     return fstate
@@ -393,6 +409,9 @@ def _build_fixed_address_routes(
     weight_model: dict | None,
     forwarding_guard: str,
     flow_counters: dict[str, int],
+    exception_policy: str = "none",
+    live_graph: nx.Graph | None = None,
+    exception_report: dict | None = None,
 ) -> dict[tuple[int, int], dict]:
     """Select one address pair per flow and keep its destination fixed.
 
@@ -403,6 +422,9 @@ def _build_fixed_address_routes(
     evaluation harness; they are not packet-carried source routes.
     """
     routes: dict[tuple[int, int], dict] = {}
+    exceptions: dict[tuple[int, int], int] = {}
+    toward: dict[int, dict[int, float]] = {}
+    unresolved = 0
     for src_idx, src_gs in enumerate(ground_stations):
         if src_idx >= len(gs_candidates):
             continue
@@ -430,7 +452,7 @@ def _build_fixed_address_routes(
             if selected is None:
                 continue
             src_dist, src_sat, dst_dist, dst_sat, dst_address = selected
-            path, failure = _walk_fixed_topological_address(
+            walk_args = (
                 src_sat,
                 dst_sat,
                 dst_address,
@@ -441,6 +463,12 @@ def _build_fixed_address_routes(
                 weight_model,
                 forwarding_guard,
             )
+            if exception_policy == "grow" and live_graph is not None:
+                path, failure = _walk_with_exception_entries(
+                    walk_args, dst_sat, live_graph, exceptions, toward
+                )
+            else:
+                path, failure = _walk_fixed_topological_address(*walk_args)
             routes[(src_gs.id, dst_gs.id)] = {
                 "source_satellite": src_sat,
                 "destination_satellite": dst_sat,
@@ -449,6 +477,18 @@ def _build_fixed_address_routes(
                 "satellite_path": path,
                 "failure": failure,
             }
+            # A destination cut off by a partition fails correctly; only a reachable
+            # one that the walk still misses counts against the exception rule.
+            if failure is not None and src_sat in toward.get(dst_sat, {}):
+                unresolved += 1
+    if exception_report is not None and exception_policy == "grow":
+        exception_report.update(
+            {
+                "exception_entries": float(len(exceptions)),
+                "exception_satellites": float(len({sat for sat, _dst in exceptions})),
+                "exception_unresolved": float(unresolved),
+            }
+        )
     return routes
 
 
@@ -503,8 +543,14 @@ def _walk_fixed_topological_address(
     distance_mode: str,
     weight_model: dict | None,
     forwarding_guard: str,
+    exceptions: dict[tuple[int, int], int] | None = None,
 ) -> tuple[list[int], str | None]:
-    """Realise rule forwarding for one already-selected destination address."""
+    """Realise rule forwarding for one already-selected destination address.
+
+    ``exceptions`` maps (satellite, destination satellite) to the next hop an
+    exception entry installed there; a satellite holding one follows it
+    instead of the rule.
+    """
     current = source_satellite
     path = [current]
     seen = {current}
@@ -523,6 +569,15 @@ def _walk_fixed_topological_address(
         )
 
     while current != destination_satellite and len(path) <= hop_budget:
+        entry = exceptions.get((current, destination_satellite)) if exceptions else None
+        if entry is not None:
+            if entry in seen:
+                path.append(entry)
+                return path, "loop"
+            path.append(entry)
+            seen.add(entry)
+            current = entry
+            continue
         current_address = satellite_addresses.get(current)
         if current_address is None:
             return path, "dead_end"
@@ -565,6 +620,60 @@ def _walk_fixed_topological_address(
 
     if current == destination_satellite:
         return path, None
+    return path, "hop_limit"
+
+
+def _walk_with_exception_entries(
+    walk_args: tuple,
+    destination_satellite: int,
+    live_graph: nx.Graph,
+    exceptions: dict[tuple[int, int], int],
+    toward: dict[int, dict[int, float]],
+) -> tuple[list[int], str | None]:
+    """Walk toward a fixed address, growing exception entries where it breaks.
+
+    The same rule as ``exception_policy: grow`` under station addressing, keyed
+    on the destination address instead of the station: an entry goes only to
+    the satellite where a walk dead-ends, or to the first satellite of a loop
+    that has none yet, pointing along the shortest live path to the
+    destination satellite; then the walk restarts. Entries are shared by every
+    flow toward that address in the snapshot. Each restart adds an entry, so
+    the walk ends within as many restarts as there are satellites.
+    """
+    if destination_satellite not in toward:
+        toward[destination_satellite] = nx.single_source_dijkstra_path_length(
+            live_graph, destination_satellite, weight="weight"
+        )
+    distance = toward[destination_satellite]
+
+    def next_on_shortest_path(satellite: int) -> int | None:
+        if satellite not in distance:
+            return None
+        options = [
+            (live_graph.edges[satellite, n].get("weight", 1.0) + distance[n], n)
+            for n in live_graph.neighbors(satellite)
+            if n in distance and distance[n] < distance[satellite]
+        ]
+        return min(options)[1] if options else None
+
+    for _attempt in range(live_graph.number_of_nodes() + 1):
+        path, failure = _walk_fixed_topological_address(*walk_args, exceptions=exceptions)
+        if failure is None:
+            return path, None
+        if failure == "loop":
+            first = path.index(path[-1])
+            cycle = path[first:-1]
+            breaking = next(
+                (s for s in cycle if (s, destination_satellite) not in exceptions), None
+            )
+        else:
+            breaking = path[-1]
+            if (breaking, destination_satellite) in exceptions:
+                breaking = None
+        hop = next_on_shortest_path(breaking) if breaking is not None else None
+        if hop is None:
+            return path, failure
+        exceptions[(breaking, destination_satellite)] = hop
     return path, "hop_limit"
 
 
