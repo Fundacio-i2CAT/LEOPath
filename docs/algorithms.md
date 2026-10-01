@@ -26,15 +26,21 @@ LEOPath exposes routing algorithms through a pluggable interface. Each one compu
 
 Full topology knowledge at every snapshot, so it gives the lower bound on stretch and path length that everything else is measured against. It also sets the ceiling on forwarding state, since each satellite ends up holding an entry per destination.
 
+![Link-state: one table entry per destination](assets/diagrams/link-state.svg)
+
 ### Topological routing
 
 Structured addressing replaces full topology state. A satellite decides the next hop from the topological distance between its neighbors' addresses and the destination address, which means state scales with node degree rather than constellation size. The trade the design makes is low, stable state against strict path optimality; whether it actually costs any optimality depends on the distance metric.
+
+![Topological forwarding, hop by hop (animated)](assets/diagrams/topological-walk.svg)
 
 The `distance_mode` parameter selects that metric:
 
 - `torus_unit`: hop count on the logical torus. Every edge costs 1, so the estimator is blind to how much physically longer an inter-plane ISL is near the equator than near the poles. This is what `dra_routing` pins.
 - `torus_weighted_lookahead` (the default): weighted progress with a one-hop lookahead.
 - `torus_weighted_pivot`: builds a per-snapshot weight model from ISL lengths, then estimates distance through row and column pivots. This is the mode the Computer Networks paper evaluates.
+
+![Hop count (DRA) against the pivot estimator](assets/diagrams/dra-vs-pivot.svg)
 
 #### Where the geometry comes from
 
@@ -109,6 +115,8 @@ Each change costs a directory update and a flow update to the far end of every a
 
 Set `gs_attachment_count` above 1 and a station is attached to K satellites at once, holding one address under each. Its IPC process accepts packets sent to any of them, the way a RINA IPC process accepts any of its synonyms. A packet still carries exactly one destination address, though, and no satellite along the way may swap it for another of the station's addresses, so something has to decide which of the K a flow uses. That decision is a policy, `gs_address_policy`:
 
+![Which of B's addresses a flow uses under each address policy](assets/diagrams/address-policies.svg)
+
 ```
   station g, K = 2                     sticky_nearest (the default)
 
@@ -137,7 +145,10 @@ A station that renumbers sends one flow update to each peer, counted as `aux_gs_
 
 #### Two halves of a shell
 
-Attaching to the nearest satellite is cheap, and on a Walker delta shell it can send a packet around the planet. Over any station, satellites cross the sky on two kinds of pass, northbound (ascending) and southbound (descending), and on the logical grid the two kinds sit about half the shell apart:
+Attaching to the nearest satellite is cheap, and on a Walker delta shell it can send a packet around the planet.
+![Two satellites over Nairobi, half the network apart (animated)](assets/diagrams/two-halves.svg)
+
+ Over any station, satellites cross the sky on two kinds of pass, northbound (ascending) and southbound (descending), and on the logical grid the two kinds sit about half the shell apart:
 
 ```
   Nairobi at t = 0 on Starlink, both satellites 682 km away
@@ -163,15 +174,21 @@ One consequence to keep in mind when reading results: the address fixes the egre
 
 #### Forwarding under failures
 
+
+![Guard, local repair and exception entry (animated)](assets/diagrams/failures.svg)
+
 Greedy forwarding on a damaged grid can loop. With `geometry_source: nominal` or `derived`, a satellite whose best link has failed picks another neighbour, and that neighbour's estimate, which knows nothing about the failure, sends the packet straight back. Three options deal with this, and they stack:
 
 - `forwarding_guard: progress` forwards only to a neighbour strictly lower in a potential Φ: the estimated distance to the closest satellite that sees the destination, plus that satellite's ground-link length, with ties broken by satellite id. Every hop goes downhill, so a packet can't revisit a satellite, and one with no lower neighbour is at a local minimum, counted in `aux_forwarding_exceptions`. Φ has to be the same whichever satellite computes it, so only `torus_unit` and `torus_weighted_pivot` accept the guard.
 - `local_repair: square` keeps a next hop whose link has failed and reaches it over the shortest live three-hop detour, which on +Grid runs around one grid square. It follows RINA's two-step routing, where the path to the next hop is the lower layer's business, and because the decision still names the same next hop the guard's argument holds. A satellite needs the state of links within two hops, nothing more.
-- `exception_policy: grow` adds explicit entries wherever the first two still can't deliver, along the shortest live path, in the style of rule-and-exception forwarding. Entries go only to the satellite where a walk breaks, repeated until every reachable live satellite delivers; `aux_exception_entries_one_pass` reports the larger placement that gives every failing satellite an entry. It assumes satellites learn failures by flooding only the failures over a topology they already know.
+- `exception_policy: grow` adds explicit entries wherever the first two still can't deliver, along the shortest live path, in the style of rule-and-exception forwarding. Entries go only to the satellite where a walk breaks, repeated until every reachable live satellite delivers; `aux_exception_entries_one_pass` reports the larger placement that gives every failing satellite an entry. It assumes satellites learn failures by flooding only the failures over a topology they already know. Under `gs_addressing: attachment` a flow keeps its one destination address, so the entries are keyed on the destination satellite rather than the station: `(satellite, destination satellite) -> next hop`, shared by every flow heading for that address in the snapshot, and the walk restarts after each new entry until it delivers or the destination is cut off.
 
 With all three on, the failure sweep delivered every deliverable pair on all four constellations, and exception state stayed mostly under 1% of link-state's table.
 
 ### Explicit-path routing
+
+
+![Explicit-path routing: the route travels in the header](assets/diagrams/explicit-path.svg)
 
 Strict satellite paths are computed per source-satellite / destination-GS pair, either centrally or at the ingress. The packet carries the remaining hop list as a strict SRv6-like adjacency header, so transit satellites only need a local neighbor and interface map. For state accounting, every satellite counts its local neighbor/interface entries, while destination-to-segment ingress bindings are counted only on satellites that currently host a ground-station attachment.
 
@@ -225,6 +242,8 @@ simulation:
 simulation:
   dynamic_state_algorithm: dra_routing
 ```
+
+DRA is the topological rule with a hop-count distance (`torus_unit`), so it accepts every topological option except `distance_mode`, which it fixes itself: `gs_addressing`, the attachment options, `geometry_source`, `forwarding_guard`, `local_repair` and `exception_policy`. Without them it runs as plain DRA. With the same options as topological routing, the two differ only in the distance function, which is the controlled comparison the failure sweep's `dra_scheme_*` variants make.
 
 ### Explicit-path routing
 

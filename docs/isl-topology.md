@@ -4,6 +4,9 @@ LEOPath builds inter-satellite links as a `+Grid`: four laser terminals per sate
 
 Starlink's own progress reports say each satellite carries three space lasers, not four. That single missing terminal changes the shape of the network enough to break the pivot distance estimator outright. This page works out why and what the repair looks like, then shows what the simulator does with it: both three-terminal layouts are ISL scenarios (`--isl-scenario brick_a` and `brick_b`), and the topological estimator has a brick form. [Using it](#using-it) and [Results](#results) are at the end.
 
+
+![Ring, +Grid, +Grid with the seam open, and the three-laser brick wall](assets/diagrams/isl-wirings.svg)
+
 ## Four terminals, and what they buy
 
 A link burns one terminal at each end. With four, a satellite reaches its orbital neighbours ahead and behind, plus one satellite in each adjacent plane:

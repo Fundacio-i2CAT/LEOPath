@@ -177,6 +177,10 @@ When a deliverable pair isn't delivered, `delivery_failure_*` records why, and t
 | `hop_limit` | the walk ran out of hops |
 | `egress_lost` | forwarding finished at a satellite that can't see the destination ground station |
 
+### Links slower than their geometry
+
+`--isl-delay-spread s` gives every ISL a fixed extra delay of up to `s` times its geometric delay, drawn per link as `1 + s * U(0, 1)` from `--isl-delay-seed`, so every algorithm meets the same slow links. The factor only adds delay, since light can't cross a link faster than its length allows; think of it as processing, pointing or hardware differences the geometry doesn't know about. Routing, link-state and the metrics all see the slowed links, but a `geometry_source: derived` estimator doesn't, which is the point: it measures what assuming ideal Walker geometry costs when the real network disagrees. The graph has one weight per link, so delays differ between links but not between the two directions of one link. In the sweep runner, pass it to every job with `EXTRA_ARGS="--isl-delay-spread 0.3"`.
+
 ## Evaluation checklist
 
 - Fix ground-station set and simulation horizon for all runs.
