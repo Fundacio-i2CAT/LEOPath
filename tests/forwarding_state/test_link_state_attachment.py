@@ -118,7 +118,7 @@ def test_harness_passes_multihoming_parameters_to_both_algorithms() -> None:
     [
         ("shortest_path_link_state", "attachment"),
         ("topological_routing", "attachment"),
-        ("dra_routing", None),
+        ("dra_routing", "attachment"),
     ],
 )
 def test_the_harness_passes_the_policy_to_link_state_and_topological(
@@ -139,6 +139,33 @@ def test_the_harness_passes_the_policy_to_link_state_and_topological(
     )
 
     assert params.get("gs_addressing") == expected
+
+
+def test_dra_takes_every_topological_option_except_the_distance() -> None:
+    params = prepare_algorithm_params(
+        simulation_config={"time_step_minutes": 1},
+        algorithm_name="dra_routing",
+        segment_count=None,
+        segment_refresh_interval_steps=None,
+        plane_weight=None,
+        sat_weight=None,
+        shell_weight=None,
+        distance_mode="torus_weighted_pivot",
+        explicit_final_egress_mode=None,
+        time_step_minutes=None,
+        geometry_source="derived",
+        forwarding_guard="progress",
+        exception_policy="grow",
+        gs_addressing="attachment",
+        gs_attachment_count=2,
+        gs_address_policy="requester_aware",
+    )
+
+    assert "distance_mode" not in params
+    assert params["exception_policy"] == "grow"
+    assert params["forwarding_guard"] == "progress"
+    assert params["geometry_source"] == "derived"
+    assert params["gs_address_policy"] == "requester_aware"
 
 
 def test_link_state_routes_between_the_same_current_addresses_as_topological() -> None:

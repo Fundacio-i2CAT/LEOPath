@@ -28,6 +28,8 @@ VARIANT_FILTER=${VARIANT_FILTER:-}
 CONDITION_FILTER=${CONDITION_FILTER:-}
 GS_CONFIG=${GS_CONFIG:-/app/leopath/config/ground_stations_dense.yaml}
 EXPLICIT_SLOW_REFRESH_STEPS=${EXPLICIT_SLOW_REFRESH_STEPS:-15}
+# Extra harness flags applied to every job, e.g. "--isl-delay-spread 0.3".
+EXTRA_ARGS=${EXTRA_ARGS:-}
 
 # name|harness flags. Random conditions run once per seed.
 RANDOM_CONDITIONS=(
@@ -113,6 +115,10 @@ VARIANTS=(
   # address, under the two attachment policies the paper reports.
   "topological_scheme_asc|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 1 --gs-attachment-order nearest_ascending"
   "topological_scheme_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy requester_aware"
+  # DRA under the same model as the scheme, so the comparison differs only in
+  # the distance function (DRA's hop count against the pivot estimator).
+  "dra_scheme_asc|--algorithm dra_routing --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 1 --gs-attachment-order nearest_ascending"
+  "dra_scheme_req|--algorithm dra_routing --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy requester_aware"
   "explicit_r3|--algorithm explicit_path_routing --segment-refresh-interval-steps 3 --explicit-final-egress-mode dynamic --explicit-backup-adjacencies"
   # GS address policies (notes/gs-address-policy.md in the paper repo). Every
   # flow carries one fixed address pair; the policy decides which of a station's
@@ -147,7 +153,7 @@ run_job() {
   rm -rf "$out"; mkdir -p "$out"
 
   local args
-  read -r -a args <<< "$flags"
+  read -r -a args <<< "$flags $EXTRA_ARGS"
   local start
   start=$(date +%s)
   echo "[$(date +%H:%M:%S)] start $cfg/$condition/seed$seed/$variant"

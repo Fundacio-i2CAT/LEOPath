@@ -185,3 +185,18 @@ def test_delay_is_path_length_over_the_speed_of_light() -> None:
     assert extra[0] == pytest.approx(0.0)
     assert delays[1] == pytest.approx(10.007, abs=1e-3)
     assert extra[1] == pytest.approx(2.001, abs=1e-3)
+
+
+def test_isl_delay_factors_only_add_delay_and_are_the_same_from_both_ends() -> None:
+    from leopath.experiments.eval_harness import apply_isl_delay_factors, isl_delay_factor
+
+    assert isl_delay_factor(3, 7, 0.3, 1) == isl_delay_factor(7, 3, 0.3, 1)
+    factors = [isl_delay_factor(a, a + 1, 0.3, 1) for a in range(200)]
+    assert all(1.0 <= f <= 1.3 for f in factors) and len(set(factors)) > 150
+
+    graph = nx.Graph()
+    graph.add_edge(0, 1, weight=1000.0)  # satellites 0 and 1
+    graph.add_edge(1, 5, weight=500.0)  # 5 is a ground station
+    apply_isl_delay_factors(graph, satellite_count=2, spread=0.3, seed=1)
+    assert graph.edges[0, 1]["weight"] == pytest.approx(1000.0 * isl_delay_factor(0, 1, 0.3, 1))
+    assert graph.edges[1, 5]["weight"] == 500.0
