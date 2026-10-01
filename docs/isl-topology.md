@@ -371,11 +371,11 @@ Keep the two costs apart when reporting. The 17% to 56% path penalty is what the
 
 ## Where this sits in the architecture
 
-RINA splits the two things this page keeps conflating. The RMT is a stateless function that takes a PDU, reads its address field, and either delivers it locally or consults the forwarding table and posts it to an `(N-1)`-port (`rmt-spec-0002`, l.56-90), with that table keyed on `[destination-address, QoS-id]` (`rmt-spec-0003`, l.92-139). Building the table belongs to the Forwarding Table Generator, "sometimes called routing" (`rina-spec-overview-0005` section 5.3.2; Part 3-1 section 2.6.2.2, `rina-refmodel-part3-1-0015`, l.1176-1235). Interior routers do nothing beyond relaying: a border router is distinguished only by an extra level of multiplexing and PDU aggregation (`rina-refmodel-part3-1-0012`, l.935-1022).
+6G-RUPA, following the RINA reference model, splits the two things this page keeps conflating. The RMT is a stateless function that takes a PDU, reads its address field, and either delivers it locally or consults the forwarding table and posts it to an `(N-1)`-port (`rmt-spec-0002`, l.56-90), with that table keyed on `[destination-address, QoS-id]` (`rmt-spec-0003`, l.92-139). Building the table belongs to the Forwarding Table Generator, "sometimes called routing" (`rina-spec-overview-0005` section 5.3.2; Part 3-1 section 2.6.2.2, `rina-refmodel-part3-1-0015`, l.1176-1235). Interior routers do nothing beyond relaying: a border router is distinguished only by an extra level of multiplexing and PDU aggregation (`rina-refmodel-part3-1-0012`, l.935-1022).
 
 Cutting a laser therefore touches one component. The distance estimator is an FTG policy, the brick wall needs a different policy, and the relay, the PDU format and the address layout all stay as they are. An interior satellite still holds forwarding state proportional to its degree, which on a brick wall is three.
 
-Two things not to overclaim. The reference model has the RMT consult a table, so a policy that computes the next hop from the address rather than storing it per destination is compatible with the model rather than prescribed by it. And the policy detects nothing: `distance_mode` is configured, and in RINA terms selected per DIF at enrollment or by management, so "adapts to the topology" would be wrong.
+Two things not to overclaim. The reference model has the RMT consult a table, so a policy that computes the next hop from the address rather than storing it per destination is compatible with the model rather than prescribed by it. And the policy detects nothing: `distance_mode` is configured, and in 6G-RUPA terms selected per layer at enrollment or by management, so "adapts to the topology" would be wrong.
 
 ## Caveats
 

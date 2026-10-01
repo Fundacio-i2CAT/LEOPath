@@ -8,9 +8,9 @@ In 6G-RUPA a satellite's address is its seat in the constellation: shell, plane 
 
 ![A station's address is its satellite's address plus x](assets/diagrams/address.svg)
 
-That's what makes forwarding cheap. A satellite reading `(0, 12, 7, ...)` knows which way to send the packet from the address alone, the same way you know roughly where a street address is before you look it up, and it needs no table of ground stations at all.
+That's what makes forwarding cheap. A satellite reading `(0, 3, 1, ...)` knows which way to send the packet from the address alone, the same way you know roughly where a street address is before you look it up, and it needs no table of ground stations at all.
 
-The price is that satellites don't stay put. A satellite is overhead for a few minutes, then it's gone, and the station has to take an address under the next one. In RINA terms the station *renumbers*: it keeps its name, gets a new address, tells the directory, and sends one flow update to the other end of each open flow so the flows carry on under the new address. Nothing gets dropped, because a flow is tied to its endpoints' names and ports, not to the address.
+The price is that satellites don't stay put. A satellite is overhead for a few minutes, then it's gone, and the station has to take an address under the next one. In 6G-RUPA terms the station *renumbers*: it keeps its name, gets a new address, tells the directory, and sends one flow update to the other end of each open flow so the flows carry on under the new address. Nothing gets dropped, because a flow is tied to its endpoints' names and ports, not to the address.
 
 ![A station renumbers as satellites pass (animated)](assets/diagrams/renumbering.svg)
 
@@ -28,16 +28,16 @@ So a station that grabs whichever satellite happens to be nearest is, a lot of t
 
 Measured over 24 ground stations without failures, that costs on average 37 ms extra one way on Starlink, 32 ms on Telesat and 18 ms on Kuiper. OneWeb, a Walker star shell, loses about 7 ms, since its passes don't split into two halves the same way.
 
-## Two fixes, both ordinary RINA policies
+## Two fixes, both ordinary 6G-RUPA policies
 
-Which half is right depends on both ends of the conversation, so no station can always get it right on its own. LEOPath implements two policies, a simple one and a better one, and neither needs anything outside RINA: one is a choice the station makes about which satellite to attach to, the other is the directory taking the caller into account when it answers.
+Which half is right depends on both ends of the conversation, so no station can always get it right on its own. LEOPath implements two policies, a simple one and a better one, and neither needs anything outside 6G-RUPA: one is a choice the station makes about which satellite to attach to, the other is the directory taking the caller into account when it answers.
 
 
 ![Which satellites a station attaches to under each order](assets/diagrams/attachment-orders.svg)
 
 **Prefer northbound** (`gs_attachment_order: nearest_ascending`). Every station attaches to its nearest northbound satellite, falling back to a southbound one only when no northbound one is visible. If everyone sits on the same half, most pairs line up. It needs no coordination, and on the delta shells it cuts the extra delay by 40-60%. It can't fix pairs where the best route really does run through the southbound half at both ends, which is about a third of them.
 
-**Smart directory** (`gs_attachment_order: one_per_half`, `gs_attachment_count: 2`, `gs_address_policy: requester_aware`). Every station holds two addresses at once, one under its nearest northbound satellite and one under its nearest southbound satellite, and accepts packets on either. When A opens a flow to B, B's side answers with whichever of B's two addresses suits A, and A sends through whichever of its own two satellites suits that address. The RINA flow allocator already works this way: the destination returns its address in the reply to the flow request, and the request carries the caller's address.
+**Smart directory** (`gs_attachment_order: one_per_half`, `gs_attachment_count: 2`, `gs_address_policy: requester_aware`). Every station holds two addresses at once, one under its nearest northbound satellite and one under its nearest southbound satellite, and accepts packets on either. When A opens a flow to B, B's side answers with whichever of B's two addresses suits A, and A sends through whichever of its own two satellites suits that address. The 6G-RUPA flow allocator already works this way (it follows the RINA specification): the destination returns its address in the reply to the flow request, and the request carries the caller's address.
 
 ![Smart directory, step by step (animated)](assets/diagrams/smart-directory.svg)
 

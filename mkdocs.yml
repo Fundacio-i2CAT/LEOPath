@@ -1,9 +1,16 @@
 site_name: LEOPath
+site_url: https://fundacio-i2cat.github.io/LEOPath/
+repo_url: https://github.com/Fundacio-i2CAT/LEOPath
+repo_name: Fundacio-i2CAT/LEOPath
 docs_dir: docs
 site_dir: site
 
 theme:
   variant: modern
+  logo: assets/brand/leopath-mark.png
+  favicon: assets/brand/favicon.png
+  icon:
+    repo: fontawesome/brands/github
 
 nav:
   - Home: index.md
@@ -23,5 +30,8 @@ nav:
 markdown_extensions:
   - admonition
   - tables
+  - attr_list
+  - md_in_html
+  - pymdownx.superfences
   - toc:
       permalink: true

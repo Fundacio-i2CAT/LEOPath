@@ -377,7 +377,7 @@ def address_policies(frames_dir):
         ("nearest", "B's address follows its nearest satellite;|every caller uses it", ["n", "n"], "B"),
         ("sticky_nearest (default)", "B keeps its current address while it's|still attached; every caller uses it", ["n", "n"], "B"),
         ("requester_aware", "B answers each caller with its address|on that caller's half", ["n", "s"], "B"),
-        ("per_flow_pair", "each source picks both ends for its flow|(beyond RINA, kept as a bound)", ["n", "s"], "source"),
+        ("per_flow_pair", "each source picks both ends for its flow|(beyond 6G-RUPA, kept as a bound)", ["n", "s"], "source"),
     ]
     body = [text(360, 30, "Which of B's addresses a flow uses", 16, weight="bold")]
     for i, (name, note, uses, chooser) in enumerate(rows):
