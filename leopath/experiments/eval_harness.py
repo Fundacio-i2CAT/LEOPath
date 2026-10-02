@@ -1,4 +1,5 @@
 import math
+import random
 import argparse
 import datetime
 import logging
@@ -143,6 +144,27 @@ def northbound_satellites(
         for slot in range(shell.sats_per_plane)
         if math.cos(shell.argument_of_latitude_rad(plane, slot, time_s)) > 0.0
     }
+
+
+def isl_delay_factor(sat_a: int, sat_b: int, spread: float, seed: int) -> float:
+    """Fixed extra-delay factor of one ISL, the same whichever end asks.
+
+    Light can't cross a link faster than its geometry allows, so the factor
+    only adds delay: 1 + spread * U(0, 1), drawn from the link and the seed
+    alone so that every algorithm meets the same slow links.
+    """
+    low, high = min(sat_a, sat_b), max(sat_a, sat_b)
+    return 1.0 + spread * random.Random(f"{seed}:{low}:{high}").random()
+
+
+def apply_isl_delay_factors(graph, satellite_count: int, spread: float, seed: int) -> None:
+    """Scale every satellite-to-satellite edge weight by its fixed delay factor.
+
+    Satellites hold ids 0 .. satellite_count - 1; ground-station links are left alone.
+    """
+    for sat_a, sat_b, data in graph.edges(data=True):
+        if sat_a < satellite_count and sat_b < satellite_count and "weight" in data:
+            data["weight"] = float(data["weight"]) * isl_delay_factor(sat_a, sat_b, spread, seed)
 
 
 def isl_wiring(scenario: str) -> str:
@@ -305,6 +327,8 @@ def run_evaluation(
     gs_attachment_policy: str | None = None,
     gs_address_policy: str | None = None,
     gs_attachment_order: str | None = None,
+    isl_delay_spread: float = 0.0,
+    isl_delay_seed: int = 1,
 ) -> None:
     config = load_config(config_path)
     gs_override = load_ground_station_override(gs_override_path)
@@ -424,6 +448,13 @@ def run_evaluation(
         topology_with_isls, _ = _build_topologies(constellation_data, ground_stations)
         topology_with_isls.gsl_interfaces_info = list_gsl_interfaces_info
         _compute_isls(topology_with_isls, undirected_isls, time_absolute)
+        if isl_delay_spread:
+            apply_isl_delay_factors(
+                topology_with_isls.graph,
+                constellation_data.number_of_satellites,
+                isl_delay_spread,
+                isl_delay_seed,
+            )
         gs_sat_visibility = _compute_ground_station_satellites_in_range(
             topology_with_isls, time_absolute
         )
@@ -636,6 +667,8 @@ def run_evaluation(
         and not has_counter_rotating_seam(raan_spread_degree),
         "raan_spread_degree": raan_spread_degree,
         "failure_model": failure_process.describe(),
+        "isl_delay_spread": isl_delay_spread,
+        "isl_delay_seed": isl_delay_seed,
         # Set by the runner scripts to the image tag, so outputs from different
         # builds sharing one output tree can be told apart.
         "code_version": os.environ.get("LEOPATH_CODE_VERSION"),
@@ -821,6 +854,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--failure-seed", type=int, default=0)
     parser.add_argument(
+        "--isl-delay-spread",
+        type=float,
+        default=0.0,
+        help=(
+            "Give every ISL a fixed extra delay of up to this fraction of its geometric delay "
+            "(factor 1 + s*U(0,1)); routing and metrics see it, a derived-geometry estimator does not"
+        ),
+    )
+    parser.add_argument("--isl-delay-seed", type=int, default=1)
+    parser.add_argument(
         "--failure-mean-duration-minutes",
         type=float,
         default=None,
@@ -858,6 +901,8 @@ def main() -> None:
         gs_attachment_policy=args.gs_attachment_policy,
         gs_address_policy=args.gs_address_policy,
         gs_attachment_order=args.gs_attachment_order,
+        isl_delay_spread=args.isl_delay_spread,
+        isl_delay_seed=args.isl_delay_seed,
         failure_config=FailureConfig(
             failure_type=args.failure_type,
             rate=args.failure_rate,

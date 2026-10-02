@@ -28,6 +28,8 @@ VARIANT_FILTER=${VARIANT_FILTER:-}
 CONDITION_FILTER=${CONDITION_FILTER:-}
 GS_CONFIG=${GS_CONFIG:-/app/leopath/config/ground_stations_dense.yaml}
 EXPLICIT_SLOW_REFRESH_STEPS=${EXPLICIT_SLOW_REFRESH_STEPS:-15}
+# Extra harness flags applied to every job, e.g. "--isl-delay-spread 0.3".
+EXTRA_ARGS=${EXTRA_ARGS:-}
 
 # name|harness flags. Random conditions run once per seed.
 RANDOM_CONDITIONS=(
@@ -147,7 +149,7 @@ run_job() {
   rm -rf "$out"; mkdir -p "$out"
 
   local args
-  read -r -a args <<< "$flags"
+  read -r -a args <<< "$flags $EXTRA_ARGS"
   local start
   start=$(date +%s)
   echo "[$(date +%H:%M:%S)] start $cfg/$condition/seed$seed/$variant"
