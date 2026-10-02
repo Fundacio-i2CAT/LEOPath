@@ -117,10 +117,17 @@ METRICS = (
     "exception_entries_per_snapshot",
     "exception_entries_one_pass_per_snapshot",
     "exception_satellites_per_snapshot",
+    "exception_destinations_per_snapshot",
+    "exception_entries_on_flow_paths_per_snapshot",
+    "exception_entries_max_per_satellite",
+    "exception_entries_in_use_per_snapshot",
+    "exception_region_entries_per_snapshot",
+    "exception_region_max_per_satellite",
     "exception_share_of_link_state",
     "exception_hops_to_failure_mean",
     "exception_hops_to_failure_max",
     "exception_unresolved_total",
+    "exception_unresolved_walks_total",
     *(f"failure_share_{cause}" for cause in FORWARDING_FAILURE_CAUSES),
 )
 # Two-sided 95% Student t quantiles by degrees of freedom.
@@ -222,10 +229,17 @@ def _exception_state(rows: list[dict[str, str]], metadata: dict[str, Any]) -> di
             "exception_entries_per_snapshot": None,
             "exception_entries_one_pass_per_snapshot": None,
             "exception_satellites_per_snapshot": None,
+            "exception_destinations_per_snapshot": None,
+            "exception_entries_on_flow_paths_per_snapshot": None,
+            "exception_entries_max_per_satellite": None,
+            "exception_entries_in_use_per_snapshot": None,
+            "exception_region_entries_per_snapshot": None,
+            "exception_region_max_per_satellite": None,
             "exception_share_of_link_state": None,
             "exception_hops_to_failure_mean": None,
             "exception_hops_to_failure_max": None,
             "exception_unresolved_total": None,
+            "exception_unresolved_walks_total": None,
         }
     satellites = _satellite_count(metadata)
     # Link-state installs one entry per satellite per ground station.
@@ -238,6 +252,25 @@ def _exception_state(rows: list[dict[str, str]], metadata: dict[str, Any]) -> di
             rows, "aux_exception_entries_one_pass"
         ),
         "exception_satellites_per_snapshot": column_mean(rows, "aux_exception_satellites"),
+        # Fixed-address runs only: the destination addresses holding entries, and
+        # the entries the flows' own walks pass through, out of the set grown
+        # from every live satellite.
+        "exception_destinations_per_snapshot": column_mean(rows, "aux_exception_destinations"),
+        "exception_entries_on_flow_paths_per_snapshot": column_mean(
+            rows, "aux_exception_entries_on_flow_paths"
+        ),
+        "exception_entries_max_per_satellite": column_max(
+            rows, "aux_exception_entries_max_per_satellite"
+        ),
+        # Fixed-address runs grow entries toward every destination satellite;
+        # these split out the addresses in use and the exact region aggregation.
+        "exception_entries_in_use_per_snapshot": column_mean(rows, "aux_exception_entries_in_use"),
+        "exception_region_entries_per_snapshot": column_mean(
+            rows, "aux_exception_region_entries"
+        ),
+        "exception_region_max_per_satellite": column_max(
+            rows, "aux_exception_region_max_per_satellite"
+        ),
         "exception_share_of_link_state": ratio(
             column_sum(rows, "aux_exception_entries"), link_state_entries
         ),
@@ -246,6 +279,11 @@ def _exception_state(rows: list[dict[str, str]], metadata: dict[str, Any]) -> di
         ),
         "exception_hops_to_failure_max": column_max(rows, "aux_exception_hops_to_failure_max"),
         "exception_unresolved_total": column_sum(rows, "aux_exception_unresolved"),
+        "exception_unresolved_walks_total": (
+            column_sum(rows, "aux_exception_unresolved_walks")
+            if "aux_exception_unresolved_walks" in rows[0]
+            else None
+        ),
     }
 
 

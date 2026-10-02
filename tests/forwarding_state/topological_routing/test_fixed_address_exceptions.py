@@ -150,3 +150,100 @@ def test_address_pair_selection_skips_pairs_split_by_a_partition() -> None:
     assert blind[3] == near_but_cut  # the estimate alone walks into the partition
     assert aware[3] == far_but_live
     assert _select_topological_address_pair(source, destinations[:1], *args, component) is None
+
+
+def test_entries_grown_per_destination_serve_a_walk_from_every_live_satellite() -> None:
+    from leopath.network_state.routing_algorithms.topological_routing.fstate_calculation import (
+        _grow_fixed_address_exceptions,
+    )
+
+    for seed in range(4):
+        live, addresses, model, neighbours = _setup(seed)
+        rule_args = (addresses, neighbours, CONSTELLATION, MODE, model, "progress")
+        destinations = sorted(live.nodes())[::7]
+        exceptions: dict = {}
+        toward: dict = {}
+        for dst in destinations:
+            unresolved = _grow_fixed_address_exceptions(
+                dst, addresses[dst], rule_args, live, exceptions, toward
+            )
+            assert unresolved == 0, (seed, dst)
+        # No flow drove the growth, yet every live source now delivers with the
+        # entries alone, and none of them is added afterwards.
+        count = len(exceptions)
+        for dst in destinations:
+            for src in live.nodes():
+                if src == dst or not nx.has_path(live, src, dst):
+                    continue
+                path, failure = _walk_fixed_topological_address(
+                    *_args(src, dst, addresses, model, neighbours), exceptions=exceptions
+                )
+                assert failure is None, (seed, src, dst)
+                assert all(live.has_edge(a, b) for a, b in zip(path, path[1:]))
+        assert len(exceptions) == count
+        assert all(dst in destinations for _sat, dst in exceptions)
+
+
+def test_growth_from_every_satellite_covers_what_per_flow_growth_needs() -> None:
+    from leopath.network_state.routing_algorithms.topological_routing.fstate_calculation import (
+        _grow_fixed_address_exceptions,
+    )
+
+    live, addresses, model, neighbours = _setup(2)
+    rule_args = (addresses, neighbours, CONSTELLATION, MODE, model, "progress")
+    dst = 9
+    per_flow: dict = {}
+    for src in [0, 30, 44]:
+        _walk_with_exception_entries(
+            _args(src, dst, addresses, model, neighbours), dst, live, per_flow, {}
+        )
+    every: dict = {}
+    _grow_fixed_address_exceptions(dst, addresses[dst], rule_args, live, every, {})
+    # Serving every entry point can only need as many entries or more.
+    assert len(every) >= len(per_flow)
+
+
+def test_walks_from_damaged_satellites_suffice_for_every_destination() -> None:
+    # On the intact grid the rule needs no entries, so only walks that reach a
+    # satellite that lost an ISL can break; growing from those alone delivers
+    # from every live satellite.
+    from leopath.network_state.routing_algorithms.topological_routing.fstate_calculation import (
+        _grow_fixed_address_exceptions,
+    )
+
+    for seed in range(3):
+        live, addresses, model, neighbours = _setup(seed)
+        nominal = _grid()
+        damaged = sorted(s for s in live.nodes() if live.degree(s) < nominal.degree(s))
+        rule_args = (addresses, neighbours, CONSTELLATION, MODE, model, "progress")
+        exceptions: dict = {}
+        for dst in sorted(live.nodes()):
+            _grow_fixed_address_exceptions(
+                dst, addresses[dst], rule_args, live, exceptions, {}, sources=damaged
+            )
+        for dst in live.nodes():
+            for src in live.nodes():
+                if src != dst and nx.has_path(live, src, dst):
+                    _path, failure = _walk_fixed_topological_address(
+                        *_args(src, dst, addresses, model, neighbours), exceptions=exceptions
+                    )
+                    assert failure is None, (seed, src, dst)
+
+
+def test_region_entries_aggregate_without_changing_a_decision() -> None:
+    from leopath.network_state.routing_algorithms.topological_routing.fstate_calculation import (
+        _grow_fixed_address_exceptions,
+        _region_entry_count,
+    )
+
+    live, addresses, model, neighbours = _setup(1)
+    rule_args = (addresses, neighbours, CONSTELLATION, MODE, model, "progress")
+    exceptions: dict = {}
+    for dst in sorted(live.nodes()):
+        _grow_fixed_address_exceptions(dst, addresses[dst], rule_args, live, exceptions, {})
+    total, largest = _region_entry_count(exceptions, rule_args, CONSTELLATION)
+    per_satellite: dict = {}
+    for sat, _dst in exceptions:
+        per_satellite[sat] = per_satellite.get(sat, 0) + 1
+    assert 0 < total < len(exceptions)
+    assert largest <= max(per_satellite.values())
