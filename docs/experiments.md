@@ -130,6 +130,16 @@ python scripts/celestrak_lattice_fit.py
 
 `celestrak_shell_geometry.py` keeps one inclination and altitude window, groups planes by clustering node angles, and reports plane count, occupancy and how evenly planes and slots are spread. `celestrak_lattice_fit.py` asks the sharper question of whether satellites sit on a slot lattice with empty slots or scatter: per plane it fits the slot count and phase and measures the residual to the nearest slot. On the 29 September 2026 snapshot the residual was about 20 km, far below what scattered satellites would give, so the irregularity in flying shells comes mostly from empty slots. The fitted slot count is ambiguous up to multiples; the residual isn't.
 
+## How long a failure report takes to spread
+
+`scripts/flood_time.py` builds each shell's +Grid from its seven Walker constants, weights every link by its propagation delay, and reports how long a flood from one satellite takes to reach the last one (eccentricity), the worst case (diameter), and both in hops so per-hop processing can be added:
+
+```bash
+python scripts/flood_time.py --samples 12 > flood_time.csv
+```
+
+Both routing families learn about a failure by flooding it, so this is the floor on convergence for either. On the four main constellations and the 12 FCC shells it comes to 78-191 ms on +Grid and up to 308 ms with the seam open, over 19-89 hops: even with a millisecond of processing per hop it stays under half a second, well inside a one-minute snapshot. What happens after the flood differs, and the simulator counts that part: link-state recomputes routes to every destination, the topological scheme adds exception entries only where walks break.
+
 ## Ground-terminal population
 
 The routing runs use a handful of ground stations. `scripts/terminal_population.py` asks what happens to addressing with many more terminals, without routing any packet: it places N terminals, attaches each to one satellite every snapshot, and reports how many terminals the busiest satellite carries, how many bits the endpoint index x then needs, how often terminals change address and the directory updates per second that implies.

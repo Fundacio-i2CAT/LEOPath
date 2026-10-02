@@ -130,6 +130,11 @@ def resolve_flow_address_pair(
     )
 
 
+def _without_ground_link(candidates: list) -> list:
+    """The same attachments with the ground-link length (item 0) set to zero."""
+    return [(0.0, *candidate[1:]) for candidate in candidates]
+
+
 def _requester_aware_pair(
     routing_family: str,
     source_gs: GroundStation,
@@ -150,7 +155,10 @@ def _requester_aware_pair(
     pinned = source_gs.requested_synonyms.get(key)
     advertised = {c[1] for c in destination_candidates}
     if pinned is None:
-        chosen = select(source_candidates, destination_candidates)
+        # B's IPC process chooses with what it can know: A's synonyms from the
+        # directory and its own ground links. A's ground-link lengths stay with A,
+        # so they don't weigh in here; A uses them when it picks its uplink below.
+        chosen = select(_without_ground_link(source_candidates), destination_candidates)
         if chosen is None:
             return None
         counters["flow_allocations"] += 1

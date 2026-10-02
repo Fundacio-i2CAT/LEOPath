@@ -36,21 +36,33 @@ def ring(a: int, b: int, n: int) -> int:
     return min(d, n - d)
 
 
-def run(name: str, snapshots: int = 6, step_min: float = 10.0) -> None:
+POLICIES = ("nearest", "ascending", "descending", "per_pair_half")
+
+
+def load_stations(path: str) -> list[dict]:
+    payload = yaml.safe_load(open(path))
+    return payload["ground_stations"] if isinstance(payload, dict) else payload
+
+
+def run(
+    name: str,
+    snapshots: int = 6,
+    step_min: float = 10.0,
+    stations: str = "leopath/config/ground_stations_dense.yaml",
+) -> None:
     cfg = yaml.safe_load(open(f"leopath/config/{name}.yaml"))
     shell = walker_shell_from_config(cfg["constellation"])
     P, S = shell.planes, shell.sats_per_plane
     alt = cfg["satellite"]["altitude_m"] / 1000.0
     cone = math.radians(cfg["satellite"]["cone_angle_degrees"])
     max_gsl = math.hypot(alt / math.tan(cone), alt)
-    gs_payload = yaml.safe_load(open("leopath/config/ground_stations_dense.yaml"))
-    gss = gs_payload["ground_stations"] if isinstance(gs_payload, dict) else gs_payload
+    gss = load_stations(stations)
     wrap = shell.raan_spread_deg >= 360.0
     a = shell.semi_major_axis_m / 1000.0
 
-    buckets = {pol: collections.defaultdict(list) for pol in ("nearest", "ascending")}
-    steps = {pol: [] for pol in ("nearest", "ascending")}
-    end_cost = {pol: {"src": [], "dst": []} for pol in ("nearest", "ascending")}
+    buckets = {pol: collections.defaultdict(list) for pol in POLICIES}
+    steps = {pol: [] for pol in POLICIES}
+    end_cost = {pol: {"src": [], "dst": []} for pol in POLICIES}
     for k in range(snapshots):
         t = k * step_min * 60.0
         pos = np.array(
@@ -96,7 +108,16 @@ def run(name: str, snapshots: int = 6, step_min: float = 10.0) -> None:
             if pol == "ascending":
                 up = [x for x in v if asc[x[1]]]
                 return (up or v)[0]
+            if pol == "descending":
+                down = [x for x in v if not asc[x[1]]]
+                return (down or v)[0]
             return v[0]
+
+        def halves(v):
+            # The nearest satellite on each half, as one_per_half attaches.
+            up = [x for x in v if asc[x[1]]][:1]
+            down = [x for x in v if not asc[x[1]]][:1]
+            return up + down or v[:1]
 
         for si, sv in enumerate(vis):
             for di, dv in enumerate(vis):
@@ -110,8 +131,16 @@ def run(name: str, snapshots: int = 6, step_min: float = 10.0) -> None:
                             best, bs, bd = c, (g1, s1), (g2, s2)
                 if not math.isfinite(best):
                     continue
-                for pol in ("nearest", "ascending"):
-                    cs, cd = pick(sv, pol), pick(dv, pol)
+                for pol in POLICIES:
+                    if pol == "per_pair_half":
+                        # Smart directory: B answers with the synonym that suits A,
+                        # A uplinks through whichever of its two suits that address.
+                        cs, cd = min(
+                            ((x, y) for x in halves(sv) for y in halves(dv)),
+                            key=lambda xy: xy[0][0] + dist(xy[0][1], xy[1][1]) + xy[1][0],
+                        )
+                    else:
+                        cs, cd = pick(sv, pol), pick(dv, pol)
                     extra = (cs[0] + dist(cs[1], cd[1]) + cd[0] - best) / C_KM_MS
                     flip_s = asc[cs[1]] != asc[bs[1]]
                     flip_d = asc[cd[1]] != asc[bd[1]]
@@ -133,8 +162,16 @@ def run(name: str, snapshots: int = 6, step_min: float = 10.0) -> None:
                                 (ring(chosen // S, opt // S, P), ring(chosen % S, opt % S, S))
                             )
 
-    print(f"== {cfg['constellation']['name']} ({P}x{S}, {'delta' if wrap else 'star'})")
-    for pol in ("nearest", "ascending"):
+    print(f"== {cfg['constellation']['name']} ({P}x{S}, {'delta' if wrap else 'star'}), stations {stations}")
+    for pol in POLICIES:
+        allx = [x for v in buckets[pol].values() for x in v]
+        total = len(allx)
+        share = {k: len(buckets[pol][k]) / total * 100 for k in ("match", "src_only", "dst_only", "both")}
+        print(
+            f"SUMMARY,{name},{stations},{pol},{np.mean(allx):.2f},{share['match']:.1f},"
+            f"{share['src_only'] + share['dst_only']:.1f},{share['both']:.1f},{total}"
+        )
+    for pol in POLICIES:
         total = sum(len(v) for v in buckets[pol].values())
         allx = [x for v in buckets[pol].values() for x in v]
         print(f"  policy {pol:9s}: extra mean {np.mean(allx):5.1f} ms")
@@ -157,5 +194,13 @@ def run(name: str, snapshots: int = 6, step_min: float = 10.0) -> None:
 
 
 if __name__ == "__main__":
-    for n in sys.argv[1:]:
-        run(n)
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("configs", nargs="+")
+    parser.add_argument("--stations", default="leopath/config/ground_stations_dense.yaml")
+    parser.add_argument("--snapshots", type=int, default=6)
+    parser.add_argument("--step-min", type=float, default=10.0)
+    args = parser.parse_args()
+    for n in args.configs:
+        run(n, snapshots=args.snapshots, step_min=args.step_min, stations=args.stations)
