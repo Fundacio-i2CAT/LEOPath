@@ -220,3 +220,17 @@ def test_pooled_delivery_reports_the_share_of_fixed_address_snapshots() -> None:
     assert pooled_delivery([fixed, fixed])["fixed_address_forwarding"] == pytest.approx(1.0)
     # Runs written before the column existed walked any attachment.
     assert pooled_delivery([legacy])["fixed_address_forwarding"] == pytest.approx(0.0)
+
+
+def test_pooling_skips_values_that_are_not_measurements() -> None:
+    from leopath.experiments.run_pooling import column_mean
+
+    rows = [{"x": "2.0"}, {"x": "nan"}, {"x": ""}, {"x": "4.0"}, {"x": "inf"}]
+    assert column_mean(rows, "x") == 3.0
+
+
+def test_weighted_pooling_skips_rows_without_a_measurement() -> None:
+    from leopath.experiments.run_pooling import weighted_mean
+
+    rows = [{"v": "2.0", "w": "1"}, {"v": "nan", "w": "5"}, {"v": "4.0", "w": "1"}]
+    assert weighted_mean(rows, "v", "w") == 3.0

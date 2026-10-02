@@ -5,6 +5,7 @@ snapshot counts in proportion to the pairs it contributed, and stretch is
 weighted by the number of pairs it was measured over.
 """
 
+import math
 import csv
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,10 @@ def write_rows(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def _values(rows: list[dict[str, str]], key: str) -> list[float]:
-    return [float(row[key]) for row in rows if row.get(key) not in (None, "")]
+    # A run that has no value for a metric writes it as empty or as nan; neither
+    # is a measurement, so pooling skips both rather than spreading a nan.
+    values = (float(row[key]) for row in rows if row.get(key) not in (None, ""))
+    return [value for value in values if math.isfinite(value)]
 
 
 def column_sum(rows: list[dict[str, str]], key: str) -> float:
@@ -54,8 +58,10 @@ def weighted_mean(rows: list[dict[str, str]], value_key: str, weight_key: str) -
     for row in rows:
         if row.get(value_key) in (None, "") or row.get(weight_key) in (None, ""):
             continue
-        row_weight = float(row[weight_key])
-        total += float(row[value_key]) * row_weight
+        value, row_weight = float(row[value_key]), float(row[weight_key])
+        if not (math.isfinite(value) and math.isfinite(row_weight)):
+            continue
+        total += value * row_weight
         weight += row_weight
     return ratio(total, weight)
 

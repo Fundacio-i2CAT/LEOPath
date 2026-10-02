@@ -119,3 +119,34 @@ def test_a_partitioned_destination_fails_without_growing_forever() -> None:
     )
     assert failure is not None
     assert len(exceptions) <= live.number_of_nodes()
+
+
+def test_address_pair_selection_skips_pairs_split_by_a_partition() -> None:
+    from leopath.network_state.routing_algorithms.topological_routing.fstate_calculation import (
+        _live_components,
+        _select_topological_address_pair,
+    )
+
+    live, addresses, model, neighbours = _setup(0, failed_share=0.0)
+    # Cut every rung between planes 2-3 and 5-0: planes 0-2 and 3-5 split apart.
+    live.remove_edges_from(
+        [(p * SATS + s, ((p + 1) % PLANES) * SATS + s) for p in (2, 5) for s in range(SATS)]
+    )
+    component = _live_components(live)
+    source = [(1.0, 0, addresses[0])]  # plane 0
+    # Destination synonyms: plane 5 is one rung away across the wrap, which is cut;
+    # plane 2, slot 4 is farther by the estimate but still reachable.
+    near_but_cut, far_but_live = 5 * SATS, 2 * SATS + 4
+    destinations = [
+        (1.0, near_but_cut, addresses[near_but_cut]),
+        (1.0, far_but_live, addresses[far_but_live]),
+    ]
+    args = (addresses, neighbours, CONSTELLATION, MODE, model)
+
+    blind = _select_topological_address_pair(source, destinations, *args)
+    aware = _select_topological_address_pair(source, destinations, *args, component)
+
+    assert component[0] != component[near_but_cut]
+    assert blind[3] == near_but_cut  # the estimate alone walks into the partition
+    assert aware[3] == far_but_live
+    assert _select_topological_address_pair(source, destinations[:1], *args, component) is None

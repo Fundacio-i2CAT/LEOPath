@@ -392,7 +392,7 @@ def calculate_fstate_topological_routing_no_gs_relay(
             "exception_hops_to_failure_mean",
             "exception_hops_to_failure_max",
         ):
-            state_report[stale] = float("nan")
+            state_report.pop(stale, None)
     _report_forwarding_work(state_report, per_satellite_work, weight_model, fstate)
     log.debug(f"Calculated fstate with {len(fstate)} entries")
     return fstate
@@ -425,6 +425,15 @@ def _build_fixed_address_routes(
     exceptions: dict[tuple[int, int], int] = {}
     toward: dict[int, dict[int, float]] = {}
     unresolved = 0
+    # Satellites that learn failures by flooding know which part of the shell
+    # each satellite sits in, so allocation and uplink choice skip address pairs
+    # with no live path, as link-state does. Without an exception policy the
+    # scheme assumes no failure knowledge and stays blind, as before.
+    component = (
+        _live_components(live_graph)
+        if exception_policy != "none" and live_graph is not None
+        else None
+    )
     for src_idx, src_gs in enumerate(ground_stations):
         if src_idx >= len(gs_candidates):
             continue
@@ -446,6 +455,7 @@ def _build_fixed_address_routes(
                     constellation_data,
                     distance_mode,
                     weight_model,
+                    component,
                 ),
                 flow_counters,
             )
@@ -492,6 +502,15 @@ def _build_fixed_address_routes(
     return routes
 
 
+def _live_components(live_graph: nx.Graph) -> dict[int, int]:
+    """Index of the connected part of the live satellite graph each satellite is in."""
+    return {
+        satellite: index
+        for index, part in enumerate(nx.connected_components(live_graph))
+        for satellite in part
+    }
+
+
 def _select_topological_address_pair(
     source_candidates: list,
     destination_candidates: list,
@@ -500,7 +519,14 @@ def _select_topological_address_pair(
     constellation_data: ConstellationData,
     distance_mode: str,
     weight_model: dict | None,
+    component: dict[int, int] | None = None,
 ) -> tuple[float, int, float, int, TopologicalNetworkAddress] | None:
+    """Cheapest (uplink, destination synonym) pair by the scheme's own estimate.
+
+    ``component`` maps each live satellite to its connected part of the live
+    graph; when given, pairs in different parts are skipped, since no walk can
+    join them.
+    """
     best_key: tuple[float, int, int] | None = None
     best: tuple[float, int, float, int, TopologicalNetworkAddress] | None = None
     for src_dist, src_sat, src_address in source_candidates:
@@ -511,6 +537,10 @@ def _select_topological_address_pair(
         )
         for dst_dist, dst_sat, dst_address in destination_candidates:
             if dst_sat not in satellite_addresses:
+                continue
+            if component is not None and (
+                component.get(src_sat) is None or component.get(src_sat) != component.get(dst_sat)
+            ):
                 continue
             route_cost = _routing_topological_distance(
                 src_address,
