@@ -200,3 +200,36 @@ def test_requester_aware_does_not_double_count_a_renumbering() -> None:
     )
     assert moved[3] == 12
     assert counters["flow_update_messages"] == 0
+
+
+def test_requester_aware_choice_ignores_the_callers_ground_links() -> None:
+    a, b = _requester_station(1, 1), _requester_station(7, 10)
+    counters = new_flow_allocation_counters()
+    # A's satellite 1 has a long ground link but sits next to B's synonym 10; satellite 2
+    # has a short ground link but is far from both of B's synonyms. B can't see A's ground
+    # links, so it resolves to synonym 10, the one nearest A's satellites.
+    seen = []
+
+    def cost(sources, destinations):
+        seen.append([s[0] for s in sources])
+        table = {(1, 10): 1.0, (1, 11): 9.0, (2, 10): 9.0, (2, 11): 9.0}
+        pairs = [
+            (src_dist + table[(src, dst)] + dst_dist, (src_dist, src, dst_dist, dst))
+            for src_dist, src in sources
+            for dst_dist, dst in destinations
+        ]
+        return min(pairs)[1] if pairs else None
+
+    chosen = resolve_flow_address_pair(
+        "requester_aware",
+        "family",
+        a,
+        b,
+        [(50.0, 1), (0.5, 2)],
+        [(1.0, 10), (1.0, 11)],
+        cost,
+        counters,
+    )
+    assert seen[0] == [0.0, 0.0]  # the directory's choice saw no ground-link lengths of A
+    assert seen[1] == [50.0, 0.5]  # A's own uplink choice does
+    assert chosen[3] == 10
