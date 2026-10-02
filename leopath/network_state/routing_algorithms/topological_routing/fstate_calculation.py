@@ -143,6 +143,7 @@ def calculate_fstate_topological_routing_no_gs_relay(
     state_report: dict | None = None,
     selected_egresses: dict[tuple[int, int], int] | None = None,
     fixed_address_routes: dict[tuple[int, int], dict] | None = None,
+    fixed_address_exceptions: dict[tuple[int, int], int] | None = None,
 ) -> dict:
     """
     Calculates forwarding state using topological routing over ISLs only (no GS relays).
@@ -365,6 +366,7 @@ def calculate_fstate_topological_routing_no_gs_relay(
                 live_graph=satellite_only_subgraph,
                 exception_report=fixed_exception_report,
                 nominal_graph=getattr(topology_with_isls, "nominal_graph", None),
+                exceptions_out=fixed_address_exceptions,
             )
         )
         if state_report is not None:
@@ -430,6 +432,7 @@ def _build_fixed_address_routes(
     live_graph: nx.Graph | None = None,
     exception_report: dict | None = None,
     nominal_graph: nx.Graph | None = None,
+    exceptions_out: dict | None = None,
 ) -> dict[tuple[int, int], dict]:
     """Select one address pair per flow and keep its destination fixed.
 
@@ -583,6 +586,8 @@ def _build_fixed_address_routes(
             if reachable:
                 unresolved += 1
     compute_ms = (time.perf_counter() - started) * 1000.0
+    if exceptions_out is not None:
+        exceptions_out.update(exceptions)
     if exception_report is not None and exception_policy in ("grow", "one_pass"):
         # Locality: entries per satellite and their hop distance to the nearest
         # satellite that lost an ISL, so the state can be shown to follow the

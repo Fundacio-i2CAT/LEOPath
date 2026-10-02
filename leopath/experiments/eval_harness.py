@@ -63,6 +63,26 @@ from .metrics import (
 log = logger.get_logger(__name__)
 
 
+def compute_exception_churn(previous: dict, current: dict) -> dict[str, float]:
+    """Exception entries added, removed and rewired between two snapshots.
+
+    Entries are keyed on (satellite, destination satellite) and map to a next
+    hop. A rewired entry keeps its key and changes its next hop. Each counts
+    as one table write at one satellite; ``satellites_touched`` is how many
+    satellites write anything.
+    """
+    added = [key for key in current if key not in previous]
+    removed = [key for key in previous if key not in current]
+    rewired = [key for key in current if key in previous and current[key] != previous[key]]
+    touched = {sat for sat, _dst in (*added, *removed, *rewired)}
+    return {
+        "entries_added": float(len(added)),
+        "entries_removed": float(len(removed)),
+        "entries_rewired": float(len(rewired)),
+        "satellites_touched": float(len(touched)),
+    }
+
+
 def load_config(config_path: str) -> dict:
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Config not found: {config_path}")
@@ -436,6 +456,7 @@ def run_evaluation(
     prev_attachments: list[tuple[int | None, float]] | None = None
     prev_route_plans: dict | None = None
     prev_interface_neighbor_map: dict[int, dict[int, int]] | None = None
+    prev_fixed_exceptions: dict | None = None
 
     progress_iter = time_steps
     if tqdm is not None:
@@ -498,6 +519,7 @@ def run_evaluation(
         selected_egresses = fstate_output.get("selected_egresses", {})
         fixed_address_routes = fstate_output.get("fixed_address_routes", {})
         fixed_address_forwarding = bool(fstate_output.get("fixed_address_forwarding", False))
+        fixed_address_exceptions = fstate_output.get("fixed_address_exceptions")
         # Per-category auxiliary state: geometry and path-cost tables the
         # distance estimator maintains, reported separately from installed
         # forwarding entries rather than folded into them.
@@ -658,6 +680,21 @@ def run_evaluation(
                 }
             )
 
+        # Exception-entry churn: what satellites rewrite between snapshots as
+        # failures come and go. These entries live outside the station-keyed
+        # fstate, so fstate_updates does not see them.
+        if fixed_address_exceptions is not None:
+            # The first snapshot has nothing to compare with: NaN, which the
+            # summaries skip, keeps the CSV's columns the same on every row.
+            churn = (
+                compute_exception_churn(prev_fixed_exceptions, fixed_address_exceptions)
+                if prev_fixed_exceptions is not None
+                else dict.fromkeys(compute_exception_churn({}, {}), float("nan"))
+            )
+            timestep_rows[-1].update({f"aux_exception_{key}": value for key, value in churn.items()})
+        prev_fixed_exceptions = (
+            dict(fixed_address_exceptions) if fixed_address_exceptions is not None else None
+        )
         prev_fstate = fstate
         prev_attachments = attachments
         prev_route_plans = route_plans
