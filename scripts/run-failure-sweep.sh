@@ -115,6 +115,11 @@ VARIANTS=(
   # address, under the two attachment policies the paper reports.
   "topological_scheme_asc|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 1 --gs-attachment-order nearest_ascending"
   "topological_scheme_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy requester_aware"
+  # The same two configurations with the local exception rule: a satellite
+  # holds an entry for a destination exactly when its own rule walk toward it
+  # fails (one_pass). Order-independent, so each satellite computes its own.
+  "topological_scheme_asc_1p|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy one_pass --gs-attachment-count 1 --gs-attachment-order nearest_ascending"
+  "topological_scheme_req_1p|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy one_pass --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy requester_aware"
   # DRA under the same model as the scheme, so the comparison differs only in
   # the distance function (DRA's hop count against the pivot estimator).
   "dra_scheme_asc|--algorithm dra_routing --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 1 --gs-attachment-order nearest_ascending"

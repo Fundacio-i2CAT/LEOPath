@@ -381,7 +381,7 @@ def calculate_fstate_topological_routing_no_gs_relay(
             gs_destination_candidates,
             gs_addressing,
         ),
-        str(algorithm_params.get("exception_policy", "none")),
+        _station_exception_policy(algorithm_params, fixed_address_routes is not None),
         LOCAL_DETOUR,
         state_report,
     )
@@ -398,6 +398,21 @@ def calculate_fstate_topological_routing_no_gs_relay(
     _report_forwarding_work(state_report, per_satellite_work, weight_model, fstate)
     log.debug(f"Calculated fstate with {len(fstate)} entries")
     return fstate
+
+
+def _station_exception_policy(algorithm_params: dict, fixed_addresses: bool) -> str:
+    """The exception policy for station-keyed entries.
+
+    ``one_pass`` is defined for fixed-address walks, whose entries are keyed on
+    the destination satellite; with it, the station-keyed computation is
+    skipped, since no fixed-address flow ever consults those entries.
+    """
+    policy = str(algorithm_params.get("exception_policy", "none"))
+    if policy == "one_pass":
+        if not fixed_addresses:
+            raise ValueError("exception_policy one_pass needs attachment addressing")
+        return "none"
+    return policy
 
 
 def _build_fixed_address_routes(
@@ -476,7 +491,19 @@ def _build_fixed_address_routes(
         forwarding_guard,
     )
     growing = exception_policy == "grow" and live_graph is not None
+    one_pass = exception_policy == "one_pass" and live_graph is not None
     in_use: set[int] = set()
+    work = {"rule_steps": 0.0, "shortest_path_runs": 0.0}
+    started = time.perf_counter()
+    if one_pass:
+        for candidates in gs_candidates:
+            for _dist, sat, _address in candidates:
+                in_use.add(sat)
+        for _src_id, _dst_id, (_sd, _ss, _dd, dst_sat, _da) in selections:
+            in_use.add(dst_sat)
+        _one_pass_fixed_address_exceptions(
+            rule_args, live_graph, nominal_graph, exceptions, toward, work
+        )
     if growing:
         # A routing policy builds the forwarding table from what the RIB holds
         # (the flooded failures), for the whole address space: every live
@@ -514,6 +541,7 @@ def _build_fixed_address_routes(
                     exceptions,
                     toward,
                     sources=None if dst_sat in in_use else damaged,
+                    work=work,
                 )
     used: set[tuple[int, int]] = set()
     for src_id, dst_id, selected in selections:
@@ -523,6 +551,13 @@ def _build_fixed_address_routes(
             path, failure = _walk_with_exception_entries(
                 walk_args, dst_sat, live_graph, exceptions, toward
             )
+            used.update(
+                (sat, dst_sat) for sat in path[:-1] if (sat, dst_sat) in exceptions
+            )
+        elif one_pass:
+            # The entries are complete before any packet moves; a flow that
+            # still fails while its destination is reachable is counted below.
+            path, failure = _walk_fixed_topological_address(*walk_args, exceptions=exceptions)
             used.update(
                 (sat, dst_sat) for sat in path[:-1] if (sat, dst_sat) in exceptions
             )
@@ -538,9 +573,17 @@ def _build_fixed_address_routes(
         }
         # A destination cut off by a partition fails correctly; only a reachable
         # one that the walk still misses counts against the exception rule.
-        if failure is not None and src_sat in toward.get(dst_sat, {}):
-            unresolved += 1
-    if exception_report is not None and exception_policy == "grow":
+        if failure is not None:
+            reachable = (
+                component.get(src_sat) is not None
+                and component.get(src_sat) == component.get(dst_sat)
+                if component is not None
+                else src_sat in toward.get(dst_sat, {})
+            )
+            if reachable:
+                unresolved += 1
+    compute_ms = (time.perf_counter() - started) * 1000.0
+    if exception_report is not None and exception_policy in ("grow", "one_pass"):
         # Locality: entries per satellite and their hop distance to the nearest
         # satellite that lost an ISL, so the state can be shown to follow the
         # failures rather than the constellation size.
@@ -577,6 +620,15 @@ def _build_fixed_address_routes(
                 "exception_entries_on_flow_paths": float(len(used)),
                 "exception_unresolved": float(unresolved),
                 "exception_unresolved_walks": float(unresolved_walks),
+                # What computing the entries costs, which every satellite would
+                # repeat under one_pass: guarded-rule decisions evaluated, and
+                # destinations that needed a shortest-path run. A satellite
+                # holding entries needs one shortest-path run of its own for
+                # their next hops, as link-state does on every change.
+                "exception_rule_steps": float(work["rule_steps"]),
+                "exception_shortest_path_runs": float(work["shortest_path_runs"]),
+                "exception_compute_ms": float(compute_ms),
+                "live_isls": float(live_graph.number_of_edges()),
             }
         )
     return routes
@@ -961,6 +1013,84 @@ def _walk_with_exception_entries(
     return path, "hop_limit"
 
 
+def _one_pass_fixed_address_exceptions(
+    rule_args: tuple,
+    live_graph: nx.Graph,
+    nominal_graph: nx.Graph | None,
+    exceptions: dict[tuple[int, int], int],
+    toward: dict[int, dict[int, float]],
+    work: dict[str, float],
+) -> None:
+    """Install the one-pass exception set toward every destination satellite.
+
+    A satellite holds an entry for a destination exactly when its own guarded,
+    rule-only walk toward it fails, pointing along the shortest live path. The
+    rule is local and order-independent: each satellite can decide alone, from
+    the geometry and the flooded failures, which entries are its own.
+
+    Under the progress guard a rule-only walk cannot loop, since every hop
+    strictly decreases (distance, id); it fails only at a dead end, and only a
+    satellite that lost an ISL can be one, because the intact grid needs no
+    entries. So the computation starts from those dead ends and searches
+    backwards through the rule's next hops for every satellite whose walk ends
+    in one (its basin). The set is loop-free by construction: an entry moves a
+    packet strictly closer along a shortest live path, and a satellite outside
+    the basin delivers by rule without meeting an entry.
+
+    ``work`` accumulates what the computation costs, which every satellite
+    would repeat: rule decisions evaluated and shortest-path runs needed.
+    """
+    satellite_addresses = rule_args[0]
+    if rule_args[5] != "progress":
+        raise ValueError("exception_policy one_pass needs the progress guard")
+    if nominal_graph is not None:
+        candidates = sorted(
+            sat
+            for sat in live_graph.nodes()
+            if nominal_graph.has_node(sat) and live_graph.degree(sat) < nominal_graph.degree(sat)
+        )
+    else:
+        candidates = sorted(live_graph.nodes())
+    if not candidates:
+        return
+    for destination in sorted(live_graph.nodes()):
+        destination_address = satellite_addresses.get(destination)
+        if destination_address is None:
+            continue
+        steps: dict[int, list[int] | None] = {}
+        potentials: dict[int, float] = {}
+
+        def rule_step(sat: int) -> list[int] | None:
+            if sat not in steps:
+                steps[sat] = _fixed_rule_step(
+                    sat, destination_address, *rule_args, potentials=potentials
+                )
+            return steps[sat]
+
+        dead_ends = [
+            sat for sat in candidates if sat != destination and not rule_step(sat)
+        ]
+        if dead_ends:
+            basin = set(dead_ends)
+            frontier = list(dead_ends)
+            while frontier:
+                sat = frontier.pop()
+                for neighbour in live_graph.neighbors(sat):
+                    if neighbour in basin or neighbour == destination:
+                        continue
+                    step = rule_step(neighbour)
+                    if step and step[-1] == sat:
+                        basin.add(neighbour)
+                        frontier.append(neighbour)
+            distance = _live_distances_to(destination, live_graph, toward)
+            work["shortest_path_runs"] += 1
+            for sat in basin:
+                hop = _next_on_shortest_live_path(sat, live_graph, distance)
+                if hop is not None:
+                    exceptions[(sat, destination)] = hop
+        work["rule_steps"] += len(steps)
+
+
 def _grow_fixed_address_exceptions(
     destination_satellite: int,
     destination_address: TopologicalNetworkAddress,
@@ -969,6 +1099,7 @@ def _grow_fixed_address_exceptions(
     exceptions: dict[tuple[int, int], int],
     toward: dict[int, dict[int, float]],
     sources: list[int] | None = None,
+    work: dict[str, float] | None = None,
 ) -> int:
     """Grow entries toward one destination address until every live walk delivers.
 
@@ -982,8 +1113,11 @@ def _grow_fixed_address_exceptions(
     ``rule_args`` is the walk's arguments after the destination address:
     addresses, neighbour candidates, constellation, distance mode, weight
     model and guard. ``sources`` restricts the walks checked, when the
-    caller knows the others cannot break.
+    caller knows the others cannot break. ``work`` accumulates the rule
+    decisions evaluated and the shortest-path runs, as for ``one_pass``.
     """
+    if work is not None and destination_satellite not in toward:
+        work["shortest_path_runs"] += 1
     distance = _live_distances_to(destination_satellite, live_graph, toward)
     satellite_addresses = rule_args[0]
     sources = sorted(
@@ -1022,6 +1156,8 @@ def _grow_fixed_address_exceptions(
             exceptions[(breaking, destination_satellite)] = hop
             added = True
         if not added:
+            if work is not None:
+                work["rule_steps"] += len(rule_steps)
             return unresolved
 
 

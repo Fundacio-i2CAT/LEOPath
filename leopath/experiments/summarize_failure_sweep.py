@@ -123,6 +123,10 @@ METRICS = (
     "exception_entries_in_use_per_snapshot",
     "exception_region_entries_per_snapshot",
     "exception_region_max_per_satellite",
+    "exception_rule_steps_per_snapshot",
+    "exception_shortest_path_runs_per_snapshot",
+    "exception_compute_ms",
+    "live_isls_per_snapshot",
     "exception_share_of_link_state",
     "exception_hops_to_failure_mean",
     "exception_hops_to_failure_max",
@@ -235,6 +239,10 @@ def _exception_state(rows: list[dict[str, str]], metadata: dict[str, Any]) -> di
             "exception_entries_in_use_per_snapshot": None,
             "exception_region_entries_per_snapshot": None,
             "exception_region_max_per_satellite": None,
+            "exception_rule_steps_per_snapshot": None,
+            "exception_shortest_path_runs_per_snapshot": None,
+            "exception_compute_ms": None,
+            "live_isls_per_snapshot": None,
             "exception_share_of_link_state": None,
             "exception_hops_to_failure_mean": None,
             "exception_hops_to_failure_max": None,
@@ -271,6 +279,15 @@ def _exception_state(rows: list[dict[str, str]], metadata: dict[str, Any]) -> di
         "exception_region_max_per_satellite": column_max(
             rows, "aux_exception_region_max_per_satellite"
         ),
+        # one_pass cost: rule decisions and shortest-path runs per snapshot,
+        # the computation every satellite would repeat; live ISLs bound a
+        # link-state shortest-path run (each edge relaxed at most twice).
+        "exception_rule_steps_per_snapshot": column_mean(rows, "aux_exception_rule_steps"),
+        "exception_shortest_path_runs_per_snapshot": column_mean(
+            rows, "aux_exception_shortest_path_runs"
+        ),
+        "exception_compute_ms": column_mean(rows, "aux_exception_compute_ms"),
+        "live_isls_per_snapshot": column_mean(rows, "aux_live_isls"),
         "exception_share_of_link_state": ratio(
             column_sum(rows, "aux_exception_entries"), link_state_entries
         ),

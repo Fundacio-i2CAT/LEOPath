@@ -846,9 +846,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--exception-policy",
-        choices=("none", "grow"),
+        choices=("none", "grow", "one_pass"),
         default=None,
-        help="Topological routing: install exception entries where the rules cannot deliver",
+        help="Topological routing: install exception entries where the rules cannot deliver "
+        "(one_pass: every satellite whose own rule walk fails; attachment addressing only)",
     )
     parser.add_argument("--failure-type", choices=FAILURE_TYPES, default="none")
     parser.add_argument(

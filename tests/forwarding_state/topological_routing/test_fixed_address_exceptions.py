@@ -247,3 +247,91 @@ def test_region_entries_aggregate_without_changing_a_decision() -> None:
         per_satellite[sat] = per_satellite.get(sat, 0) + 1
     assert 0 < total < len(exceptions)
     assert largest <= max(per_satellite.values())
+
+
+def _one_pass(live, addresses, model, neighbours):
+    from leopath.network_state.routing_algorithms.topological_routing.fstate_calculation import (
+        _LiveDistances,
+        _one_pass_fixed_address_exceptions,
+    )
+
+    rule_args = (addresses, neighbours, CONSTELLATION, MODE, model, "progress")
+    exceptions: dict = {}
+    work = {"rule_steps": 0.0, "shortest_path_runs": 0.0}
+    _one_pass_fixed_address_exceptions(
+        rule_args, live, _grid(), exceptions, _LiveDistances(), work
+    )
+    return exceptions, work
+
+
+def test_one_pass_puts_an_entry_exactly_where_the_rule_walk_fails() -> None:
+    # The definition, checked by brute force: a satellite holds an entry for a
+    # destination if and only if its own guarded, rule-only walk toward it fails.
+    checked = 0
+    for seed in range(3):
+        live, addresses, model, neighbours = _setup(seed)
+        exceptions, _work = _one_pass(live, addresses, model, neighbours)
+        for dst in live.nodes():
+            for src in live.nodes():
+                if src == dst or not nx.has_path(live, src, dst):
+                    continue
+                _path, failure = _walk_fixed_topological_address(
+                    *_args(src, dst, addresses, model, neighbours)
+                )
+                assert ((src, dst) in exceptions) == (failure is not None), (seed, src, dst)
+                checked += failure is not None
+    assert checked > 0
+
+
+def test_one_pass_entries_deliver_every_reachable_walk() -> None:
+    for seed in range(4):
+        live, addresses, model, neighbours = _setup(seed)
+        exceptions, work = _one_pass(live, addresses, model, neighbours)
+        for dst in live.nodes():
+            for src in live.nodes():
+                if src != dst and nx.has_path(live, src, dst):
+                    path, failure = _walk_fixed_topological_address(
+                        *_args(src, dst, addresses, model, neighbours), exceptions=exceptions
+                    )
+                    assert failure is None, (seed, src, dst)
+                    assert all(live.has_edge(a, b) for a, b in zip(path, path[1:]))
+        assert work["rule_steps"] > 0 and work["shortest_path_runs"] > 0
+
+
+def test_one_pass_contains_every_entry_the_grow_rule_places() -> None:
+    from leopath.network_state.routing_algorithms.topological_routing.fstate_calculation import (
+        _grow_fixed_address_exceptions,
+    )
+
+    live, addresses, model, neighbours = _setup(1)
+    one_pass, _work = _one_pass(live, addresses, model, neighbours)
+    rule_args = (addresses, neighbours, CONSTELLATION, MODE, model, "progress")
+    grown: dict = {}
+    for dst in sorted(live.nodes()):
+        _grow_fixed_address_exceptions(dst, addresses[dst], rule_args, live, grown, {})
+    assert set(grown) <= set(one_pass)
+    assert len(one_pass) >= len(grown)
+
+
+def test_one_pass_needs_attachment_addressing_and_the_guard() -> None:
+    import pytest
+
+    from leopath.network_state.routing_algorithms.topological_routing.fstate_calculation import (
+        _LiveDistances,
+        _one_pass_fixed_address_exceptions,
+        _station_exception_policy,
+    )
+
+    with pytest.raises(ValueError):
+        _station_exception_policy({"exception_policy": "one_pass"}, fixed_addresses=False)
+    assert _station_exception_policy({"exception_policy": "one_pass"}, True) == "none"
+    live, addresses, model, neighbours = _setup(0)
+    with pytest.raises(ValueError):
+        _one_pass_fixed_address_exceptions(
+            (addresses, neighbours, CONSTELLATION, MODE, model, "none"),
+            live,
+            _grid(),
+            {},
+            _LiveDistances(),
+            {"rule_steps": 0.0, "shortest_path_runs": 0.0},
+        )
