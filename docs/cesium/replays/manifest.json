@@ -1,0 +1,37 @@
+[
+  {
+    "id": "telesat-grid",
+    "label": "Telesat \u00b7 27 \u00d7 13 \u00b7 +Grid",
+    "path": "telesat-grid.json"
+  },
+  {
+    "id": "starlink-grid",
+    "label": "Starlink \u00b7 72 \u00d7 22 \u00b7 +Grid",
+    "path": "starlink-grid.json"
+  },
+  {
+    "id": "kuiper-grid",
+    "label": "Kuiper \u00b7 34 \u00d7 34 \u00b7 +Grid",
+    "path": "kuiper-grid.json"
+  },
+  {
+    "id": "oneweb-grid",
+    "label": "Oneweb \u00b7 12 \u00d7 49 \u00b7 +Grid",
+    "path": "oneweb-grid.json"
+  },
+  {
+    "id": "telesat-grid_seam",
+    "label": "Telesat \u00b7 27 \u00d7 13 \u00b7 Open seam",
+    "path": "telesat-grid_seam.json"
+  },
+  {
+    "id": "telesat-ring",
+    "label": "Telesat \u00b7 27 \u00d7 13 \u00b7 Ring",
+    "path": "telesat-ring.json"
+  },
+  {
+    "id": "kuiper-brick_a",
+    "label": "Kuiper \u00b7 34 \u00d7 34 \u00b7 Brick wall A",
+    "path": "kuiper-brick_a.json"
+  }
+]

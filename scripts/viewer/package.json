@@ -1,0 +1,6 @@
+{
+  "name": "leopath-viewer-tools",
+  "private": true,
+  "scripts": {"record": "node record-demo.cjs", "check": "node check-viewer.cjs"},
+  "dependencies": {"cesium": "1.117.0", "satellite.js": "5.0.0", "playwright": "1.58.2"}
+}
