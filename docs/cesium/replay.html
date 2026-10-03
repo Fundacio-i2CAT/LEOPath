@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="icon" href="brand/favicon.png" />
+    <title>LEOPath · Simulator results</title>
+    <link rel="stylesheet" href="vendor/Cesium/Widgets/widgets.css" />
+    <link rel="stylesheet" href="styles.css" />
+    <script>
+      window.CESIUM_BASE_URL = "./vendor/Cesium/";
+    </script>
+    <script defer src="vendor/Cesium/Cesium.js"></script>
+    <script defer src="viewer.js"></script>
+    <script defer src="dataset.js"></script>
+</head>
+  <body>
+    <header class="masthead">
+      <a class="brand" href="./"
+        ><img class="brand-logo" src="brand/leopath-logo.png" alt="LEOPath" /><span class="brand-divider"></span><span>Simulator results</span></a
+      >
+      <div class="header-actions">
+        <span class="provenance-tag">EXPORTED RESULTS</span
+        ><button id="presentation" type="button" aria-pressed="false">
+          Presentation mode
+        </button>
+      </div>
+    </header>
+    <main class="workspace">
+      <aside class="controls" aria-label="Replay controls">
+        <h1>Simulator results</h1>
+        <p class="intro">
+          Play steps through failures and recoveries. Satellite positions stay
+          fixed at one orbital time.
+        </p>
+        <label class="field"
+          >Constellation &amp; topology<select
+            id="scenario"
+            aria-label="Constellation and topology"
+          ></select
+        ></label>
+        <div class="shell-summary" id="shellSummary"></div>
+        <div class="section-label">
+          SELECT A FLOW
+          <button
+            id="swap"
+            class="text-button"
+            type="button"
+            aria-label="Swap source and destination"
+          >
+            Swap ↔
+          </button>
+        </div>
+        <label class="field"
+          >From<select
+            id="source"
+            aria-label="Source ground station"
+          ></select></label
+        ><label class="field"
+          >To<select
+            id="target"
+            aria-label="Destination ground station"
+          ></select
+        ></label>
+        <div class="section-label">LAYERS</div>
+        <label class="check"
+          ><input id="showMesh" type="checkbox" checked /><span
+            >Constellation links</span
+          ></label
+        ><label class="check"
+          ><input id="showStations" type="checkbox" /><span
+            >Other ground stations</span
+          ></label
+        ><label class="check"
+          ><input id="showReference" type="checkbox" checked /><span
+            >Shortest-path reference</span
+          ></label
+        ><label class="check"
+          ><input id="showPrevious" type="checkbox" /><span
+            >Previous topological route</span
+          ></label
+        ><button id="stepHop" class="secondary" type="button">
+          Step along the route →</button
+        ><button id="focus" class="secondary" type="button">
+          Focus on the failure</button
+        ><button id="resetCamera" class="secondary" type="button">
+          Reset globe
+        </button>
+        <div class="section-label">REPLAY DATA</div>
+        <label class="file-button"
+          >Load replay JSON<input
+            id="importReplay"
+            type="file"
+            accept="application/json,.json" /></label
+        ><button id="downloadReplay" class="text-button download" type="button">
+          Download this replay ↓</button
+        ><a class="orbit-link" href="index.html"
+          >Open live view ↗</a
+        >
+        <p class="dataset-source"><a id="datasetVersion">Local examples · unversioned</a><a id="datasetReleases" href="https://github.com/PhD-Sergio/data-ntn-topological-evaluation/releases" target="_blank" rel="noopener" hidden>Dataset releases ↗</a></p>
+    <p class="model-note">
+          Each phase shows the computed routes after a topology change. Delay
+          includes propagation only.
+        </p>
+        <p id="loadStatus" class="load-status" role="status">Loading replay…</p>
+      </aside>
+      <section
+        class="observatory"
+        aria-label="Constellation and route visualization"
+      >
+        <div class="metric-strip">
+          <div>
+            <span>SELECTED FLOW</span
+            ><strong id="delivery" class="metric-delivery">—</strong
+            ><small id="deliveryDetail">Waiting for replay</small>
+          </div>
+          <div>
+            <span>TOPOLOGICAL</span><strong id="topoDelay">—<em> ms</em></strong
+            ><small id="topoHops">— ISL hops</small>
+          </div>
+          <div>
+            <span>SHORTEST PATH</span><strong id="lsDelay">—<em> ms</em></strong
+            ><small id="lsHops">Same attachment addresses</small>
+          </div>
+          <div>
+            <span>EXCEPTION STATE</span><strong id="exceptionCount">—</strong
+            ><small id="exceptionDetail">Region entries across shell</small>
+          </div>
+        </div>
+        <div class="view-layout">
+          <section
+            class="globe-pane"
+            aria-label="Geographical constellation view"
+          >
+            <div id="cesiumContainer"></div>
+            <div class="view-label">
+              <span class="view-dot"></span>ORBITAL VIEW
+              <small id="orbitLabel"></small>
+            </div>
+            <div class="phase-card">
+              <span class="eyebrow" id="phaseNumber">PHASE 01 / 07</span>
+              <h2 id="phaseTitle">Normal forwarding</h2>
+              <p id="phaseDetail"></p>
+            </div>
+            <div class="legend" aria-label="Color legend">
+              <span><i class="swatch topo"></i>Topological</span
+              ><span><i class="swatch ls"></i>Shortest path</span
+              ><span><i class="swatch failed"></i>Unavailable</span
+              ><span><i class="swatch exception"></i>Exception</span>
+            </div>
+          </section>
+          <aside
+            class="analysis-pane"
+            aria-label="Logical topology and forwarding inspector"
+          >
+            <section class="grid-card">
+              <div class="card-heading">
+                <div>
+                  <p class="eyebrow">LOGICAL TOPOLOGY</p>
+                  <h2>Plane × slot</h2>
+                </div>
+                <div class="grid-actions">
+                  <span id="gridShape" class="tiny-tag"></span
+                  ><button
+                    id="expandGrid"
+                    class="text-button"
+                    type="button"
+                    aria-expanded="false"
+                  >
+                    Expand ↗
+                  </button>
+                </div>
+              </div>
+              <p class="grid-hint">
+                Click a satellite to inspect its next-hop decision.
+              </p>
+              <svg
+                id="logicalGrid"
+                role="group"
+                aria-label="Logical satellite grid with routes and failures"
+                viewBox="0 0 620 360"
+              ></svg>
+              <div class="grid-footer">
+                <span id="failedCount">0 unavailable links</span
+                ><span id="componentCount">1 connected component</span>
+              </div>
+            </section>
+            <section class="inspector-card">
+              <div class="card-heading">
+                <div>
+                  <p class="eyebrow">FORWARDING INSPECTOR</p>
+                  <h2 id="inspectorTitle">Select a satellite</h2>
+                </div>
+                <span id="decisionTag" class="tiny-tag">RULE</span>
+              </div>
+              <div id="inspectorBody">
+                <p class="muted">
+                  The table shows measured first-hop cost and the simulator's
+                  remaining-distance estimate.
+                </p>
+              </div>
+            </section>
+            <section class="reachability-card">
+              <p class="eyebrow">ALL GROUND-STATION PAIRS</p>
+              <div class="reachability-value">
+                <strong id="allDelivery">— / —</strong
+                ><span id="allDeliveryLabel">delivered / attempted</span>
+              </div>
+              <p id="reachabilityDetail"></p>
+            </section>
+          </aside>
+        </div>
+        <footer class="playback" aria-label="Replay timeline">
+          <div class="transport">
+            <button id="previous" type="button" aria-label="Previous phase">
+              ‹</button
+            ><button
+              id="play"
+              class="play-button"
+              type="button"
+              aria-label="Play failure phases"
+            >
+              ▶</button
+            ><button id="next" type="button" aria-label="Next phase">›</button>
+          </div>
+          <div
+            id="phases"
+            class="phases"
+            role="group"
+            aria-label="Jump to phase"
+          ></div>
+          <label class="speed-control"
+            >Pace<select id="pace" aria-label="Seconds per phase">
+              <option value="8">8 s / phase</option>
+              <option value="14">14 s / phase</option>
+              <option value="4">4 s / phase</option>
+            </select></label
+          >
+        </footer>
+      </section>
+    </main>
+    <div id="demoCaption" class="demo-caption" hidden></div>
+  </body>
+</html>
