@@ -1,1404 +1,1023 @@
+/* LEOPath replay renderer. Forwarding paths and rule choices are exported by Python. */
 (function () {
   "use strict";
-
-  const state = {
-    viewer: null,
-    metadata: null,
-    activeConfig: null,
-    activeRecords: [],
-    activeSource: "",
-    gslCache: null,
-    routeCache: null,
-    baseStatsRows: [],
-    loading: false,
-  };
-
+  const ids = [
+    "expandGrid",
+    "stepHop",
+    "scenario",
+    "source",
+    "target",
+    "swap",
+    "showMesh",
+    "showStations",
+    "showReference",
+    "showPrevious",
+    "focus",
+    "resetCamera",
+    "importReplay",
+    "downloadReplay",
+    "presentation",
+    "shellSummary",
+    "loadStatus",
+    "delivery",
+    "deliveryDetail",
+    "topoDelay",
+    "topoHops",
+    "lsDelay",
+    "lsHops",
+    "exceptionCount",
+    "exceptionDetail",
+    "orbitLabel",
+    "phaseNumber",
+    "phaseTitle",
+    "phaseDetail",
+    "gridShape",
+    "logicalGrid",
+    "failedCount",
+    "componentCount",
+    "inspectorTitle",
+    "decisionTag",
+    "inspectorBody",
+    "allDelivery",
+    "reachabilityDetail",
+    "previous",
+    "next",
+    "play",
+    "phases",
+    "pace",
+    "demoCaption",
+  ];
   const els = {};
+  const state = {
+    data: null,
+    dataset: null,
+    frame: 0,
+    selected: null,
+    viewer: null,
+    points: null,
+    lines: null,
+    timer: null,
+    manifest: [],
+    loadToken: 0,
+    ready: false,
+  };
+  const palette = {
+    topo: "#c5ed94",
+    ls: "#59cfe5",
+    failed: "#ff7377",
+    exception: "#ffbd78",
+    mesh: "#63899e",
+  };
+  const svgNS = "http://www.w3.org/2000/svg";
+  const current = () => state.data.frames[state.frame];
+  const route = () =>
+    current().routes[`${els.source.value}:${els.target.value}`] || null;
+  const previousRoute = () =>
+    state.frame > 0
+      ? state.data.frames[state.frame - 1].routes[
+          `${els.source.value}:${els.target.value}`
+        ]
+      : null;
+  const color = (hex, alpha = 1) =>
+    Cesium.Color.fromCssColorString(hex).withAlpha(alpha);
+  const addr = (i) =>
+    `(${Math.floor(i / state.data.slots)}, ${i % state.data.slots})`;
+  const text = (id, value) => {
+    els[id].textContent = value;
+  };
+  const number = (value) => Number(value).toLocaleString();
+  const km = (value) =>
+    value === null || value === undefined ? "—" : (value / 1000).toFixed(1);
+  const escape = (s) =>
+    String(s).replace(
+      /[&<>"']/g,
+      (c) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        })[c],
+    );
 
-  document.addEventListener("DOMContentLoaded", init);
+  function validateReplay(data) {
+    if (
+      data?.schemaVersion !== 1 ||
+      !Number.isInteger(data.planes) ||
+      !Number.isInteger(data.slots) ||
+      data.planes < 1 ||
+      data.slots < 1
+    )
+      throw new Error("Unsupported replay schema or shell dimensions.");
+    const n = data.planes * data.slots;
+    if (
+      typeof data.id !== "string" ||
+      typeof data.topology !== "string" ||
+      typeof data.epoch !== "string" ||
+      !Number.isFinite(data.altitudeKm)
+    )
+      throw new Error("Invalid replay metadata.");
+    if (
+      n > 25000 ||
+      !Array.isArray(data.positions) ||
+      data.positions.length !== n ||
+      data.positions.some(
+        (p) =>
+          !Array.isArray(p) ||
+          p.length !== 3 ||
+          p.some((x) => !Number.isFinite(x)),
+      )
+    )
+      throw new Error("Invalid satellite positions.");
+    const node = (x) => Number.isInteger(x) && x >= 0 && x < n;
+    if (
+      !Array.isArray(data.groundStations) ||
+      data.groundStations.length < 2 ||
+      data.groundStations.some(
+        (g) =>
+          typeof g.name !== "string" ||
+          ![g.latitude, g.longitude, g.elevation_m].every(Number.isFinite),
+      )
+    )
+      throw new Error("Invalid ground stations.");
+    if (data.focusSatellite !== undefined && !node(data.focusSatellite))
+      throw new Error("Invalid focus satellite.");
+    if (data.defaultPair !== undefined) {
+      if (
+        typeof data.defaultPair !== "string" ||
+        !/^\d+:\d+$/.test(data.defaultPair)
+      )
+        throw new Error("Invalid default flow.");
+      const pair = data.defaultPair.split(":").map(Number);
+      if (
+        pair.some((i) => i >= data.groundStations.length) ||
+        pair[0] === pair[1]
+      )
+        throw new Error("Invalid default flow.");
+    }
+    if (
+      !Array.isArray(data.frames) ||
+      !data.frames.length ||
+      data.frames.length > 500
+    )
+      throw new Error("Invalid replay phases.");
+    for (const f of data.frames) {
+      if (
+        typeof f.label !== "string" ||
+        typeof f.detail !== "string" ||
+        !f.stats ||
+        !f.routes ||
+        !f.decisions ||
+        !Array.isArray(f.exceptions) ||
+        !Array.isArray(f.edgeLengths) ||
+        !Array.isArray(f.failedLinks) ||
+        !Array.isArray(f.failedSatellites)
+      )
+        throw new Error("Incomplete replay phase.");
+      if (
+        !Array.isArray(f.attachments) ||
+        f.attachments.length !== data.groundStations.length ||
+        f.attachments.some(
+          (row) => !Array.isArray(row) || row.some((sat) => !node(sat)),
+        )
+      )
+        throw new Error("Invalid attachment assignments.");
+      for (const name of [
+        "attempted",
+        "reachable",
+        "delivered",
+        "regionEntries",
+        "rawEntries",
+        "exceptionSatellites",
+        "unresolved",
+        "liveLinks",
+        "components",
+      ])
+        if (!Number.isInteger(f.stats[name]) || f.stats[name] < 0)
+          throw new Error("Invalid replay metrics.");
+      if (
+        f.failedSatellites.some((x) => !node(x)) ||
+        [...f.failedLinks, ...f.edgeLengths].some(
+          (e) => !Array.isArray(e) || !node(e[0]) || !node(e[1]),
+        ) ||
+        f.edgeLengths.some((e) => !Number.isFinite(e[2]) || e[2] <= 0) ||
+        f.exceptions.some(
+          (e) => !Array.isArray(e) || e.length !== 3 || e.some((x) => !node(x)),
+        )
+      )
+        throw new Error("Invalid link or exception entry.");
+      for (const r of Object.values(f.routes))
+        if (
+          !Number.isInteger(r.source) || !Number.isInteger(r.target) ||
+          r.source < 0 || r.target < 0 || r.source >= data.groundStations.length || r.target >= data.groundStations.length ||
+          (r.sourceSatellite !== undefined && !node(r.sourceSatellite)) ||
+          (r.targetSatellite !== undefined && !node(r.targetSatellite)) ||
+          !["delivered", "partition", "no_visibility", "forwarding_failure"].includes(r.reason) ||
+          [r.topologicalDelayMs, r.linkStateDelayMs].some(delay => delay !== undefined && (!Number.isFinite(delay) || delay <= 0)) ||
+          !Array.isArray(r.topological) ||
+          !Array.isArray(r.linkState) ||
+          [...r.topological, ...r.linkState].some((x) => !node(x))
+        )
+          throw new Error("Invalid exported route.");
+      for (const d of Object.values(f.decisions))
+        if (
+          !Array.isArray(d.potential) ||
+          d.potential.length !== n ||
+          d.potential.some((x) => x !== null && !Number.isFinite(x)) ||
+          !Array.isArray(d.ruleNext) ||
+          d.ruleNext.length !== n ||
+          d.ruleNext.some((x) => x !== null && !node(x))
+        )
+          throw new Error("Invalid exported forwarding decision.");
+    }
+    return data;
+  }
 
   async function init() {
-    bindElements();
-    bindEvents();
-
-    if (!window.Cesium || !window.satellite) {
-      setStatus("CesiumJS or satellite.js failed to load.", true);
-      return;
-    }
-
+    ids.forEach((id) => (els[id] = document.getElementById(id)));
+    bind();
     try {
-      state.viewer = createViewer();
-      resetCamera(0);
-      state.metadata = await fetchJson("constellations.json");
-      populateConstellations(state.metadata.constellations || []);
-      populateRouteSelects(state.metadata.groundStations || []);
-      applyDefaultClockSpeed();
-      await loadSelectedConstellation();
-    } catch (error) {
-      setStatus(`Failed to initialize viewer: ${error.message}`, true);
-    }
-  }
-
-  function bindElements() {
-    els.container = document.getElementById("cesiumContainer");
-    els.select = document.getElementById("constellationSelect");
-    els.islTopology = document.getElementById("islTopology");
-    els.routeSource = document.getElementById("routeSource");
-    els.routeTarget = document.getElementById("routeTarget");
-    els.showLinkStateRoute = document.getElementById("showLinkStateRoute");
-    els.showGround = document.getElementById("showGround");
-    els.showGsl = document.getElementById("showGsl");
-    els.showGslLabel = document.getElementById("showGslLabel");
-    els.fullDensity = document.getElementById("fullDensity");
-    els.fullDensityLabel = document.getElementById("fullDensityLabel");
-    els.speedSlider = document.getElementById("speedSlider");
-    els.speedLabel = document.getElementById("speedLabel");
-    els.resetButton = document.getElementById("resetButton");
-    els.hidePanel = document.getElementById("hidePanel");
-    els.showPanel = document.getElementById("showPanel");
-    els.panel = document.querySelector(".panel");
-    els.status = document.getElementById("status");
-    els.stats = document.getElementById("stats");
-    els.tleLink = document.getElementById("tleLink");
-  }
-
-  function bindEvents() {
-    els.select.addEventListener("change", loadSelectedConstellation);
-    els.islTopology.addEventListener("change", reloadActiveConstellation);
-    els.routeSource.addEventListener("change", updateRoute);
-    els.routeTarget.addEventListener("change", updateRoute);
-    els.showLinkStateRoute.addEventListener("change", updateRoute);
-    els.showGround.addEventListener("change", function () {
-      syncGslControl();
-      reloadActiveConstellation();
-    });
-    els.showGsl.addEventListener("change", reloadActiveConstellation);
-    els.fullDensity.addEventListener("change", reloadActiveConstellation);
-    els.resetButton.addEventListener("click", function () { resetCamera(0.8); });
-    els.hidePanel.addEventListener("click", function () { setPanelVisible(false); });
-    els.showPanel.addEventListener("click", function () { setPanelVisible(true); });
-    els.speedSlider.addEventListener("input", function () {
-      const speed = Number(els.speedSlider.value);
-      els.speedLabel.textContent = `${speed}x`;
-      if (state.viewer) {
-        state.viewer.clock.multiplier = speed;
-      }
-    });
-  }
-
-  function setPanelVisible(visible) {
-    els.panel.hidden = !visible;
-    els.showPanel.hidden = visible;
-  }
-
-  function createViewer() {
-    const viewer = new Cesium.Viewer("cesiumContainer", {
-      animation: true,
-      baseLayerPicker: false,
-      fullscreenButton: true,
-      geocoder: false,
-      homeButton: false,
-      imageryProvider: false,
-      infoBox: true,
-      navigationHelpButton: false,
-      sceneModePicker: false,
-      selectionIndicator: true,
-      shouldAnimate: true,
-      timeline: true,
-      terrainProvider: new Cesium.EllipsoidTerrainProvider(),
-    });
-
-    viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#050914");
-    viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#0a172c");
-    viewer.scene.globe.depthTestAgainstTerrain = true;
-    viewer.scene.globe.enableLighting = false;
-    if (viewer.scene.globe.translucency) {
-      viewer.scene.globe.translucency.enabled = false;
-      viewer.scene.globe.translucency.frontFaceAlpha = 1.0;
-      viewer.scene.globe.translucency.backFaceAlpha = 1.0;
-    }
-    viewer.scene.highDynamicRange = false;
-    viewer.scene.fog.enabled = false;
-    viewer.clock.shouldAnimate = true;
-    addEarthImagery(viewer);
-    return viewer;
-  }
-
-  function addEarthImagery(viewer) {
-    try {
-      const naturalEarthUrl = Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII");
-      const providerOrPromise = Cesium.TileMapServiceImageryProvider.fromUrl(naturalEarthUrl);
-      Promise.resolve(providerOrPromise)
-        .then(function (provider) {
-          viewer.imageryLayers.removeAll();
-          viewer.imageryLayers.addImageryProvider(provider);
-        })
-        .catch(function () {
-          addOpenStreetMapImagery(viewer);
-        });
-    } catch (error) {
-      addOpenStreetMapImagery(viewer);
-    }
-  }
-
-  function addOpenStreetMapImagery(viewer) {
-    try {
-      viewer.imageryLayers.removeAll();
-      viewer.imageryLayers.addImageryProvider(new Cesium.OpenStreetMapImageryProvider({
-        url: "https://tile.openstreetmap.org/",
-      }));
-    } catch (error) {
-      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#12345a");
-    }
-  }
-
-  function populateConstellations(constellations) {
-    els.select.innerHTML = "";
-    constellations.forEach(function (config) {
-      const option = document.createElement("option");
-      option.value = config.id;
-      option.textContent = config.label || config.name;
-      els.select.appendChild(option);
-    });
-  }
-
-  function populateRouteSelects(groundStations) {
-    [els.routeSource, els.routeTarget].forEach(function (select) {
-      while (select.options.length > 1) {
-        select.remove(1);
-      }
-      groundStations.forEach(function (station) {
-        const option = document.createElement("option");
-        option.value = station.name;
-        option.textContent = station.name;
-        select.appendChild(option);
+      if (!window.Cesium)
+        throw new Error(
+          "Cesium did not load. Build the local viewer assets first.",
+        );
+      state.viewer = new Cesium.Viewer("cesiumContainer", {
+        baseLayer: false,
+        animation: false,
+        timeline: false,
+        geocoder: false,
+        homeButton: false,
+        sceneModePicker: false,
+        navigationHelpButton: false,
+        baseLayerPicker: false,
+        fullscreenButton: false,
+        infoBox: false,
+        selectionIndicator: false,
+        shouldAnimate: false,
+        terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+        requestRenderMode: true,
+        maximumRenderTimeChange: Infinity,
       });
-    });
-  }
-
-  function applyDefaultClockSpeed() {
-    const speed = Number(state.metadata.defaults?.clockMultiplier || els.speedSlider.value || 120);
-    els.speedSlider.value = String(speed);
-    els.speedLabel.textContent = `${speed}x`;
-    state.viewer.clock.multiplier = speed;
-  }
-
-  async function reloadActiveConstellation() {
-    if (!state.activeConfig || state.loading) {
-      return;
-    }
-    renderConstellation(state.activeConfig, state.activeRecords);
-  }
-
-  async function loadSelectedConstellation() {
-    if (state.loading) {
-      return;
-    }
-
-    const config = findSelectedConfig();
-    if (!config) {
-      setStatus("No constellation selected.", true);
-      return;
-    }
-
-    state.loading = true;
-    setStatus(`Loading ${config.name} TLE data...`);
-    updateDensityControl(config);
-
-    try {
-      const parsed = await loadRecords(config);
-      state.activeConfig = Object.assign({}, config, parsed.header);
-      state.activeRecords = parsed.records;
-      state.activeSource = parsed.source;
-      renderConstellation(state.activeConfig, state.activeRecords);
-      setStatus(`Ready: ${state.activeConfig.name} (${state.activeSource}).`);
-    } catch (error) {
-      clearScene();
-      setStatus(`Failed to load constellation: ${error.message}`, true);
-    } finally {
-      state.loading = false;
-    }
-  }
-
-  function findSelectedConfig() {
-    const id = els.select.value;
-    return (state.metadata.constellations || []).find(function (config) {
-      return config.id === id;
-    });
-  }
-
-  async function loadRecords(config) {
-    try {
-      const tleText = await fetchTextWithFallback(config.tlePath, config.rawTleUrl);
-      const parsed = parseTle(tleText, config);
-      parsed.source = "TLE data";
-      return parsed;
-    } catch (error) {
-      const records = createSyntheticRecords(config);
-      return {
-        header: {
-          orbits: Number(config.orbits),
-          satsPerOrbit: Number(config.satsPerOrbit),
-        },
-        records,
-        source: "metadata fallback",
-      };
-    }
-  }
-
-  function renderConstellation(config, records) {
-    clearScene();
-    configureClock(config);
-
-    const sampleStep = getSampleStep(config);
-    const groundStations = getGroundStations(config);
-    const topology = els.islTopology.value;
-    const color = Cesium.Color.fromCssColorString(config.color || "#8cc8ff");
-    state.gslCache = createGslCache(config, records, groundStations);
-    const renderedSatellites = addSatellites(records, config, sampleStep, color);
-    let ringLinks = 0;
-    let gridLinks = 0;
-    let gslLinks = 0;
-
-    if (topology === "ring" || topology === "grid") {
-      ringLinks = addLinks(records, config, sampleStep, "ring", color);
-    }
-    if (topology === "grid") {
-      gridLinks = addLinks(records, config, sampleStep, "grid", color);
-    }
-    if (els.showGround.checked) {
-      addGroundStations(groundStations);
-      if (els.showGsl.checked) {
-        addGslLinks(groundStations);
-        gslLinks = countVisibleGslAttachments();
+      const scene = state.viewer.scene;
+      scene.backgroundColor = color("#080f16");
+      scene.globe.baseColor = color("#172f42");
+      scene.globe.enableLighting = false;
+      scene.highDynamicRange = false;
+      scene.fog.enabled = false;
+      scene.globe.depthTestAgainstTerrain = true;
+      scene.skyBox.show = false;
+      scene.sun.show = false;
+      scene.moon.show = false;
+      scene.skyAtmosphere.show = false;
+      const provider = await Cesium.TileMapServiceImageryProvider.fromUrl(
+        Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII"),
+      );
+      state.viewer.imageryLayers.addImageryProvider(provider);
+      state.viewer.screenSpaceEventHandler.setInputAction((click) => {
+        const p = scene.pick(click.position);
+        if (typeof p?.id === "string" && p.id.startsWith("sat-"))
+          selectSatellite(Number(p.id.slice(4)));
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+      const response = await fetch("replays/manifest.json");
+      if (!response.ok)
+        throw new Error(
+          "Replay manifest is missing. Run scripts/export_viewer_replay.py.",
+        );
+      state.manifest = await response.json();
+      for (const item of state.manifest) {
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.textContent = item.label;
+        els.scenario.append(option);
       }
+      const url = new URL(location.href);
+      const requested = url.searchParams.get("replay");
+      if (state.manifest.some((x) => x.id === requested))
+        els.scenario.value = requested;
+      await loadSelected();
+      if (url.searchParams.has("presentation")) presentation(true);
+      window.leopathReplay = {
+        setFrame,
+        selectSatellite,
+        focusFailure,
+        resetCamera,
+        presentation,
+        caption,
+        setPair,
+        loadData: installData,
+        get data() {
+          return state.data;
+        },
+        get frame() {
+          return state.frame;
+        },
+        get ready() {
+          return state.ready;
+        },
+        get viewer() {
+          return state.viewer;
+        },
+        validateReplay,
+      };
+      state.ready = true;
+    } catch (error) {
+      status(error.message, true);
     }
+  }
 
-    updateStats(
-      config,
-      records.length,
-      renderedSatellites,
-      ringLinks,
-      gridLinks,
-      gslLinks,
-      sampleStep,
-      groundStations.length,
-      []
+  function bind() {
+    els.expandGrid.addEventListener("click", () => {
+      const expanded = els.logicalGrid
+        .closest(".grid-card")
+        .classList.toggle("expanded");
+      els.expandGrid.textContent = expanded ? "Close ×" : "Expand ↗";
+      els.expandGrid.setAttribute("aria-expanded", String(expanded));
+    });
+    els.stepHop.addEventListener("click", () => {
+      const path = route()?.topological || [];
+      if (path.length)
+        selectSatellite(path[(path.indexOf(state.selected) + 1) % path.length]);
+    });
+    els.scenario.addEventListener("change", () =>
+      loadSelected().catch((e) => status(e.message, true)),
     );
-    refreshRouteForMode(records, config, groundStations);
-    updateTleLink(config);
-    resetCamera(0.8);
-  }
-
-  function clearScene() {
-    state.viewer.entities.removeAll();
-    state.routeCache = null;
-    els.stats.innerHTML = "";
-  }
-
-  function configureClock(config) {
-    const defaults = state.metadata.defaults || {};
-    const startIso = config.epochIso || defaults.epochIso || "2000-01-01T00:00:00Z";
-    const durationHours = Number(config.durationHours || defaults.durationHours || 6);
-    const start = Cesium.JulianDate.fromIso8601(startIso);
-    const stop = Cesium.JulianDate.addHours(start, durationHours, new Cesium.JulianDate());
-
-    state.viewer.clock.startTime = Cesium.JulianDate.clone(start);
-    state.viewer.clock.stopTime = Cesium.JulianDate.clone(stop);
-    state.viewer.clock.currentTime = Cesium.JulianDate.clone(start);
-    state.viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
-    state.viewer.clock.clockStep = Cesium.ClockStep.SYSTEM_CLOCK_MULTIPLIER;
-    state.viewer.clock.shouldAnimate = true;
-    state.viewer.timeline.zoomTo(start, stop);
-  }
-
-  function getSampleStep(config) {
-    if (els.fullDensity.checked) {
-      return 1;
-    }
-    return Math.max(1, Number(config.defaultSampleStep || 1));
-  }
-
-  function updateDensityControl(config) {
-    const isSampled = Number(config.defaultSampleStep || 1) > 1;
-    els.fullDensity.disabled = !isSampled;
-    els.fullDensityLabel.classList.toggle("is-disabled", !isSampled);
-    els.fullDensity.checked = !isSampled;
-  }
-
-  function syncGslControl() {
-    els.showGsl.disabled = !els.showGround.checked;
-    els.showGslLabel.classList.toggle("is-disabled", !els.showGround.checked);
-  }
-
-  function getGroundStations(config) {
-    return state.metadata.groundStations || config.groundStations || [];
-  }
-
-  function addSatellites(records, config, sampleStep, color) {
-    let rendered = 0;
-    records.forEach(function (record) {
-      if (record.index % sampleStep !== 0) {
+    for (const id of ["source", "target"])
+      els[id].addEventListener("change", () => {
+        stop();
+        render();
+      });
+    els.swap.addEventListener("click", () =>
+      setPair(Number(els.target.value), Number(els.source.value)),
+    );
+    for (const id of [
+      "showMesh",
+      "showStations",
+      "showReference",
+      "showPrevious",
+    ])
+      els[id].addEventListener("change", render);
+    els.previous.addEventListener("click", () => {
+      stop();
+      setFrame(state.frame - 1);
+    });
+    els.next.addEventListener("click", () => {
+      stop();
+      setFrame(state.frame + 1);
+    });
+    els.play.addEventListener("click", () => (state.timer ? stop() : play()));
+    els.pace.addEventListener("change", () => {
+      if (state.timer) {
+        stop();
+        play();
+      }
+    });
+    els.focus.addEventListener("click", () => focusFailure());
+    els.resetCamera.addEventListener("click", () => resetCamera());
+    els.presentation.addEventListener("click", () =>
+      presentation(!document.body.classList.contains("presentation")),
+    );
+    els.importReplay.addEventListener("change", async () => {
+      const file = els.importReplay.files[0];
+      if (!file) return;
+      try {
+        if (file.size > 100 * 1024 * 1024)
+          throw new Error("Replay exceeds 100 MB.");
+        installData(validateReplay(JSON.parse(await file.text())));
+        status(`Loaded ${file.name}`);
+      } catch (e) {
+        status(e.message, true);
+      } finally {
+        els.importReplay.value = "";
+      }
+    });
+    els.downloadReplay.addEventListener("click", () => {
+      if (!state.data) return;
+      const url = URL.createObjectURL(
+        new Blob([JSON.stringify({...state.data, dataset: state.dataset})], { type: "application/json" }),
+      );
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${state.data.id}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        els.logicalGrid.closest(".grid-card").classList.remove("expanded");
+        els.expandGrid.textContent = "Expand ↗";
+        els.expandGrid.setAttribute("aria-expanded", "false");
         return;
       }
-
-      state.viewer.entities.add({
-        id: `sat-${config.id}-${record.index}`,
-        name: record.name,
-        description: satelliteDescription(record, config),
-        position: new Cesium.CallbackProperty(function (time) {
-          return positionForRecord(record, time);
-        }, false),
-        point: {
-          color: color.withAlpha(0.92),
-          outlineColor: Cesium.Color.BLACK.withAlpha(0.7),
-          outlineWidth: 1,
-          pixelSize: config.pointSize || 4,
-        },
-      });
-      rendered += 1;
-    });
-    return rendered;
-  }
-
-  function addLinks(records, config, sampleStep, mode, color) {
-    const orbits = Number(config.orbits);
-    const satsPerOrbit = Number(config.satsPerOrbit);
-    if (!orbits || !satsPerOrbit) {
-      return 0;
-    }
-
-    const maxLinks = Number(config.maxLinks || 2000);
-    const material = color.withAlpha(mode === "grid" ? 0.34 : 0.42);
-    const width = mode === "grid" ? 0.7 : 0.9;
-    let count = 0;
-
-    for (let plane = 0; plane < orbits; plane += 1) {
-      for (let slot = 0; slot < satsPerOrbit; slot += 1) {
-        const sourceIndex = plane * satsPerOrbit + slot;
-        if (sourceIndex % sampleStep !== 0) {
-          continue;
-        }
-        if (count >= maxLinks) {
-          return count;
-        }
-
-        const targetPlane = mode === "grid" ? (plane + 1) % orbits : plane;
-        const targetSlot = mode === "grid" ? slot : (slot + 1) % satsPerOrbit;
-        const source = records[sourceIndex];
-        const target = records[targetPlane * satsPerOrbit + targetSlot];
-        if (!source || !target) {
-          continue;
-        }
-
-        state.viewer.entities.add({
-          name: `${mode}-isl-${source.index}-${target.index}`,
-          polyline: {
-            positions: new Cesium.CallbackProperty(function (time) {
-              const sourcePosition = positionForRecord(source, time);
-              const targetPosition = positionForRecord(target, time);
-              return sourcePosition && targetPosition ? [sourcePosition, targetPosition] : [];
-            }, false),
-            width,
-            arcType: Cesium.ArcType.NONE,
-            material,
-          },
-        });
-        count += 1;
+      if (
+        ["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(e.target.tagName) ||
+        !state.ready
+      )
+        return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        state.timer ? stop() : play();
       }
+      if (e.key === "ArrowRight") {
+        stop();
+        setFrame(state.frame + 1);
+      }
+      if (e.key === "ArrowLeft") {
+        stop();
+        setFrame(state.frame - 1);
+      }
+      if (e.key.toLowerCase() === "p")
+        presentation(!document.body.classList.contains("presentation"));
+    });
+  }
+  function status(message, error = false) {
+    text("loadStatus", message);
+    els.loadStatus.classList.toggle("error", error);
+  }
+  async function loadSelected() {
+    const token = ++state.loadToken;
+    stop();
+    status("Loading simulator replay…");
+    const item = state.manifest.find((x) => x.id === els.scenario.value);
+    if (!item) throw new Error("Select a replay.");
+    const response = await fetch(`replays/${encodeURIComponent(item.path)}`);
+    if (!response.ok) throw new Error("Unable to load replay.");
+    const data = validateReplay(await response.json());
+    const dataset = await window.leopathDatasetReady;
+    if (token !== state.loadToken) return;
+    installData(data, dataset, false);
+    status("Ready · routes exported from LEOPath");
+  }
+  function installData(data, dataset = data.dataset || null, imported = true) {
+    validateReplay(data);
+    if (window.setLEOPathDataset) window.setLEOPathDataset(dataset, imported ? "Imported replay · unversioned" : window.leopathDatasetError ? "Dataset version unavailable" : "Local examples · unversioned");
+    state.dataset = dataset;
+    state.loadToken += 1;
+    stop();
+    state.data = data;
+    state.frame = 0;
+    state.selected = data.focusSatellite ?? 0;
+    for (const id of ["source", "target"]) {
+      els[id].replaceChildren();
+      data.groundStations.forEach((g, i) => {
+        const option = document.createElement("option");
+        option.value = i;
+        option.textContent = g.name;
+        els[id].append(option);
+      });
     }
-    return count;
-  }
-
-  function addGroundStations(groundStations) {
-    groundStations.forEach(function (station) {
-      state.viewer.entities.add({
-        id: `gs-${station.name}`,
-        name: station.name,
-        description: `<p>Ground station at ${station.latitude}, ${station.longitude}</p>`,
-        position: Cesium.Cartesian3.fromDegrees(
-          Number(station.longitude),
-          Number(station.latitude),
-          Number(station.elevationM || 0)
-        ),
-        point: {
-          color: Cesium.Color.CYAN,
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 2,
-          pixelSize: 10,
-        },
-        label: {
-          text: station.name,
-          font: "13px sans-serif",
-          fillColor: Cesium.Color.WHITE,
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 2,
-          pixelOffset: new Cesium.Cartesian2(0, -18),
-          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        },
+    const pair = (data.defaultPair || "0:1").split(":").map(Number);
+    els.source.value = pair[0];
+    els.target.value = pair[1];
+    text("gridShape", `${data.planes} × ${data.slots}`);
+    els.shellSummary.innerHTML = `<span>${data.positions.length.toLocaleString()} satellites</span><span>${escape(data.topology.replace("grid_seam", "open seam").replace("grid", "+Grid"))}</span><span>${data.altitudeKm} km</span>`;
+    text("orbitLabel", `${data.epoch.slice(11, 19)} UTC · fixed snapshot`);
+    els.phases.replaceChildren();
+    data.frames.forEach((f, i) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `phase-button ${f.failedLinks.length ? "fault" : ""}`;
+      button.innerHTML = `<small>${String(i + 1).padStart(2, "0")}</small>${escape(f.label.replace("forwarding", "").replace("Satellite", "Sat.").replace("Network", ""))}`;
+      button.addEventListener("click", () => {
+        stop();
+        setFrame(i);
       });
+      els.phases.append(button);
     });
+    render();
+    resetCamera(0);
   }
-
-  function addGslLinks(groundStations) {
-    const material = Cesium.Color.CYAN.withAlpha(0.62);
-    groundStations.forEach(function (station, index) {
-      state.viewer.entities.add({
-        id: `gsl-${index}`,
-        name: `GSL ${station.name}`,
-        polyline: {
-          positions: new Cesium.CallbackProperty(function (time) {
-            const attachment = getGslAttachment(index, time);
-            if (!attachment) {
-              return [];
-            }
-            const satellitePosition = positionForRecord(attachment.satellite, time);
-            return satellitePosition ? [attachment.groundPosition, satellitePosition] : [];
-          }, false),
-          width: 1.8,
-          arcType: Cesium.ArcType.NONE,
-          material,
-        },
-      });
-    });
+  function setPair(a, b) {
+    stop();
+    els.source.value = a;
+    els.target.value = b;
+    render();
   }
-
-  function countVisibleGslAttachments() {
-    return calculateGslAttachments(state.viewer.clock.currentTime).filter(Boolean).length;
+  function setFrame(index) {
+    if (!state.data) return;
+    state.frame = Math.max(0, Math.min(state.data.frames.length - 1, index));
+    render();
   }
-
-  function MinHeap() {
-    const nodes = [];
-    const keys = [];
-    return {
-      size: function () { return nodes.length; },
-      push: function (node, key) {
-        nodes.push(node);
-        keys.push(key);
-        let i = nodes.length - 1;
-        while (i > 0) {
-          const parent = (i - 1) >> 1;
-          if (keys[parent] <= keys[i]) {
-            break;
-          }
-          [keys[parent], keys[i]] = [keys[i], keys[parent]];
-          [nodes[parent], nodes[i]] = [nodes[i], nodes[parent]];
-          i = parent;
-        }
-      },
-      pop: function () {
-        const top = nodes[0];
-        const lastNode = nodes.pop();
-        const lastKey = keys.pop();
-        if (nodes.length > 0) {
-          nodes[0] = lastNode;
-          keys[0] = lastKey;
-          let i = 0;
-          const length = nodes.length;
-          for (;;) {
-            const left = 2 * i + 1;
-            const right = 2 * i + 2;
-            let smallest = i;
-            if (left < length && keys[left] < keys[smallest]) { smallest = left; }
-            if (right < length && keys[right] < keys[smallest]) { smallest = right; }
-            if (smallest === i) {
-              break;
-            }
-            [keys[smallest], keys[i]] = [keys[i], keys[smallest]];
-            [nodes[smallest], nodes[i]] = [nodes[i], nodes[smallest]];
-            i = smallest;
-          }
-        }
-        return top;
-      },
-    };
-  }
-
-  const ROUTE_IDS = ["topological-route", "linkstate-route"];
-
-  function clearRouteEntities() {
-    ROUTE_IDS.forEach(function (id) { state.viewer.entities.removeById(id); });
-    state.routeCache = null;
-  }
-
-  function updateRoute() {
-    if (!state.viewer || !state.activeConfig || state.loading) {
+  function selectSatellite(satellite) {
+    if (
+      !Number.isInteger(satellite) ||
+      satellite < 0 ||
+      satellite >= state.data.positions.length
+    )
       return;
-    }
-    clearRouteEntities();
-    refreshRouteForMode(state.activeRecords, state.activeConfig, getGroundStations(state.activeConfig));
+    state.selected = satellite;
+    drawGrid();
+    drawInspector();
+    drawGlobe();
   }
-
-  function refreshRouteForMode(records, config, groundStations) {
-    renderStatsTable(addRoute(records, config, groundStations));
+  function stop() {
+    if (state.timer) clearInterval(state.timer);
+    state.timer = null;
+    if (els.play) {
+      els.play.textContent = "▶";
+      els.play.setAttribute("aria-label", "Play failure phases");
+    }
   }
-
-  function addRoute(records, config, groundStations) {
-    clearRouteEntities();
-
-    const srcName = els.routeSource.value;
-    const dstName = els.routeTarget.value;
-    if (!srcName || !dstName || srcName === dstName) {
-      return [];
-    }
-
-    const orbits = Number(config.orbits);
-    const satsPerOrbit = Number(config.satsPerOrbit);
-    if (!orbits || !satsPerOrbit) {
-      return [];
-    }
-
-    const topology = els.islTopology.value;
-    if (topology !== "ring" && topology !== "grid") {
-      return [];
-    }
-
-    const srcGsIndex = groundStations.findIndex(function (g) { return g.name === srcName; });
-    const dstGsIndex = groundStations.findIndex(function (g) { return g.name === dstName; });
-    if (srcGsIndex < 0 || dstGsIndex < 0) {
-      return [];
-    }
-
-    const showLinkState = els.showLinkStateRoute.checked;
-    state.routeCache = { key: null, chain: null };
-
-    function refreshChain(time) {
-      const key = Math.floor(Cesium.JulianDate.toDate(time).getTime() / 60000);
-      if (state.routeCache.key === key) {
-        return state.routeCache.chain;
-      }
-      state.routeCache.key = key;
-      state.routeCache.chain = computeRouteChain(
-        srcGsIndex, dstGsIndex, records, orbits, satsPerOrbit, topology, showLinkState, time
-      );
-      return state.routeCache.chain;
-    }
-
-    function routePositions(time, kind, lift) {
-      const chain = refreshChain(time);
-      if (!chain || !chain[kind]) {
-        return [];
-      }
-      const raw = [chain.srcGround];
-      chain[kind].forEach(function (record) {
-        const position = positionForRecord(record, time);
-        if (position) {
-          raw.push(position);
+  function play() {
+    if (!state.data) return;
+    if (state.frame === state.data.frames.length - 1) setFrame(0);
+    els.play.textContent = "Ⅱ";
+    els.play.setAttribute("aria-label", "Pause failure phases");
+    state.timer = setInterval(
+      () => {
+        if (state.frame === state.data.frames.length - 1) {
+          stop();
+          return;
         }
-      });
-      raw.push(chain.dstGround);
-      if (raw.length < 2) {
-        return [];
-      }
-      const lifted = (!lift || lift === 1)
-        ? raw
-        : raw.map(function (p) {
-            // Radial lift to separate overlapping lines without z-fighting (tiny).
-            return Cesium.Cartesian3.multiplyByScalar(p, lift, new Cesium.Cartesian3());
-          });
-      return cullOccludedPoints(lifted);
-    }
-
-    // Both lines opaque so the globe (depthTestAgainstTerrain) occludes them and
-    // they don't bleed through the far side. Link-state is lifted a hair radially
-    // so that, when it coincides with topological (stretch = 1), it shows as a
-    // green rim hugging the yellow line instead of z-fighting it.
-    if (showLinkState) {
-      state.viewer.entities.add({
-        id: "linkstate-route",
-        name: `Shortest-path route (link-state): ${srcName} → ${dstName}`,
-        polyline: {
-          positions: new Cesium.CallbackProperty(function (time) {
-            return routePositions(time, "ls", 1.0);
-          }, false),
-          width: 7,
-          arcType: Cesium.ArcType.NONE,
-          material: Cesium.Color.fromCssColorString("#2bff88").withAlpha(1.0),
-        },
-      });
-    }
-
-    state.viewer.entities.add({
-      id: "topological-route",
-      name: `Topological forwarding: ${srcName} → ${dstName}`,
-      polyline: {
-        positions: new Cesium.CallbackProperty(function (time) {
-          return routePositions(time, "topo", 1.0010);
-        }, false),
-        width: 3,
-        arcType: Cesium.ArcType.NONE,
-        material: Cesium.Color.fromCssColorString("#ffd400").withAlpha(1.0),
+        setFrame(state.frame + 1);
       },
-    });
-
-    const initialChain = refreshChain(state.viewer.clock.currentTime);
-    if (!initialChain) {
-      return [["Route", "unreachable — try +Grid"]];
-    }
-    return routeStatRows(initialChain, state.viewer.clock.currentTime);
-  }
-
-  function routeStatRows(chain, time) {
-    if (!chain) {
-      return [];
-    }
-    const rows = [
-      ["Topo route hops", (chain.topo.length - 1).toLocaleString()],
-      ["Topo path", `${Math.round(pathPhysicalKm(chain.topo, time)).toLocaleString()} km`],
-    ];
-    if (chain.ls) {
-      rows.push(["LS route hops", (chain.ls.length - 1).toLocaleString()]);
-      rows.push(["LS path", `${Math.round(pathPhysicalKm(chain.ls, time)).toLocaleString()} km`]);
-    }
-    return rows;
-  }
-
-  function pathPhysicalKm(records, time) {
-    let total = 0;
-    for (let i = 0; i < records.length - 1; i += 1) {
-      const a = positionForRecord(records[i], time);
-      const b = positionForRecord(records[i + 1], time);
-      if (a && b) {
-        total += Cesium.Cartesian3.distance(a, b);
-      }
-    }
-    return total / 1000;
-  }
-
-  function computeRouteChain(srcGsIndex, dstGsIndex, records, orbits, satsPerOrbit, topology, showLinkState, time) {
-    const srcAttachment = getGslAttachment(srcGsIndex, time);
-    if (!srcAttachment || !state.gslCache) {
-      return null;
-    }
-    // Multi-egress: the destination GS is reachable via ANY satellite currently
-    // overhead, so delivery happens at the first/nearest visible egress, matching
-    // the real algorithm (and why topological forwarding ties shortest-path).
-    const dstVisible = visibleSatSet(dstGsIndex, records, time);
-    if (dstVisible.size === 0) {
-      return null;
-    }
-
-    const topo = pivotWeightedPath(
-      srcAttachment.satellite, dstVisible, records, orbits, satsPerOrbit, topology, time
-    );
-    if (!topo) {
-      return null;
-    }
-
-    let ls = null;
-    if (showLinkState) {
-      ls = linkStatePath(
-        srcAttachment.satellite, dstVisible, records, orbits, satsPerOrbit, topology, time
-      );
-    }
-
-    return {
-      srcGround: state.gslCache.groundStations[srcGsIndex].groundPosition,
-      dstGround: state.gslCache.groundStations[dstGsIndex].groundPosition,
-      topo,
-      ls,
-    };
-  }
-
-  function visibleSatSet(gsIndex, records, time) {
-    const set = new Set();
-    if (!state.gslCache) {
-      return set;
-    }
-    const station = state.gslCache.groundStations[gsIndex];
-    const maxDistanceM = maxGslDistanceM(state.activeConfig);
-    for (let i = 0; i < records.length; i += 1) {
-      const position = positionForRecord(records[i], time);
-      if (!position) {
-        continue;
-      }
-      const vector = Cesium.Cartesian3.subtract(position, station.groundPosition, new Cesium.Cartesian3());
-      if (Cesium.Cartesian3.dot(vector, station.normal) <= 0) {
-        continue;
-      }
-      if (Cesium.Cartesian3.magnitude(vector) <= maxDistanceM) {
-        set.add(records[i].index);
-      }
-    }
-    return set;
-  }
-
-  function cullOccludedPoints(points) {
-    // Keep only the longest contiguous run of points visible from the camera, so
-    // the route line stops at the Earth's limb instead of drawing through the
-    // globe (Cesium does not reliably occlude space polylines behind the globe).
-    if (points.length < 2) {
-      return [];
-    }
-    const occluder = new Cesium.EllipsoidalOccluder(Cesium.Ellipsoid.WGS84, state.viewer.camera.positionWC);
-    let bestStart = 0;
-    let bestLen = 0;
-    let curStart = 0;
-    let curLen = 0;
-    for (let i = 0; i < points.length; i += 1) {
-      if (occluder.isPointVisible(points[i])) {
-        if (curLen === 0) {
-          curStart = i;
-        }
-        curLen += 1;
-        if (curLen > bestLen) {
-          bestLen = curLen;
-          bestStart = curStart;
-        }
-      } else {
-        curLen = 0;
-      }
-    }
-    return bestLen >= 2 ? points.slice(bestStart, bestStart + bestLen) : [];
-  }
-
-  function neighborIndices(index, orbits, satsPerOrbit, topology) {
-    const plane = Math.floor(index / satsPerOrbit);
-    const slot = index % satsPerOrbit;
-    const neighbors = [
-      plane * satsPerOrbit + (slot + 1) % satsPerOrbit,
-      plane * satsPerOrbit + (slot - 1 + satsPerOrbit) % satsPerOrbit,
-    ];
-    if (topology === "grid") {
-      neighbors.push(((plane + 1) % orbits) * satsPerOrbit + slot);
-      neighbors.push(((plane - 1 + orbits) % orbits) * satsPerOrbit + slot);
-    }
-    return neighbors;
-  }
-
-  function linkStatePath(srcRecord, dstSet, records, orbits, satsPerOrbit, topology, time) {
-    const n = records.length;
-    const srcIndex = srcRecord.plane * satsPerOrbit + srcRecord.slot;
-
-    const positions = new Array(n);
-    for (let i = 0; i < n; i += 1) {
-      positions[i] = positionForRecord(records[i], time) || null;
-    }
-    if (!positions[srcIndex]) {
-      return null;
-    }
-
-    const dist = new Float64Array(n).fill(Infinity);
-    const prev = new Int32Array(n).fill(-1);
-    const visited = new Uint8Array(n);
-    dist[srcIndex] = 0;
-
-    const heap = new MinHeap();
-    heap.push(srcIndex, 0);
-    let reached = -1;
-
-    while (heap.size() > 0) {
-      const u = heap.pop();
-      if (visited[u]) {
-        continue;
-      }
-      visited[u] = 1;
-      if (dstSet.has(u)) {
-        reached = u;
-        break;
-      }
-      const pu = positions[u];
-      if (!pu) {
-        continue;
-      }
-      const neighbors = neighborIndices(u, orbits, satsPerOrbit, topology);
-      for (let k = 0; k < neighbors.length; k += 1) {
-        const v = neighbors[k];
-        const pv = positions[v];
-        if (!pv || visited[v]) {
-          continue;
-        }
-        const candidate = dist[u] + Cesium.Cartesian3.distance(pu, pv);
-        if (candidate < dist[v]) {
-          dist[v] = candidate;
-          prev[v] = u;
-          heap.push(v, candidate);
-        }
-      }
-    }
-
-    if (reached === -1) {
-      return null;
-    }
-
-    const path = [];
-    let cursor = reached;
-    while (cursor !== -1) {
-      path.push(records[cursor]);
-      cursor = prev[cursor];
-    }
-    path.reverse();
-    return path;
-  }
-
-  // Port of leopath/network_state/routing_algorithms/topological_routing/
-  // fstate_calculation.py's torus_weighted_pivot distance + greedy next-hop
-  // selection (the actual algorithm reported in the paper), so the demo route
-  // matches the real per-satellite forwarding decisions instead of a plain
-  // hop-count heuristic.
-  function buildPivotWeightModel(records, orbits, satsPerOrbit, topology, positions) {
-    const rowEdgeCosts = [];
-    for (let p = 0; p < orbits; p += 1) {
-      rowEdgeCosts.push(new Array(satsPerOrbit).fill(Infinity));
-    }
-    const planeEdgeCosts = [];
-    for (let s = 0; s < satsPerOrbit; s += 1) {
-      planeEdgeCosts.push(new Array(orbits).fill(Infinity));
-    }
-
-    for (let plane = 0; plane < orbits; plane += 1) {
-      for (let slot = 0; slot < satsPerOrbit; slot += 1) {
-        const index = plane * satsPerOrbit + slot;
-        const pos = positions[index];
-        if (!pos) {
-          continue;
-        }
-        const nextSlot = (slot + 1) % satsPerOrbit;
-        const rowNeighborIndex = plane * satsPerOrbit + nextSlot;
-        const rowNeighborPos = positions[rowNeighborIndex];
-        if (rowNeighborPos) {
-          const weight = Cesium.Cartesian3.distance(pos, rowNeighborPos);
-          rowEdgeCosts[plane][slot] = Math.min(rowEdgeCosts[plane][slot], weight);
-        }
-        if (topology === "grid") {
-          const nextPlane = (plane + 1) % orbits;
-          const planeNeighborIndex = nextPlane * satsPerOrbit + slot;
-          const planeNeighborPos = positions[planeNeighborIndex];
-          if (planeNeighborPos) {
-            const weight = Cesium.Cartesian3.distance(pos, planeNeighborPos);
-            planeEdgeCosts[slot][plane] = Math.min(planeEdgeCosts[slot][plane], weight);
-          }
-        }
-      }
-    }
-
-    function pathCost(edgeCosts, start, end) {
-      const modulus = edgeCosts.length;
-      if (start === end) {
-        return 0.0;
-      }
-      const forwardSteps = ((end - start) % modulus + modulus) % modulus;
-      const backwardSteps = ((start - end) % modulus + modulus) % modulus;
-      let forwardCost = 0.0;
-      for (let step = 0; step < forwardSteps; step += 1) {
-        const cost = edgeCosts[(start + step) % modulus];
-        if (!Number.isFinite(cost)) {
-          forwardCost = Infinity;
-          break;
-        }
-        forwardCost += cost;
-      }
-      let backwardCost = 0.0;
-      for (let step = 0; step < backwardSteps; step += 1) {
-        const cost = edgeCosts[(start - 1 - step + modulus * 2) % modulus];
-        if (!Number.isFinite(cost)) {
-          backwardCost = Infinity;
-          break;
-        }
-        backwardCost += cost;
-      }
-      return Math.min(forwardCost, backwardCost);
-    }
-
-    const rowPathCosts = [];
-    for (let plane = 0; plane < orbits; plane += 1) {
-      const rows = [];
-      for (let src = 0; src < satsPerOrbit; src += 1) {
-        const row = [];
-        for (let dst = 0; dst < satsPerOrbit; dst += 1) {
-          row.push(pathCost(rowEdgeCosts[plane], src, dst));
-        }
-        rows.push(row);
-      }
-      rowPathCosts.push(rows);
-    }
-
-    const planePathCosts = [];
-    for (let slot = 0; slot < satsPerOrbit; slot += 1) {
-      const rows = [];
-      for (let src = 0; src < orbits; src += 1) {
-        const row = [];
-        for (let dst = 0; dst < orbits; dst += 1) {
-          row.push(pathCost(planeEdgeCosts[slot], src, dst));
-        }
-        rows.push(row);
-      }
-      planePathCosts.push(rows);
-    }
-
-    return { orbits, satsPerOrbit, rowPathCosts, planePathCosts };
-  }
-
-  function pivotDistance(weightModel, srcPlane, srcSlot, dstPlane, dstSlot) {
-    if (srcPlane === dstPlane && srcSlot === dstSlot) {
-      return 0.0;
-    }
-    const { satsPerOrbit, rowPathCosts, planePathCosts } = weightModel;
-    let best = Infinity;
-    for (let pivotRow = 0; pivotRow < satsPerOrbit; pivotRow += 1) {
-      const sourceRowCost = rowPathCosts[srcPlane][srcSlot][pivotRow];
-      const planeCost = planePathCosts[pivotRow][srcPlane][dstPlane];
-      const destinationRowCost = rowPathCosts[dstPlane][pivotRow][dstSlot];
-      const total = sourceRowCost + planeCost + destinationRowCost;
-      if (total < best) {
-        best = total;
-      }
-    }
-    return best;
-  }
-
-  function tieBreakTuple(srcPlane, srcSlot, dstPlane, dstSlot, orbits, satsPerOrbit) {
-    const planeForward = ((dstPlane - srcPlane) % orbits + orbits) % orbits;
-    const satForward = ((dstSlot - srcSlot) % satsPerOrbit + satsPerOrbit) % satsPerOrbit;
-    const samePlanePriority = srcPlane === dstPlane ? 0 : 1;
-    return [samePlanePriority, satForward, planeForward];
-  }
-
-  function tieBreakLess(a, b) {
-    for (let i = 0; i < a.length; i += 1) {
-      if (a[i] !== b[i]) {
-        return a[i] < b[i];
-      }
-    }
-    return false;
-  }
-
-  function pivotWeightedPath(srcRecord, dstSet, records, orbits, satsPerOrbit, topology, time) {
-    const n = records.length;
-    const positions = new Array(n);
-    for (let i = 0; i < n; i += 1) {
-      positions[i] = positionForRecord(records[i], time) || null;
-    }
-    if (!positions[srcRecord.plane * satsPerOrbit + srcRecord.slot]) {
-      return null;
-    }
-
-    const weightModel = buildPivotWeightModel(records, orbits, satsPerOrbit, topology, positions);
-
-    // Multi-egress: pick the single destination satellite (among those
-    // currently visible to the destination GS) that minimizes the pivot
-    // distance estimate from the source, mirroring the real algorithm's
-    // per-source target selection.
-    let targetPlane = null;
-    let targetSlot = null;
-    let bestTargetDistance = Infinity;
-    dstSet.forEach(function (index) {
-      const plane = Math.floor(index / satsPerOrbit);
-      const slot = index % satsPerOrbit;
-      const distance = pivotDistance(weightModel, srcRecord.plane, srcRecord.slot, plane, slot);
-      if (distance < bestTargetDistance) {
-        bestTargetDistance = distance;
-        targetPlane = plane;
-        targetSlot = slot;
-      }
-    });
-    if (targetPlane === null) {
-      return null;
-    }
-
-    const maxHops = orbits + satsPerOrbit + 5;
-    const path = [srcRecord];
-    let current = srcRecord;
-    let guard = 0;
-
-    const inEgress = function (record) {
-      return dstSet.has(record.plane * satsPerOrbit + record.slot);
-    };
-
-    while (!inEgress(current) && guard < maxHops) {
-      guard += 1;
-      const candidates = [
-        [current.plane, (current.slot + 1) % satsPerOrbit],
-        [current.plane, (current.slot - 1 + satsPerOrbit) % satsPerOrbit],
-      ];
-      if (topology === "grid") {
-        candidates.push([(current.plane + 1) % orbits, current.slot]);
-        candidates.push([(current.plane - 1 + orbits) % orbits, current.slot]);
-      }
-
-      const currentPos = positions[current.plane * satsPerOrbit + current.slot];
-      let bestCandidate = null;
-      let bestScore = Infinity;
-      let bestTie = null;
-
-      candidates.forEach(function (candidate) {
-        const [candPlane, candSlot] = candidate;
-        const candIndex = candPlane * satsPerOrbit + candSlot;
-        const candPos = positions[candIndex];
-        if (!candPos) {
-          return;
-        }
-        const edgeWeight = Cesium.Cartesian3.distance(currentPos, candPos);
-        const distanceToTarget = pivotDistance(weightModel, candPlane, candSlot, targetPlane, targetSlot);
-        // torus_weighted_pivot scoring: real ISL edge cost + pivot estimate
-        // to target (matches _neighbor_candidate_score's non-unit branch).
-        const score = edgeWeight + distanceToTarget;
-        const tie = tieBreakTuple(candPlane, candSlot, targetPlane, targetSlot, orbits, satsPerOrbit);
-
-        if (score < bestScore || (score === bestScore && (!bestTie || tieBreakLess(tie, bestTie)))) {
-          bestScore = score;
-          bestCandidate = candidate;
-          bestTie = tie;
-        }
-      });
-
-      if (!bestCandidate) {
-        break;
-      }
-      const next = records[bestCandidate[0] * satsPerOrbit + bestCandidate[1]];
-      if (!next) {
-        break;
-      }
-      path.push(next);
-      current = next;
-    }
-
-    // Only a path that actually reaches a destination egress is valid. In Ring
-    // (intra-plane only) cross-plane pairs are genuinely unreachable -> no route.
-    return inEgress(current) ? path : null;
-  }
-
-  function createGslCache(config, records, groundStations) {
-    return {
-      config,
-      records,
-      groundStations: groundStations.map(prepareGroundStation),
-      key: null,
-      attachments: [],
-    };
-  }
-
-  function prepareGroundStation(station) {
-    const groundPosition = Cesium.Cartesian3.fromDegrees(
-      Number(station.longitude),
-      Number(station.latitude),
-      Number(station.elevationM || 0)
-    );
-    const normal = Cesium.Cartesian3.normalize(groundPosition, new Cesium.Cartesian3());
-    return Object.assign({}, station, { groundPosition, normal });
-  }
-
-  function getGslAttachment(groundStationIndex, time) {
-    if (!state.gslCache) {
-      return null;
-    }
-
-    const key = Math.floor(Cesium.JulianDate.toDate(time).getTime() / 60000);
-    if (state.gslCache.key !== key) {
-      state.gslCache.key = key;
-      state.gslCache.attachments = calculateGslAttachments(time);
-    }
-    return state.gslCache.attachments[groundStationIndex] || null;
-  }
-
-  function calculateGslAttachments(time) {
-    const cache = state.gslCache;
-    const maxDistanceM = maxGslDistanceM(cache.config);
-    return cache.groundStations.map(function (station) {
-      let best = null;
-      let bestDistance = Number.POSITIVE_INFINITY;
-
-      cache.records.forEach(function (record) {
-        const satellitePosition = positionForRecord(record, time);
-        if (!satellitePosition) {
-          return;
-        }
-
-        const vector = Cesium.Cartesian3.subtract(
-          satellitePosition,
-          station.groundPosition,
-          new Cesium.Cartesian3()
-        );
-        if (Cesium.Cartesian3.dot(vector, station.normal) <= 0) {
-          return;
-        }
-
-        const distance = Cesium.Cartesian3.magnitude(vector);
-        if (distance <= maxDistanceM && distance < bestDistance) {
-          bestDistance = distance;
-          best = {
-            groundPosition: station.groundPosition,
-            satellite: record,
-            satelliteId: record.index,
-            distance,
-          };
-        }
-      });
-      return best;
-    });
-  }
-
-  function maxGslDistanceM(config) {
-    const defaults = state.metadata.defaults || {};
-    const altitudeM = Number(config.altitudeKm || 550) * 1000;
-    const coneAngleDeg = Number(config.coneAngleDeg || defaults.coneAngleDeg || 25);
-    const coneRadiusM = altitudeM / Math.tan(Cesium.Math.toRadians(coneAngleDeg));
-    return Math.sqrt(coneRadiusM * coneRadiusM + altitudeM * altitudeM);
-  }
-
-  function positionForRecord(record, time) {
-    if (record.synthetic) {
-      return syntheticPositionForRecord(record, time);
-    }
-
-    const date = Cesium.JulianDate.toDate(time);
-    const propagated = satellite.propagate(record.satrec, date);
-    if (!propagated || !propagated.position) {
-      return undefined;
-    }
-
-    const gmst = satellite.gstime(date);
-    const geodetic = satellite.eciToGeodetic(propagated.position, gmst);
-    return Cesium.Cartesian3.fromRadians(
-      geodetic.longitude,
-      geodetic.latitude,
-      geodetic.height * 1000
+      Number(els.pace.value) * 1000,
     );
   }
-
-  function syntheticPositionForRecord(record, time) {
-    const date = Cesium.JulianDate.toDate(time);
-    const epochMs = Date.parse(record.epochIso || "2000-01-01T00:00:00Z");
-    const elapsedSeconds = (date.getTime() - epochMs) / 1000;
-    const angle = record.meanAnomalyRad + (2 * Math.PI * record.meanMotionRevPerDay * elapsedSeconds / 86400);
-    const xOrbital = record.radiusKm * Math.cos(angle);
-    const yOrbital = record.radiusKm * Math.sin(angle);
-    const cosRaan = Math.cos(record.raanRad);
-    const sinRaan = Math.sin(record.raanRad);
-    const cosInclination = Math.cos(record.inclinationRad);
-    const sinInclination = Math.sin(record.inclinationRad);
-    const eci = {
-      x: cosRaan * xOrbital - sinRaan * cosInclination * yOrbital,
-      y: sinRaan * xOrbital + cosRaan * cosInclination * yOrbital,
-      z: sinInclination * yOrbital,
-    };
-    const ecf = satellite.eciToEcf(eci, satellite.gstime(date));
-    return Cesium.Cartesian3.fromElements(ecf.x * 1000, ecf.y * 1000, ecf.z * 1000);
+  function presentation(active) {
+    document.body.classList.toggle("presentation", active);
+    els.presentation.setAttribute("aria-pressed", String(active));
+    els.presentation.textContent = active
+      ? "Exit presentation"
+      : "Presentation mode";
+    requestAnimationFrame(() => {
+      state.viewer.resize();
+      state.viewer.scene.requestRender();
+    });
   }
-
-  async function fetchJson(url) {
-    const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error(`${url} returned ${response.status}`);
-    }
-    return response.json();
+  function caption(message) {
+    els.demoCaption.hidden = !message;
+    els.demoCaption.textContent = message;
   }
-
-  async function fetchTextWithFallback(primaryUrl, fallbackUrl) {
-    const urls = [primaryUrl, fallbackUrl].filter(Boolean);
-    let lastError = null;
-
-    for (const [index, url] of urls.entries()) {
-      try {
-        const response = await fetch(url, { cache: "no-store" });
-        if (!response.ok) {
-          throw new Error(`${url} returned ${response.status}`);
-        }
-        return response.text();
-      } catch (error) {
-        lastError = error;
-        if (index === 0 && isLocalPreview() && String(primaryUrl).startsWith("data/")) {
-          break;
-        }
-      }
-    }
-    throw lastError || new Error("No TLE URL configured");
-  }
-
-  function isLocalPreview() {
-    return ["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname);
-  }
-
-  function parseTle(tleText, config) {
-    const lines = tleText.split(/\r?\n/).map(function (line) {
-      return line.trim();
-    }).filter(Boolean);
-
-    if (lines.length < 3) {
-      throw new Error("TLE file is empty or malformed");
-    }
-
-    let cursor = 0;
-    const headerMatch = lines[0].match(/^(\d+)\s+(\d+)$/);
-    const header = {};
-    if (headerMatch) {
-      header.orbits = Number(headerMatch[1]);
-      header.satsPerOrbit = Number(headerMatch[2]);
-      cursor = 1;
-    }
-
-    const satsPerOrbit = Number(config.satsPerOrbit || header.satsPerOrbit || 1);
-    const records = [];
-    while (cursor + 2 < lines.length) {
-      const name = lines[cursor];
-      const line1 = lines[cursor + 1];
-      const line2 = lines[cursor + 2];
-      cursor += 3;
-
-      if (!line1.startsWith("1 ") || !line2.startsWith("2 ")) {
-        continue;
-      }
-
-      const index = records.length;
-      records.push({
-        index,
-        name,
-        line1,
-        line2,
-        plane: Math.floor(index / satsPerOrbit),
-        slot: index % satsPerOrbit,
-        satrec: satellite.twoline2satrec(line1, line2),
-      });
-    }
-
-    if (records.length === 0) {
-      throw new Error("No valid TLE records found");
-    }
-
-    if (!header.orbits && config.orbits) {
-      header.orbits = config.orbits;
-    }
-    if (!header.satsPerOrbit && config.satsPerOrbit) {
-      header.satsPerOrbit = config.satsPerOrbit;
-    }
-
-    return { header, records };
-  }
-
-  function createSyntheticRecords(config) {
-    const orbits = Number(config.orbits);
-    const satsPerOrbit = Number(config.satsPerOrbit);
-    if (!orbits || !satsPerOrbit) {
-      throw new Error("No TLE data and insufficient metadata for fallback propagation");
-    }
-
-    const defaults = state.metadata.defaults || {};
-    const phaseDiff = config.phaseDiff !== false;
-    const inclinationRad = Cesium.Math.toRadians(Number(config.inclinationDeg || 0));
-    const meanMotionRevPerDay = Number(config.meanMotionRevPerDay || 15);
-    const radiusKm = Number(config.altitudeKm || 550) + Number(config.earthRadiusKm || defaults.earthRadiusKm || 6378.135);
-    const records = [];
-
-    for (let plane = 0; plane < orbits; plane += 1) {
-      const raanRad = 2 * Math.PI * plane / orbits;
-      const planeShift = phaseDiff && plane % 2 === 1 ? Math.PI / satsPerOrbit : 0;
-      for (let slot = 0; slot < satsPerOrbit; slot += 1) {
-        const index = plane * satsPerOrbit + slot;
-        records.push({
-          synthetic: true,
-          index,
-          name: `${config.name} ${index}`,
-          plane,
-          slot,
-          epochIso: config.epochIso || defaults.epochIso,
-          inclinationRad,
-          meanMotionRevPerDay,
-          meanAnomalyRad: planeShift + 2 * Math.PI * slot / satsPerOrbit,
-          radiusKm,
-          raanRad,
-          line1: "metadata fallback",
-          line2: "metadata fallback",
-        });
-      }
-    }
-
-    return records;
-  }
-
-  function satelliteDescription(record, config) {
-    return [
-      `<h2>${escapeHtml(record.name)}</h2>`,
-      "<table>",
-      `<tr><th>Constellation</th><td>${escapeHtml(config.name)}</td></tr>`,
-      `<tr><th>Plane</th><td>${record.plane}</td></tr>`,
-      `<tr><th>Slot</th><td>${record.slot}</td></tr>`,
-      `<tr><th>Satellite ID</th><td>${record.index}</td></tr>`,
-      `<tr><th>TLE line 1</th><td><code>${escapeHtml(record.line1)}</code></td></tr>`,
-      `<tr><th>TLE line 2</th><td><code>${escapeHtml(record.line2)}</code></td></tr>`,
-      "</table>",
-    ].join("");
-  }
-
-  function updateStats(
-    config,
-    totalSatellites,
-    renderedSatellites,
-    ringLinks,
-    gridLinks,
-    gslLinks,
-    sampleStep,
-    groundStationCount,
-    routeRows
-  ) {
-    state.baseStatsRows = [
-      ["Satellites", totalSatellites.toLocaleString()],
-      ["Rendered", renderedSatellites.toLocaleString()],
-      ["Orbits", Number(config.orbits).toLocaleString()],
-      ["Sats/orbit", Number(config.satsPerOrbit).toLocaleString()],
-      ["Altitude", `${Number(config.altitudeKm).toLocaleString()} km`],
-      ["Inclination", `${config.inclinationDeg} deg`],
-      ["Intra-plane links", ringLinks.toLocaleString()],
-      ["Inter-plane links", gridLinks.toLocaleString()],
-      ["GSL attachments", gslLinks.toLocaleString()],
-      ["Ground stations", groundStationCount.toLocaleString()],
-      ["Sample step", sampleStep === 1 ? "full" : `1/${sampleStep}`],
-    ];
-
-    renderStatsTable(routeRows);
-  }
-
-  function renderStatsTable(routeRows) {
-    const stats = (state.baseStatsRows || []).slice();
-    if (Array.isArray(routeRows) && routeRows.length > 0) {
-      routeRows.forEach(function (row) { stats.push(row); });
-    }
-
-    els.stats.innerHTML = [
-      "<table>",
-      "<tbody>",
-      stats.map(function (item) {
-        return `<tr><th scope="row">${item[0]}</th><td>${item[1]}</td></tr>`;
-      }).join(""),
-      "</tbody>",
-      "</table>",
-    ].join("");
-  }
-
-  function updateTleLink(config) {
-    els.tleLink.href = state.activeSource === "metadata fallback"
-      ? (config.rawTleUrl || config.tlePath || "#")
-      : (config.tlePath || config.rawTleUrl || "#");
-    els.tleLink.textContent = state.activeSource === "metadata fallback"
-      ? "Open source TLE data"
-      : "Open TLE data";
-  }
-
-  function resetCamera(duration) {
-    if (!state.viewer) {
-      return;
-    }
+  function resetCamera(duration = 0.8) {
+    if (!state.data) return;
+    const i = state.data.focusSatellite || 0;
+    const [lon, lat] = state.data.positions[i];
     state.viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(12, 18, 24500000),
-      orientation: {
-        heading: 0,
-        pitch: Cesium.Math.toRadians(-90),
-        roll: 0,
-      },
+      destination: Cesium.Cartesian3.fromDegrees(lon, lat, 15000000),
       duration,
     });
   }
-
-  function setStatus(message, isError) {
-    els.status.textContent = message;
-    els.status.classList.toggle("status--error", Boolean(isError));
+  function focusFailure(duration = 0.8) {
+    const f = current();
+    const satellite =
+      f.failedSatellites[0] ??
+      f.failedLinks[0]?.[0] ??
+      state.data.focusSatellite;
+    const [lon, lat] = state.data.positions[satellite];
+    state.viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(lon, lat, 9000000),
+      duration,
+    });
+    selectSatellite(satellite);
   }
 
-  function escapeHtml(value) {
-    return String(value)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+  function render() {
+    if (!state.data || !state.viewer) return;
+    const f = current(),
+      r = route();
+    const labels = {
+      delivered: "Delivered",
+      partition: "Partitioned",
+      no_visibility: "No visibility",
+      forwarding_failure: "Blocked",
+    };
+    text(
+      "delivery",
+      r ? labels[r.reason] || "Unavailable" : "Select endpoints",
+    );
+    els.delivery.classList.toggle("bad", r?.reason !== "delivered");
+    text(
+      "deliveryDetail",
+      `${state.data.groundStations[Number(els.source.value)]?.name || "—"} → ${state.data.groundStations[Number(els.target.value)]?.name || "—"}`,
+    );
+    for (const [id, kind] of [
+      ["topoDelay", "topological"],
+      ["lsDelay", "linkState"],
+    ])
+      els[id].innerHTML =
+        `${r?.[kind + "DelayMs"] !== undefined ? r[kind + "DelayMs"].toFixed(2) : "—"}<em> ms</em>`;
+    text(
+      "topoHops",
+      r?.topological.length
+        ? `${r.topological.length - 1} ISL hops · GSLs included`
+        : "No delivered route",
+    );
+    text(
+      "lsHops",
+      r?.linkState.length
+        ? `${r.linkState.length - 1} ISL hops · same addresses`
+        : "No reachable reference route",
+    );
+    text("exceptionCount", number(f.stats.regionEntries));
+    text(
+      "exceptionDetail",
+      `${number(f.stats.rawEntries)} raw entries · ${number(f.stats.exceptionSatellites)} satellites`,
+    );
+    text(
+      "phaseNumber",
+      `PHASE ${String(state.frame + 1).padStart(2, "0")} / ${String(state.data.frames.length).padStart(2, "0")}`,
+    );
+    text("phaseTitle", f.label);
+    text("phaseDetail", f.detail);
+    text(
+      "failedCount",
+      `${number(f.failedLinks.length)} unavailable links · ${f.failedSatellites.length} satellites`,
+    );
+    text(
+      "componentCount",
+      `${f.stats.components} component${f.stats.components === 1 ? "" : "s"}`,
+    );
+    text(
+      "allDelivery",
+      `${number(f.stats.delivered)} / ${number(f.stats.attempted)}`,
+    );
+    text(
+      "reachabilityDetail",
+      `${number(f.stats.reachable)} pairs have a live path under the same attachment policy. ${number(f.stats.unresolved)} unresolved reachable walks. Counts describe routes, not packets.`,
+    );
+    els.stepHop.disabled = !r?.topological.length;
+    els.previous.disabled = state.frame === 0;
+    els.next.disabled = state.frame === state.data.frames.length - 1;
+    [...els.phases.children].forEach((button, i) => {
+      button.classList.toggle("active", i === state.frame);
+      button.setAttribute("aria-pressed", String(i === state.frame));
+    });
+    drawGrid();
+    drawInspector();
+    drawGlobe();
   }
-}());
+
+  function svgElement(name, attributes, parent) {
+    const el = document.createElementNS(svgNS, name);
+    for (const [key, value] of Object.entries(attributes))
+      el.setAttribute(key, String(value));
+    parent.append(el);
+    return el;
+  }
+  function drawGrid() {
+    const svg = els.logicalGrid;
+    svg.replaceChildren();
+    const d = state.data,
+      f = current(),
+      r = route();
+    const width = 545,
+      height = 270,
+      left = 48,
+      top = 45;
+    const xy = (i) => [
+      left + (Math.floor(i / d.slots) / Math.max(1, d.planes - 1)) * width,
+      top + ((i % d.slots) / Math.max(1, d.slots - 1)) * height,
+    ];
+    const link = (a, b, cls) => {
+      const [ax, ay] = xy(a),
+        [bx, by] = xy(b);
+      if (Math.abs(ax - bx) > width * 0.8) {
+        svgElement(
+          "path",
+          {
+            d: `M ${ax} ${ay} L ${ax < bx ? left - 14 : left + width + 14} ${ay} M ${bx} ${by} L ${bx < ax ? left - 14 : left + width + 14} ${by}`,
+            class: cls + " grid-wrap",
+          },
+          svg,
+        );
+      } else if (Math.abs(ay - by) > height * 0.8) {
+        svgElement(
+          "path",
+          {
+            d: `M ${ax} ${ay} L ${ax} ${ay < by ? top - 14 : top + height + 14} M ${bx} ${by} L ${bx} ${by < ay ? top - 14 : top + height + 14}`,
+            class: cls + " grid-wrap",
+          },
+          svg,
+        );
+      } else
+        svgElement("line", { x1: ax, y1: ay, x2: bx, y2: by, class: cls }, svg);
+    };
+    if (els.showMesh.checked)
+      f.edgeLengths.forEach((e) => link(e[0], e[1], "grid-link"));
+    if (els.showPrevious.checked) {
+      const p = previousRoute()?.topological || [];
+      for (let i = 1; i < p.length; i++) link(p[i - 1], p[i], "grid-previous");
+    }
+    for (const [kind, cls] of [
+      ["linkState", "grid-ls"],
+      ["topological", "grid-topo"],
+    ]) {
+      if (kind === "linkState" && !els.showReference.checked) continue;
+      const path = r?.[kind] || [];
+      for (let i = 1; i < path.length; i++) link(path[i - 1], path[i], cls);
+    }
+    f.failedLinks.forEach((e) => link(e[0], e[1], "grid-failed"));
+    const ex = new Set(
+        f.exceptions
+          .filter((e) => e[1] === r?.targetSatellite)
+          .map((e) => e[0]),
+      ),
+      down = new Set(f.failedSatellites),
+      onRoute = new Set(r?.topological || []);
+    for (let i = 0; i < d.positions.length; i++) {
+      const [x, y] = xy(i);
+      const classes = ["grid-node"];
+      if (onRoute.has(i)) classes.push("on-route");
+      if (ex.has(i)) classes.push("exception");
+      if (down.has(i)) classes.push("down");
+      if (i === r?.sourceSatellite || i === r?.targetSatellite)
+        classes.push("endpoint");
+      if (i === state.selected) classes.push("selected");
+      const circle = svgElement(
+        "circle",
+        {
+          cx: x,
+          cy: y,
+          r: d.planes > 50 ? 2 : 3,
+          class: classes.join(" "),
+          "data-satellite": i,
+          tabindex: i === state.selected ? 0 : -1,
+          role: "button",
+          "aria-label": `Satellite ${i}, plane ${Math.floor(i / d.slots)}, slot ${i % d.slots}`,
+        },
+        svg,
+      );
+      const title = svgElement("title", {}, circle);
+      title.textContent = `Satellite ${i} · plane/slot ${addr(i)}`;
+      circle.addEventListener("click", () => selectSatellite(i));
+      circle.addEventListener("keydown", (e) => {
+        let next = i;
+        const plane = Math.floor(i / d.slots),
+          slot = i % d.slots;
+        if (e.key === "ArrowRight")
+          next = ((plane + 1) % d.planes) * d.slots + slot;
+        else if (e.key === "ArrowLeft")
+          next = ((plane - 1 + d.planes) % d.planes) * d.slots + slot;
+        else if (e.key === "ArrowUp")
+          next = plane * d.slots + ((slot - 1 + d.slots) % d.slots);
+        else if (e.key === "ArrowDown")
+          next = plane * d.slots + ((slot + 1) % d.slots);
+        else return;
+        e.preventDefault();
+        e.stopPropagation();
+        selectSatellite(next);
+        svg.querySelector(`[data-satellite="${next}"]`)?.focus();
+      });
+    }
+    const xTitle = svgElement(
+      "text",
+      {
+        x: left + width / 2,
+        y: 352,
+        "text-anchor": "middle",
+        class: "grid-axis",
+      },
+      svg,
+    );
+    xTitle.textContent = "ORBITAL PLANE →";
+    const yTitle = svgElement(
+      "text",
+      {
+        x: 15,
+        y: 180,
+        transform: "rotate(-90 15 180)",
+        "text-anchor": "middle",
+        class: "grid-axis",
+      },
+      svg,
+    );
+    yTitle.textContent = "SLOT IN PLANE →";
+    for (const p of [
+      ...new Set([0, Math.floor((d.planes - 1) / 2), d.planes - 1]),
+    ]) {
+      const el = svgElement(
+        "text",
+        {
+          x: left + (p / Math.max(1, d.planes - 1)) * width,
+          y: 27,
+          "text-anchor": "middle",
+          class: "grid-axis",
+        },
+        svg,
+      );
+      el.textContent = p;
+    }
+    for (const s of [
+      ...new Set([0, Math.floor((d.slots - 1) / 2), d.slots - 1]),
+    ]) {
+      const el = svgElement(
+        "text",
+        {
+          x: 34,
+          y: top + (s / Math.max(1, d.slots - 1)) * height + 4,
+          "text-anchor": "end",
+          class: "grid-axis",
+        },
+        svg,
+      );
+      el.textContent = s;
+    }
+  }
+
+  function drawInspector() {
+    const f = current(),
+      r = route(),
+      sat = state.selected;
+    if (sat === null) return;
+    text("inspectorTitle", `Satellite ${sat} · ${addr(sat)}`);
+    const dst = r?.targetSatellite,
+      decisions = f.decisions[String(dst)];
+    const ex = f.exceptions.find((e) => e[0] === sat && e[1] === dst);
+    const failed = f.failedSatellites.includes(sat);
+    const isDest = sat === dst;
+    const rule = decisions?.ruleNext[sat];
+    const chosen = ex ? ex[2] : rule;
+    text(
+      "decisionTag",
+      failed
+        ? "OUTAGE"
+        : isDest
+          ? "DESTINATION"
+          : ex
+            ? "EXCEPTION"
+            : rule !== null && rule !== undefined
+              ? "RULE"
+              : "NO PROGRESS",
+    );
+    if (!decisions) {
+      els.inspectorBody.innerHTML =
+        '<p class="muted">Choose two different attached stations to inspect a destination-specific decision.</p>';
+      return;
+    }
+    const adjacent = new Map();
+    for (const [a, b, len] of f.edgeLengths) {
+      if (a === sat) adjacent.set(b, len);
+      if (b === sat) adjacent.set(a, len);
+    }
+    const lost = new Set(
+      f.failedLinks
+        .filter((e) => e.includes(sat))
+        .map((e) => (e[0] === sat ? e[1] : e[0])),
+    );
+    const own = decisions.potential[sat];
+    let explanation = failed
+      ? "This satellite is unavailable and forwards no traffic."
+      : isDest
+        ? "The packet has reached the destination attachment satellite."
+        : ex
+          ? `<strong>Exception → satellite ${chosen}.</strong> The installed entry overrides the default rule${rule === null ? ", which has no admissible neighbor here" : ""}.`
+          : rule !== null && rule !== undefined
+            ? `Rule → satellite ${rule}. Candidates must strictly decrease (remaining distance, satellite ID).`
+            : "No neighbor passes the progress guard. The rule cannot advance toward this address.";
+    const rows = [...new Set([...adjacent.keys(), ...lost])]
+      .sort((a, b) => a - b)
+      .map((next) => {
+        const live = adjacent.has(next) && !failed;
+        const potential = decisions.potential[next];
+        const progress =
+          live &&
+          potential !== null &&
+          own !== null &&
+          (potential < own || (potential === own && next < sat));
+        const isChosen = live && next === chosen;
+        return `<tr class="${!live ? "unavailable" : isChosen ? "chosen" : !progress ? "blocked" : ""}"><td>${next} ${addr(next)}</td><td>${live ? km(adjacent.get(next)) : "—"}</td><td>${km(potential)}</td><td>${!live ? "Down" : isChosen ? (ex ? "Entry ✓" : "Rule ✓") : progress ? "Progress" : "Blocked"}</td></tr>`;
+      })
+      .join("");
+    els.inspectorBody.innerHTML = `<p class="inspector-meta">Locator <code>(0, ${Math.floor(sat / state.data.slots)}, ${sat % state.data.slots}, 0)</code><br>Destination ${dst} ${addr(dst)} · remaining estimate ${km(own)} km</p><p class="decision-explanation">${explanation}</p><table class="neighbor-table"><thead><tr><th>Neighbor</th><th>First hop<br>km</th><th>Remaining<br>km</th><th>Decision</th></tr></thead><tbody>${rows}</tbody></table><p class="muted">${f.exceptions.filter((e) => e[0] === sat).length} raw exception entries installed here across destinations.</p>`;
+  }
+
+  function drawGlobe() {
+    const viewer = state.viewer,
+      d = state.data,
+      f = current(),
+      r = route();
+    if (state.points) viewer.scene.primitives.remove(state.points);
+    if (state.lines) viewer.scene.primitives.remove(state.lines);
+    viewer.entities.removeAll();
+    state.points = viewer.scene.primitives.add(
+      new Cesium.PointPrimitiveCollection(),
+    );
+    state.lines = viewer.scene.primitives.add(new Cesium.PolylineCollection());
+    const positions = d.positions.map((p) =>
+        Cesium.Cartesian3.fromDegrees(...p),
+      ),
+      onRoute = new Set(r?.topological || []),
+      down = new Set(f.failedSatellites),
+      ex = new Set(
+        f.exceptions
+          .filter((e) => e[1] === r?.targetSatellite)
+          .map((e) => e[0]),
+      );
+    positions.forEach((position, i) =>
+      state.points.add({
+        id: `sat-${i}`,
+        position,
+        pixelSize:
+          i === state.selected
+            ? 10
+            : down.has(i)
+              ? 8
+              : ex.has(i)
+                ? 7
+                : onRoute.has(i)
+                  ? 5
+                  : 2.5,
+        color: color(
+          down.has(i)
+            ? palette.failed
+            : ex.has(i)
+              ? palette.exception
+              : onRoute.has(i)
+                ? palette.topo
+                : palette.mesh,
+          onRoute.has(i) || ex.has(i) || down.has(i) ? 1 : 0.55,
+        ),
+        outlineColor:
+          i === state.selected ? Cesium.Color.WHITE : Cesium.Color.TRANSPARENT,
+        outlineWidth: i === state.selected ? 2 : 0,
+      }),
+    );
+    if (els.showMesh.checked) {
+      const material = Cesium.Material.fromType("Color", {
+        color: color(palette.mesh, 0.13),
+      });
+      f.edgeLengths.forEach(([a, b]) =>
+        state.lines.add({
+          positions: [positions[a], positions[b]],
+          width: 1,
+          material,
+        }),
+      );
+    }
+    const unavailable = Cesium.Material.fromType("PolylineDash", {
+      color: color(palette.failed, 0.95),
+      dashLength: 12,
+    });
+    f.failedLinks.forEach(([a, b]) =>
+      state.lines.add({
+        positions: [positions[a], positions[b]],
+        width: 2.5,
+        material: unavailable,
+      }),
+    );
+    const routeLine = (path, hex, width, dashed = false) => {
+      if (!path?.length) return;
+      const material = Cesium.Material.fromType(
+        dashed ? "PolylineDash" : "Color",
+        { color: color(hex, dashed ? 0.45 : 1) },
+      );
+      for (let i = 1; i < path.length; i++)
+        state.lines.add({
+          positions: [positions[path[i - 1]], positions[path[i]]],
+          width,
+          material,
+        });
+    };
+    if (els.showPrevious.checked)
+      routeLine(previousRoute()?.topological, "#bbc8d0", 2, true);
+    if (els.showReference.checked) routeLine(r?.linkState, palette.ls, 7);
+    routeLine(r?.topological, palette.topo, 3.5);
+    const stations = els.showStations.checked
+      ? d.groundStations.map((_, i) => i)
+      : [Number(els.source.value), Number(els.target.value)];
+    viewer.entities.suspendEvents();
+    for (const i of new Set(stations)) {
+      const g = d.groundStations[i];
+      if (!g) continue;
+      const position = Cesium.Cartesian3.fromDegrees(
+        g.longitude,
+        g.latitude,
+        g.elevation_m,
+      );
+      const selected =
+        i === Number(els.source.value) || i === Number(els.target.value);
+      viewer.entities.add({
+        position,
+        point: {
+          pixelSize: selected ? 10 : 5,
+          color: color(palette.ls),
+          outlineColor: color("#07111b"),
+          outlineWidth: 2,
+        },
+        label: selected
+          ? {
+              text: g.name,
+              font: "14px sans-serif",
+              fillColor: Cesium.Color.WHITE,
+              outlineColor: color("#07111b"),
+              outlineWidth: 3,
+              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+              pixelOffset: new Cesium.Cartesian2(0, -20),
+            }
+          : undefined,
+      });
+      for (const sat of f.attachments[i])
+        state.lines.add({
+          positions: [position, positions[sat]],
+          width: selected ? 2 : 1,
+          material: Cesium.Material.fromType("Color", {
+            color: color(palette.ls, selected ? 0.8 : 0.2),
+          }),
+        });
+    }
+    viewer.entities.resumeEvents();
+    viewer.scene.requestRender();
+  }
+  document.addEventListener("DOMContentLoaded", init);
+})();

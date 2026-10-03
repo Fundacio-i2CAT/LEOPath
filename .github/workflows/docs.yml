@@ -2,31 +2,60 @@ name: Documentation
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  repository_dispatch:
+    types: [viewer-dataset-released]
   workflow_dispatch:
+    inputs:
+      dataset_tag:
+        description: 'Published dataset release tag (blank uses latest stable release)'
+        type: string
+        required: false
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
+
+# Serialize deployment, allowing an in-progress release to finish.
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: scripts/viewer/package-lock.json
+      - name: Install site builder
+        run: pip install zensical==0.0.24
+      - name: Validate and build with the dataset release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LEOPATH_DATASET_RELEASE: '1'
+          LEOPATH_DATASET_TAG: ${{ github.event.client_payload.tag || inputs.dataset_tag || '' }}
+          LEOPATH_DATASET_COMMIT: ${{ github.event.client_payload.commit || '' }}
+        run: bash scripts/build-docs-site.sh
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
   deploy:
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/configure-pages@v5
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
-        with:
-          python-version: 3.x
-      - run: pip install zensical
-      - run: bash scripts/build-docs-site.sh
-      - uses: actions/upload-pages-artifact@v4
-        with:
-          path: site
       - uses: actions/deploy-pages@v4
         id: deployment

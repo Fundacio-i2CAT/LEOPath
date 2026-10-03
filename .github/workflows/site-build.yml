@@ -24,8 +24,17 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: scripts/viewer/package-lock.json
+
+      - name: Test viewer dataset integrity
+        run: python scripts/test_viewer_dataset.py
+
       - name: Install site builder
-        run: pip install zensical
+        run: pip install zensical==0.0.24
 
       - name: Build docs site
         run: bash scripts/build-docs-site.sh

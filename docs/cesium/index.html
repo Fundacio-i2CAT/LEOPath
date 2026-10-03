@@ -1,72 +1,86 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LEOPath Cesium Constellation Viewer</title>
-  <script defer src="https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/Cesium.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/satellite.js@5.0.0/dist/satellite.min.js"></script>
-  <script defer src="./viewer.js"></script>
-  <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.117/Build/Cesium/Widgets/widgets.css">
-  <link rel="stylesheet" href="./styles.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="icon" href="brand/favicon.png" />
+  <title>LEOPath · Live constellation</title>
+  <link rel="stylesheet" href="vendor/Cesium/Widgets/widgets.css" />
+  <link rel="stylesheet" href="orbit-styles.css" />
+  <script>
+    window.CESIUM_BASE_URL = "./vendor/Cesium/";
+    if (new URLSearchParams(location.search).has("replay"))
+      location.replace("replay.html" + location.search + location.hash);
+  </script>
+  <script defer src="vendor/Cesium/Cesium.js"></script>
+  <script defer src="vendor/satellite.min.js"></script>
+  <script defer src="live-network.js"></script>
+  <script defer src="orbit-viewer.js"></script>
+  <script defer src="dataset.js"></script>
 </head>
 <body>
-  <main id="cesiumContainer" aria-label="Interactive 3D constellation viewer"></main>
-
-  <aside class="panel" aria-label="Visualization controls">
-    <div class="panel__header">
-      <p class="panel__meta">LEOPath / Cesium</p>
-      <button id="hidePanel" class="panel-hide" type="button">Hide</button>
-      <h1>Constellation state</h1>
-      <p>
-        TLE propagation for the single-shell evaluation constellations.
-        Ground stations use the paper evaluation set.
-      </p>
-    </div>
-
-    <label class="field" for="constellationSelect">
-      <span>Constellation</span>
-      <select id="constellationSelect"></select>
-    </label>
-
-    <label class="field" for="islTopology">
-      <span>ISL topology</span>
-      <select id="islTopology">
-        <option value="none">None</option>
-        <option value="ring" selected>Ring</option>
-        <option value="grid">+Grid</option>
-      </select>
-    </label>
-
-    <label class="field" for="routeSource">
-      <span>Topological route &mdash; source</span>
-      <select id="routeSource"><option value="">None</option></select>
-    </label>
-
-    <label class="field" for="routeTarget">
-      <span>Topological route &mdash; destination</span>
-      <select id="routeTarget"><option value="">None</option></select>
-    </label>
-
+  <header class="masthead">
+    <a class="brand" href="./"><img class="brand-logo" src="brand/leopath-logo.png" alt="LEOPath" /><span class="brand-divider"></span><span class="brand-subtitle">Live constellation</span></a>
+    <nav aria-label="Visualization mode"><a class="mode active" href="index.html" aria-current="page">Live orbit</a><a id="replayLink" class="mode" href="replay.html">Simulator results ↗</a></nav>
+  </header>
+  <main id="cesiumContainer" aria-label="Live 3D constellation"></main>
+  <aside class="panel" aria-label="Constellation controls">
+    <div class="panel__header"><button id="hidePanel" class="panel-hide" type="button">Hide</button><h1>Constellation</h1><p>Select a shell, route and ISL topology.</p></div>
+    <label class="field" for="constellationSelect"><span>Constellation</span><select id="constellationSelect"></select></label>
+    <label class="field" for="islTopology"><span>ISL topology</span><select id="islTopology"><option value="none">Satellites only</option><option value="ring">Ring</option><option value="grid" selected>+Grid</option><option value="brick_a">Brick wall A · 2 intra + 1 inter</option><option value="brick_b">Brick wall B · 1 intra + 2 inter</option></select></label>
+    <p id="topologyNote" class="scope-note topology-note"></p>
+    <div class="route-select-heading">LIVE ROUTE <button id="swapRoute" type="button" aria-label="Swap live route endpoints">Swap ↔</button></div>
+    <label class="field" for="routeSource"><span>From</span><select id="routeSource"><option value="">No route</option></select></label>
+    <label class="field" for="routeTarget"><span>To</span><select id="routeTarget"><option value="">Choose destination</option></select></label>
+    <label class="reference-control"><input id="showLinkStateRoute" type="checkbox" checked /> Shortest-path reference</label>
+    <div class="route-legend"><span><i class="topo-key"></i>Topological</span><span><i class="reference-key"></i>Shortest path</span><span><i class="repair-key"></i>Repair</span></div>
     <div class="control-grid">
-      <label><input id="showGround" type="checkbox" checked> Ground stations</label>
-      <label id="showGslLabel"><input id="showGsl" type="checkbox" checked> GSL attachments</label>
-      <label id="fullDensityLabel"><input id="fullDensity" type="checkbox"> Render all satellites</label>
-      <label><input id="showLinkStateRoute" type="checkbox"> Shortest-path route (link-state)</label>
+      <label><input id="showGround" type="checkbox" checked /> Ground stations</label>
+      <label id="showGslLabel"><input id="showGsl" type="checkbox" checked /> GSL attachments</label>
+      <label id="fullDensityLabel"><input id="fullDensity" type="checkbox" /> All satellites</label>
     </div>
-
-    <label class="field" for="speedSlider">
-      <span>Clock speed: <output id="speedLabel">120x</output></span>
-      <input id="speedSlider" type="range" min="1" max="1440" step="1" value="120">
-    </label>
-
     <button id="resetButton" type="button">Reset camera</button>
-
-    <p id="status" class="status" role="status">Loading configuration...</p>
-    <div id="stats" class="stats" aria-live="polite"></div>
-
-    <a id="tleLink" class="tle-link" href="#" target="_blank" rel="noopener">Open TLE data</a>
+    <p id="status" class="status" role="status">Loading constellation…</p>
+    <details class="stats-section"><summary>Shell &amp; rendered links</summary><div id="stats" class="stats"></div></details>
+    <a id="tleLink" class="tle-link" href="#" target="_blank" rel="noopener">Open TLE data ↗</a>
+    <p class="dataset-source"><a id="datasetVersion">Local examples · unversioned</a><a id="datasetReleases" href="https://github.com/PhD-Sergio/data-ntn-topological-evaluation/releases" target="_blank" rel="noopener" hidden>Dataset releases ↗</a></p>
+    <p class="scope-note">Synthetic single-shell designs. Live routes are a geometry-based preview. Simulator results show exported forwarding decisions at a fixed orbital time.</p>
   </aside>
-  <button id="showPanel" class="panel-toggle" type="button" hidden>Controls</button>
+  <button id="showPanel" class="panel-toggle" type="button" hidden>Show controls</button>
+  <div class="scene-label"><span class="live-dot"></span><span id="motionStatus">Loading orbit</span><small id="shellLabel"></small></div>
+  <section class="live-route-card" aria-label="Live route statistics">
+    <p class="card-eyebrow">LIVE ROUTING PREVIEW</p>
+    <h2 id="routePair">New York → Perth</h2>
+    <p id="routeDelivery" role="status">Calculating route…</p>
+    <div class="route-metrics"><div><span>TOPOLOGICAL</span><strong id="liveTopoDelay">—</strong><small id="liveTopoHops">— ISL hops</small></div><div><span>SHORTEST PATH</span><strong id="liveLsDelay">—</strong><small id="liveLsHops">— ISL hops</small></div></div>
+    <p id="liveRouteDetail" class="route-detail">Routes refresh with orbital time.</p>
+  </section>
+  <section class="failure-card" aria-label="Live network failures">
+    <div class="failure-heading"><h2>Introduce a failure</h2><span id="failureCount">Healthy</span></div>
+    <div class="failure-actions">
+      <button id="failRouteLink" type="button">Fail route ISL</button>
+      <button id="failRouteSatellite" type="button">Route satellite offline</button>
+      <button id="isolateIngress" type="button">Isolate ingress</button>
+      <button id="restoreFailures" type="button" disabled>Restore all</button>
+    </div>
+    <label class="reference-control repair-control"><input id="allowRepair" type="checkbox" checked /> Repair a blocked route</label>
+    <p id="failureStatus" class="failure-status" role="status">Failures persist while satellites move.</p>
+    <ul id="failureList" class="failure-list" aria-label="Active failures"></ul>
+    <details class="manual-failure"><summary>Choose a specific satellite or ISL</summary>
+      <p id="selectedSatelliteLabel">Click a satellite on the globe to select it.</p>
+      <button id="failSelectedSatellite" type="button" disabled>Selected satellite offline</button>
+      <form id="satelliteFailureForm"><label>Satellite ID<input id="satelliteFailureId" type="number" min="0" step="1" required /></label><button type="submit">Fail satellite</button></form>
+      <form id="linkFailureForm"><label>ISL from<input id="linkFailureA" type="number" min="0" step="1" required /></label><label>to<input id="linkFailureB" type="number" min="0" step="1" required /></label><button type="submit">Fail ISL</button></form>
+    </details>
+    <button id="focusLiveFailure" type="button" disabled>Focus latest failure</button>
+  </section>
+  <footer class="transport" aria-label="Orbital playback controls">
+    <button id="livePlay" class="play-button" type="button" aria-label="Pause orbital motion" aria-pressed="true" disabled>Ⅱ Pause</button>
+    <button id="restartClock" class="restart-button" type="button" aria-label="Restart orbital timeline" disabled>↺ Restart</button>
+    <div class="clock-readout"><span>SIMULATION TIME · UTC</span><output id="clockLabel">—</output></div>
+    <label class="speed-control" for="speedSlider"><span>Speed <output id="speedLabel">120×</output></span><input id="speedSlider" type="range" min="1" max="1440" step="1" value="120" /></label>
+    <span class="timeline-hint">Drag the timeline to change time</span>
+  </footer>
+  <div id="demoCaption" class="demo-caption" hidden></div>
 </body>
 </html>
