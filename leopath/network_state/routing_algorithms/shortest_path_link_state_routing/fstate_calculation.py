@@ -10,6 +10,12 @@ from astropy.time import Time
 
 from leopath import logger
 from leopath.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
+from leopath.network_state.routing_algorithms.flow_allocation import (
+    DEFAULT_GS_ADDRESS_POLICY,
+    new_flow_allocation_counters,
+    resolve_flow_address_pair,
+    update_current_addresses,
+)
 from leopath.topology.topology import GroundStation, LEOTopology
 
 log = logger.get_logger(__name__)
@@ -22,6 +28,8 @@ def calculate_fstate_shortest_path_object_no_gs_relay(
     current_time: Time,
     ground_station_satellites_in_range: list | None = None,
     state_report: dict | None = None,
+    fixed_address_routes: dict[tuple[int, int], dict] | None = None,
+    gs_address_policy: str = DEFAULT_GS_ADDRESS_POLICY,
 ) -> dict:
     """
     Calculates forwarding state using shortest paths over ISLs only (no GS relays).
@@ -130,8 +138,108 @@ def calculate_fstate_shortest_path_object_no_gs_relay(
         fstate,
     )
 
+    if fixed_address_routes is not None:
+        flow_counters = new_flow_allocation_counters()
+        update_current_addresses(
+            ground_stations,
+            ground_station_satellites_in_range,
+            gs_address_policy,
+            flow_counters,
+        )
+        fixed_address_routes.update(
+            _build_fixed_address_routes(
+                gs_address_policy,
+                ground_stations,
+                ground_station_satellites_in_range,
+                satellite_only_subgraph,
+                node_to_index,
+                dist_matrix,
+                flow_counters,
+            )
+        )
+        if state_report is not None:
+            state_report.update({key: float(value) for key, value in flow_counters.items()})
+
     log.debug(f"Calculated fstate object with {len(fstate)} entries.")
     return fstate
+
+
+def _build_fixed_address_routes(
+    address_policy: str,
+    ground_stations: list[GroundStation],
+    gs_candidates: list[list[tuple[float, int]]],
+    satellite_graph: nx.Graph,
+    node_to_index: dict[int, int],
+    dist_matrix: np.ndarray,
+    flow_counters: dict[str, int],
+) -> dict[tuple[int, int], dict]:
+    """Resolve K address synonyms once, before EFCP forwarding begins."""
+    routes: dict[tuple[int, int], dict] = {}
+    for src_idx, src_gs in enumerate(ground_stations):
+        if src_idx >= len(gs_candidates):
+            continue
+        for dst_idx, dst_gs in enumerate(ground_stations):
+            if src_gs.id == dst_gs.id or dst_idx >= len(gs_candidates):
+                continue
+            selected = resolve_flow_address_pair(
+                address_policy,
+                "link_state",
+                src_gs,
+                dst_gs,
+                gs_candidates[src_idx],
+                gs_candidates[dst_idx],
+                lambda sources, destinations: _select_link_state_address_pair(
+                    sources, destinations, node_to_index, dist_matrix
+                ),
+                flow_counters,
+            )
+            if selected is None:
+                continue
+            src_dist, src_sat, dst_dist, dst_sat = selected
+            try:
+                satellite_path = nx.shortest_path(
+                    satellite_graph,
+                    source=src_sat,
+                    target=dst_sat,
+                    weight="weight",
+                )
+            except (nx.NetworkXNoPath, nx.NodeNotFound):
+                satellite_path = []
+            routes[(src_gs.id, dst_gs.id)] = {
+                "source_satellite": src_sat,
+                "destination_satellite": dst_sat,
+                "source_gsl_distance": float(src_dist),
+                "destination_gsl_distance": float(dst_dist),
+                "satellite_path": satellite_path,
+                "failure": None if satellite_path else "dead_end",
+            }
+    return routes
+
+
+def _select_link_state_address_pair(
+    source_candidates: list[tuple[float, int]],
+    destination_candidates: list[tuple[float, int]],
+    node_to_index: dict[int, int],
+    dist_matrix: np.ndarray,
+) -> tuple[float, int, float, int] | None:
+    best_key: tuple[float, int, int] | None = None
+    best: tuple[float, int, float, int] | None = None
+    for src_dist, src_sat in source_candidates:
+        src_index = node_to_index.get(src_sat)
+        if src_index is None:
+            continue
+        for dst_dist, dst_sat in destination_candidates:
+            dst_index = node_to_index.get(dst_sat)
+            if dst_index is None:
+                continue
+            core_distance = float(dist_matrix[src_index, dst_index])
+            if math.isinf(core_distance):
+                continue
+            key = (float(src_dist) + core_distance + float(dst_dist), src_sat, dst_sat)
+            if best_key is None or key < best_key:
+                best_key = key
+                best = (src_dist, src_sat, dst_dist, dst_sat)
+    return best
 
 
 def _describe_link_state_database(sat_subgraph: nx.Graph, spf_ms: float) -> dict:

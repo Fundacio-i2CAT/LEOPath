@@ -1,5 +1,17 @@
 # LEOPath
 
+<p align="center">
+  <img src="assets/brand/leopath-logo.png" alt="LEOPath logo" width="420"/>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Fundacio-i2CAT/LEOPath"><img src="https://img.shields.io/github/stars/Fundacio-i2CAT/LEOPath?style=social" alt="GitHub stars"/></a>
+  <a href="https://pypi.org/project/leopath/"><img src="https://img.shields.io/pypi/v/leopath.svg" alt="PyPI"/></a>
+  <a href="https://github.com/Fundacio-i2CAT/LEOPath/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0"/></a>
+</p>
+
+Source code, issues and releases: [github.com/Fundacio-i2CAT/LEOPath](https://github.com/Fundacio-i2CAT/LEOPath).
+
 LEOPath is a simulation framework for analyzing routing algorithms in Low Earth Orbit (LEO) satellite constellations.
 
 It focuses on topology, connectivity, and forwarding state generation, enabling rapid comparison of routing strategies under realistic orbital dynamics.

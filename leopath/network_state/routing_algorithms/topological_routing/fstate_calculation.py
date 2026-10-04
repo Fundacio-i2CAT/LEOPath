@@ -4,9 +4,21 @@ from collections.abc import Callable
 from typing import Optional
 
 import networkx as nx
+from scipy import sparse
+from scipy.sparse import csgraph
 
 from leopath import logger
+from leopath.network_state.gsl_attachment.multihoming import (
+    select_multihoming_attachments,
+)
+from leopath.network_state.routing_algorithms.flow_allocation import (
+    DEFAULT_GS_ADDRESS_POLICY,
+    new_flow_allocation_counters,
+    resolve_flow_address_pair,
+    update_current_addresses,
+)
 from leopath.network_state.routing_algorithms.topological_routing.exception_policy import (
+    _hops_to_degraded_satellites,
     apply_exception_policy,
 )
 from leopath.topology.satellite.topological_network_address import (
@@ -119,7 +131,7 @@ def _calculate_bandwidth_state(
     return bandwidth_state
 
 
-def calculate_fstate_topological_routing_no_gs_relay(
+def calculate_fstate_topological_routing_no_gs_relay(  # noqa: C901
     topology_with_isls: LEOTopology,
     ground_stations: list[GroundStation],
     ground_station_satellites_in_range: list,
@@ -129,6 +141,9 @@ def calculate_fstate_topological_routing_no_gs_relay(
     graph_has_changed: bool = True,
     algorithm_params: dict | None = None,
     state_report: dict | None = None,
+    selected_egresses: dict[tuple[int, int], int] | None = None,
+    fixed_address_routes: dict[tuple[int, int], dict] | None = None,
+    fixed_address_exceptions: dict[tuple[int, int], int] | None = None,
 ) -> dict:
     """
     Calculates forwarding state using topological routing over ISLs only (no GS relays).
@@ -153,6 +168,11 @@ def calculate_fstate_topological_routing_no_gs_relay(
     log.debug("Calculating topological routing fstate object (no GS relay)")
     algorithm_params = algorithm_params or {}
     distance_mode = str(algorithm_params.get("distance_mode", "torus_weighted_lookahead"))
+    gs_addressing = str(algorithm_params.get("gs_addressing", "visibility"))
+    gs_attachment_count = int(algorithm_params.get("gs_attachment_count", 1))
+    gs_attachment_policy = str(algorithm_params.get("gs_attachment_policy", "independent"))
+    if gs_attachment_count < 1:
+        raise ValueError("gs_attachment_count must be at least 1")
 
     if constellation_data is None:
         constellation_data = topology_with_isls.constellation_data
@@ -185,13 +205,15 @@ def calculate_fstate_topological_routing_no_gs_relay(
         _fill_forwarding_tables_in_every_satellite(
             satellite_node_ids, satellite_only_subgraph, topology_with_isls, constellation_data
         )
-        # Also assign GS addresses for initial GSL attachments
+        # Also assign GS addresses for initial GSL attachments. The attachment is
+        # the nearest visible satellite, the same rule _detect_gsl_changes applies
+        # from then on, so the first address does not renumber immediately.
         for gs_idx, gs in enumerate(ground_stations):
             curr_sat_id = None
             if gs_idx < len(ground_station_satellites_in_range):
                 satellites = ground_station_satellites_in_range[gs_idx]
                 if satellites:
-                    _, curr_sat_id = satellites[0]
+                    _, curr_sat_id = min(satellites, key=lambda visible: visible[0])
             if curr_sat_id is not None:
                 _perform_renumbering_for_gs(
                     gs,
@@ -256,25 +278,45 @@ def calculate_fstate_topological_routing_no_gs_relay(
     per_satellite_work: dict | None = {} if state_report is not None else None
     weight_model = None
     if distance_mode == "torus_weighted_pivot":
+        geometry_source = str(algorithm_params.get("geometry_source", "observed"))
         weight_model = _build_reported_torus_weight_model(
             _geometry_subgraph(
                 topology_with_isls,
                 satellite_node_ids,
                 satellite_only_subgraph,
-                str(algorithm_params.get("geometry_source", "observed")),
+                geometry_source,
+                satellite_addresses=satellite_addresses,
+                constellation_data=constellation_data,
+                time_s=time_since_epoch_ns / 1e9,
             ),
             satellite_addresses,
             constellation_data,
             state_report,
+            wiring=str(algorithm_params.get("isl_wiring", "plus_grid")),
         )
-    gs_destination_candidates = []
-    for possible_dst_sats in ground_station_satellites_in_range:
-        candidates = []
-        for dist_gs_to_sat_m, visible_sat_id in possible_dst_sats:
-            destination_address = satellite_addresses.get(visible_sat_id)
-            if destination_address is not None:
-                candidates.append((dist_gs_to_sat_m, visible_sat_id, destination_address))
-        gs_destination_candidates.append(candidates)
+        if state_report is not None:
+            state_report.update(_describe_geometry_source(geometry_source, constellation_data))
+    gs_destination_candidates = _build_gs_destination_candidates(
+        ground_station_satellites_in_range,
+        satellite_addresses,
+        gs_addressing,
+        gs_attachment_count,
+        gs_attachment_policy,
+    )
+    if state_report is not None:
+        # Attachment changes are what a ground station has to renumber for, and
+        # under attachment addressing each one costs a directory update and a
+        # flow update to the far end of every active flow. The harness adds the
+        # aux_ prefix, so the column reaches the summaries as aux_gs_renumberings.
+        selected = gs_destination_candidates if gs_addressing == "attachment" else []
+        address_set_changes = _update_gs_attachment_sets(
+            ground_stations,
+            selected,
+            gs_attachment_count,
+        )
+        state_report["gs_renumberings"] = float(address_set_changes["stations"])
+        state_report["gs_address_additions"] = float(address_set_changes["additions"])
+        state_report["gs_address_removals"] = float(address_set_changes["removals"])
 
     _calculate_sat_to_gs_fstate(
         topology_with_isls,
@@ -296,7 +338,39 @@ def calculate_fstate_topological_routing_no_gs_relay(
             weight_model,
         ),
         forwarding_guard=_resolve_forwarding_guard(algorithm_params, distance_mode),
+        selected_egresses=selected_egresses,
     )
+
+    fixed_exception_report: dict = {}
+    if fixed_address_routes is not None:
+        flow_counters = new_flow_allocation_counters()
+        address_policy = str(
+            (algorithm_params or {}).get("gs_address_policy", DEFAULT_GS_ADDRESS_POLICY)
+        )
+        update_current_addresses(
+            ground_stations, gs_destination_candidates, address_policy, flow_counters
+        )
+        fixed_address_routes.update(
+            _build_fixed_address_routes(
+                address_policy,
+                ground_stations,
+                gs_destination_candidates,
+                satellite_addresses,
+                neighbor_candidates,
+                constellation_data,
+                distance_mode,
+                weight_model,
+                _resolve_forwarding_guard(algorithm_params, distance_mode),
+                flow_counters,
+                exception_policy=str(algorithm_params.get("exception_policy", "none")),
+                live_graph=satellite_only_subgraph,
+                exception_report=fixed_exception_report,
+                nominal_graph=getattr(topology_with_isls, "nominal_graph", None),
+                exceptions_out=fixed_address_exceptions,
+            )
+        )
+        if state_report is not None:
+            state_report.update({key: float(value) for key, value in flow_counters.items()})
 
     apply_exception_policy(
         fstate,
@@ -304,14 +378,782 @@ def calculate_fstate_topological_routing_no_gs_relay(
         topology_with_isls.sat_neighbor_to_if,
         getattr(topology_with_isls, "nominal_graph", None),
         ground_stations,
-        ground_station_satellites_in_range,
-        str(algorithm_params.get("exception_policy", "none")),
+        _exception_egresses(
+            ground_station_satellites_in_range,
+            gs_destination_candidates,
+            gs_addressing,
+        ),
+        _station_exception_policy(algorithm_params, fixed_address_routes is not None),
         LOCAL_DETOUR,
         state_report,
     )
+    if state_report is not None and fixed_exception_report:
+        # Under fixed addresses the entries that matter are the ones keyed on the
+        # destination address; the station-keyed figures above describe a walk
+        # these flows don't take.
+        state_report.update(fixed_exception_report)
+        for stale in (
+            "exception_entries_one_pass",
+            "exception_groups",
+        ):
+            state_report.pop(stale, None)
     _report_forwarding_work(state_report, per_satellite_work, weight_model, fstate)
     log.debug(f"Calculated fstate with {len(fstate)} entries")
     return fstate
+
+
+def _station_exception_policy(algorithm_params: dict, fixed_addresses: bool) -> str:
+    """The exception policy for station-keyed entries.
+
+    ``one_pass`` is defined for fixed-address walks, whose entries are keyed on
+    the destination satellite; with it, the station-keyed computation is
+    skipped, since no fixed-address flow ever consults those entries.
+    """
+    policy = str(algorithm_params.get("exception_policy", "none"))
+    if policy == "one_pass":
+        if not fixed_addresses:
+            raise ValueError("exception_policy one_pass needs attachment addressing")
+        return "none"
+    return policy
+
+
+def _build_fixed_address_routes(  # noqa: C901
+    address_policy: str,
+    ground_stations: list[GroundStation],
+    gs_candidates: list,
+    satellite_addresses: dict[int, TopologicalNetworkAddress],
+    neighbor_candidates: dict[int, list],
+    constellation_data: ConstellationData,
+    distance_mode: str,
+    weight_model: dict | None,
+    forwarding_guard: str,
+    flow_counters: dict[str, int],
+    exception_policy: str = "none",
+    live_graph: nx.Graph | None = None,
+    exception_report: dict | None = None,
+    nominal_graph: nx.Graph | None = None,
+    exceptions_out: dict | None = None,
+) -> dict[tuple[int, int], dict]:
+    """Select one address pair per flow and keep its destination fixed.
+
+    A directory may return K attachment-dependent address synonyms.  The flow
+    allocator applies this routing family's cost once, at ingress.  Transit
+    satellites then see the selected destination address, never the K-element
+    set.  The returned paths are realised forwarding walks used by the
+    evaluation harness; they are not packet-carried source routes.
+    """
+    routes: dict[tuple[int, int], dict] = {}
+    exceptions: dict[tuple[int, int], int] = {}
+    toward: dict[int, dict[int, float]] = _LiveDistances()
+    unresolved = 0
+    unresolved_walks = 0
+    selections: list[tuple[int, int, tuple]] = []
+    # Satellites that learn failures by flooding know which part of the shell
+    # each satellite sits in, so allocation and uplink choice skip address pairs
+    # with no live path, as link-state does. Without an exception policy the
+    # scheme assumes no failure knowledge and stays blind, as before.
+    component = (
+        _live_components(live_graph)
+        if exception_policy != "none" and live_graph is not None
+        else None
+    )
+    for src_idx, src_gs in enumerate(ground_stations):
+        if src_idx >= len(gs_candidates):
+            continue
+        for dst_idx, dst_gs in enumerate(ground_stations):
+            if src_gs.id == dst_gs.id or dst_idx >= len(gs_candidates):
+                continue
+            selected = resolve_flow_address_pair(
+                address_policy,
+                "topological",
+                src_gs,
+                dst_gs,
+                gs_candidates[src_idx],
+                gs_candidates[dst_idx],
+                lambda sources, destinations: _select_topological_address_pair(
+                    sources,
+                    destinations,
+                    satellite_addresses,
+                    neighbor_candidates,
+                    constellation_data,
+                    distance_mode,
+                    weight_model,
+                    component,
+                ),
+                flow_counters,
+            )
+            if selected is not None:
+                selections.append((src_gs.id, dst_gs.id, selected))
+
+    rule_args = (
+        satellite_addresses,
+        neighbor_candidates,
+        constellation_data,
+        distance_mode,
+        weight_model,
+        forwarding_guard,
+    )
+    growing = exception_policy == "grow" and live_graph is not None
+    one_pass = exception_policy == "one_pass" and live_graph is not None
+    in_use: set[int] = set()
+    work = {"rule_steps": 0.0, "shortest_path_runs": 0.0}
+    started = time.perf_counter()
+    if one_pass:
+        for candidates in gs_candidates:
+            for _dist, sat, _address in candidates:
+                in_use.add(sat)
+        for _src_id, _dst_id, (_sd, _ss, _dd, dst_sat, _da) in selections:
+            in_use.add(dst_sat)
+        _one_pass_fixed_address_exceptions(
+            rule_args, live_graph, nominal_graph, exceptions, toward, work
+        )
+    if growing:
+        # A routing policy builds the forwarding table from what the RIB holds
+        # (the flooded failures), for the whole address space: every live
+        # satellite is a destination, whether or not a station sits under it.
+        destinations: dict[int, TopologicalNetworkAddress] = {}
+        for candidates in gs_candidates:
+            for _dist, sat, address in candidates:
+                destinations.setdefault(sat, address)
+        for _src_id, _dst_id, (_sd, _ss, _dd, dst_sat, dst_address) in selections:
+            destinations.setdefault(dst_sat, dst_address)
+        in_use = set(destinations)
+        for sat in live_graph.nodes():  # type: ignore[union-attr]
+            if sat in satellite_addresses:
+                destinations.setdefault(sat, satellite_addresses[sat])
+        # On the intact grid the rule needs no entries, so a walk can only break
+        # after reaching a satellite that lost an ISL: walks from those suffice.
+        # Addresses in use keep the check from every live satellite.
+        damaged = (
+            sorted(
+                sat
+                for sat in live_graph.nodes()  # type: ignore[union-attr]
+                if nominal_graph.has_node(sat)
+                and live_graph.degree(sat) < nominal_graph.degree(sat)  # type: ignore[union-attr]
+            )
+            if nominal_graph is not None
+            else None
+        )
+        for dst_sat in sorted(destinations):
+            if dst_sat in satellite_addresses and live_graph.has_node(dst_sat):  # type: ignore[union-attr]
+                unresolved_walks += _grow_fixed_address_exceptions(
+                    dst_sat,
+                    destinations[dst_sat],
+                    rule_args,
+                    live_graph,
+                    exceptions,
+                    toward,
+                    sources=None if dst_sat in in_use else damaged,
+                    work=work,
+                )
+    used: set[tuple[int, int]] = set()
+    for src_id, dst_id, selected in selections:
+        src_dist, src_sat, dst_dist, dst_sat, dst_address = selected
+        walk_args = (src_sat, dst_sat, dst_address, *rule_args)
+        if growing:
+            path, failure = _walk_with_exception_entries(
+                walk_args, dst_sat, live_graph, exceptions, toward
+            )
+            used.update((sat, dst_sat) for sat in path[:-1] if (sat, dst_sat) in exceptions)
+        elif one_pass:
+            # The entries are complete before any packet moves; a flow that
+            # still fails while its destination is reachable is counted below.
+            path, failure = _walk_fixed_topological_address(*walk_args, exceptions=exceptions)
+            used.update((sat, dst_sat) for sat in path[:-1] if (sat, dst_sat) in exceptions)
+        else:
+            path, failure = _walk_fixed_topological_address(*walk_args)
+        routes[(src_id, dst_id)] = {
+            "source_satellite": src_sat,
+            "destination_satellite": dst_sat,
+            "source_gsl_distance": float(src_dist),
+            "destination_gsl_distance": float(dst_dist),
+            "satellite_path": path,
+            "failure": failure,
+        }
+        # A destination cut off by a partition fails correctly; only a reachable
+        # one that the walk still misses counts against the exception rule.
+        if failure is not None:
+            reachable = (
+                component.get(src_sat) is not None
+                and component.get(src_sat) == component.get(dst_sat)
+                if component is not None
+                else src_sat in toward.get(dst_sat, {})
+            )
+            if reachable:
+                unresolved += 1
+    compute_ms = (time.perf_counter() - started) * 1000.0
+    if exceptions_out is not None:
+        exceptions_out.update(exceptions)
+    if exception_report is not None and exception_policy in ("grow", "one_pass"):
+        # Locality: entries per satellite and their hop distance to the nearest
+        # satellite that lost an ISL, so the state can be shown to follow the
+        # failures rather than the constellation size.
+        per_satellite: dict[int, int] = {}
+        for sat, _dst in exceptions:
+            per_satellite[sat] = per_satellite.get(sat, 0) + 1
+        hops_to_failure = (
+            _hops_to_degraded_satellites(live_graph, nominal_graph) if exceptions else {}
+        )
+        distances = [hops_to_failure[sat] for sat, _dst in exceptions if sat in hops_to_failure]
+        region_entries, region_max = _region_entry_count(exceptions, rule_args, constellation_data)
+        exception_report.update(
+            {
+                # Entries keyed on addresses a station currently holds: what a
+                # policy limited to destinations in use would install.
+                "exception_entries_in_use": float(
+                    sum(1 for _sat, dst in exceptions if dst in in_use)
+                ),
+                "exception_region_entries": float(region_entries),
+                "exception_region_max_per_satellite": float(region_max),
+                "exception_entries_max_per_satellite": float(
+                    max(per_satellite.values(), default=0)
+                ),
+                "exception_hops_to_failure_mean": (
+                    float(sum(distances)) / len(distances) if distances else 0.0
+                ),
+                "exception_hops_to_failure_max": float(max(distances, default=0)),
+                "exception_entries": float(len(exceptions)),
+                "exception_satellites": float(len({sat for sat, _dst in exceptions})),
+                "exception_destinations": float(len({dst for _sat, dst in exceptions})),
+                # Entries on the flows' own paths: what per-flow growth used to report.
+                "exception_entries_on_flow_paths": float(len(used)),
+                "exception_unresolved": float(unresolved),
+                "exception_unresolved_walks": float(unresolved_walks),
+                # What computing the entries costs, which every satellite would
+                # repeat under one_pass: guarded-rule decisions evaluated, and
+                # destinations that needed a shortest-path run. A satellite
+                # holding entries needs one shortest-path run of its own for
+                # their next hops, as link-state does on every change.
+                "exception_rule_steps": float(work["rule_steps"]),
+                "exception_shortest_path_runs": float(work["shortest_path_runs"]),
+                "exception_compute_ms": float(compute_ms),
+                "live_isls": float(live_graph.number_of_edges()),  # type: ignore[union-attr]
+            }
+        )
+    return routes
+
+
+def _region_entry_count(
+    exceptions: dict[tuple[int, int], int],
+    rule_args: tuple,
+    constellation_data: ConstellationData,
+) -> tuple[int, int]:
+    """Entries left after exact region aggregation, in total and per satellite.
+
+    Addresses near each other aggregate to the same forwarding decision (RINA
+    Reference Model Part 3-1, Sec. 3.3): at each satellite, a region entry
+    names a block of the address grid, a run of planes by a run of slots, and
+    the neighbour all of it leaves by. A block is allowed only if every
+    destination in it already leaves via that neighbour, by its own entry or
+    by the rule, so no forwarding decision changes. Greedy cover from each
+    uncovered entry, along the slot axis and then the plane axis, with cyclic
+    indices: an upper bound on the minimum.
+    """
+    satellite_addresses = rule_args[0]
+    planes = int(constellation_data.n_orbits)
+    slots = int(constellation_data.n_sats_per_orbit)
+    at_cell: dict[tuple[int, int, int], int] = {
+        (a.shell_id, a.plane_id, a.sat_index): sat for sat, a in satellite_addresses.items()
+    }
+    by_satellite: dict[int, dict[int, int]] = {}
+    for (sat, dst), hop in exceptions.items():
+        by_satellite.setdefault(sat, {})[dst] = hop
+    total, largest = 0, 0
+    for sat, entries in by_satellite.items():
+        memo: dict[int | None, object] = {}
+
+        def leaves_by(dst: int | None) -> object:
+            if dst is None or dst == sat:
+                return None
+            if dst not in memo:
+                if dst in entries:
+                    memo[dst] = entries[dst]
+                else:
+                    step = _fixed_rule_step(sat, satellite_addresses[dst], *rule_args)
+                    memo[dst] = step[0] if step else None
+            return memo[dst]
+
+        covered: set[int] = set()
+        blocks = 0
+        for dst in sorted(entries):
+            if dst in covered:
+                continue
+            hop = entries[dst]
+            origin = satellite_addresses[dst]
+            shell, plane0, slot0 = origin.shell_id, origin.plane_id, origin.sat_index
+
+            def cell(plane: int, slot: int) -> int | None:
+                return at_cell.get((shell, plane % planes, slot % slots))
+
+            low = high = 0
+            while high - low + 1 < slots and leaves_by(cell(plane0, slot0 + high + 1)) == hop:
+                high += 1
+            while high - low + 1 < slots and leaves_by(cell(plane0, slot0 + low - 1)) == hop:
+                low -= 1
+
+            def whole_run(plane: int) -> bool:
+                return all(leaves_by(cell(plane, slot0 + k)) == hop for k in range(low, high + 1))
+
+            plane_low = plane_high = 0
+            while plane_high - plane_low + 1 < planes and whole_run(plane0 + plane_high + 1):
+                plane_high += 1
+            while plane_high - plane_low + 1 < planes and whole_run(plane0 + plane_low - 1):
+                plane_low -= 1
+            for plane in range(plane0 + plane_low, plane0 + plane_high + 1):
+                for k in range(low, high + 1):
+                    member = cell(plane, slot0 + k)
+                    if member is not None and entries.get(member) == hop:
+                        covered.add(member)
+            blocks += 1
+        total += blocks
+        largest = max(largest, blocks)
+    return total, largest
+
+
+def _live_components(live_graph: nx.Graph) -> dict[int, int]:
+    """Index of the connected part of the live satellite graph each satellite is in."""
+    return {
+        satellite: index
+        for index, part in enumerate(nx.connected_components(live_graph))
+        for satellite in part
+    }
+
+
+def _select_topological_address_pair(
+    source_candidates: list,
+    destination_candidates: list,
+    satellite_addresses: dict[int, TopologicalNetworkAddress],
+    neighbor_candidates: dict[int, list],
+    constellation_data: ConstellationData,
+    distance_mode: str,
+    weight_model: dict | None,
+    component: dict[int, int] | None = None,
+) -> tuple[float, int, float, int, TopologicalNetworkAddress] | None:
+    """Cheapest (uplink, destination synonym) pair by the scheme's own estimate.
+
+    ``component`` maps each live satellite to its connected part of the live
+    graph; when given, pairs in different parts are skipped, since no walk can
+    join them.
+    """
+    best_key: tuple[float, int, int] | None = None
+    best: tuple[float, int, float, int, TopologicalNetworkAddress] | None = None
+    for src_dist, src_sat, src_address in source_candidates:
+        if src_sat not in satellite_addresses:
+            continue
+        plane_cost, sat_cost = _estimate_axis_step_costs(
+            src_address, neighbor_candidates.get(src_sat, [])
+        )
+        for dst_dist, dst_sat, dst_address in destination_candidates:
+            if dst_sat not in satellite_addresses:
+                continue
+            if component is not None and (
+                component.get(src_sat) is None or component.get(src_sat) != component.get(dst_sat)
+            ):
+                continue
+            route_cost = _routing_topological_distance(
+                src_address,
+                dst_address,
+                constellation_data,
+                distance_mode=distance_mode,
+                plane_step_cost=plane_cost,
+                sat_step_cost=sat_cost,
+                weight_model=weight_model,
+            )
+            total = (
+                _scaled_gsl_distance(src_dist, distance_mode)
+                + route_cost
+                + _scaled_gsl_distance(dst_dist, distance_mode)
+            )
+            key = (total, src_sat, dst_sat)
+            if best_key is None or key < best_key:
+                best_key = key
+                best = (src_dist, src_sat, dst_dist, dst_sat, dst_address)
+    return best
+
+
+def _fixed_rule_step(
+    current: int,
+    destination_address: TopologicalNetworkAddress,
+    satellite_addresses: dict[int, TopologicalNetworkAddress],
+    neighbor_candidates: dict[int, list],
+    constellation_data: ConstellationData,
+    distance_mode: str,
+    weight_model: dict | None,
+    forwarding_guard: str,
+    potentials: dict[int, float] | None = None,
+) -> list[int] | None:
+    """Satellites the guarded rule sends a packet through from ``current``.
+
+    One neighbour, or the three hops of a local detour; ``None`` where the rule
+    has nothing to offer. The decision depends only on the satellite and the
+    destination address, so callers may cache it per destination, and
+    ``potentials`` memoises each satellite's estimate to that destination.
+    """
+    current_address = satellite_addresses.get(current)
+    if current_address is None:
+        return None
+
+    def fixed_potential(satellite_id: int, _unused_gs_idx: int) -> float:
+        if potentials is not None and satellite_id in potentials:
+            return potentials[satellite_id]
+        address = satellite_addresses.get(satellite_id)
+        if address is None:
+            value = float("inf")
+        else:
+            value = _routing_topological_distance(
+                address,
+                destination_address,
+                constellation_data,
+                distance_mode=distance_mode,
+                weight_model=weight_model,
+            )
+        if potentials is not None:
+            potentials[satellite_id] = value
+        return value
+
+    neighbours = _admissible_neighbours(
+        current,
+        neighbor_candidates.get(current, []),
+        0,
+        fixed_potential,
+        forwarding_guard,
+    )
+    decision, _distance = _get_next_hop_decision_topological(
+        current,
+        current_address,
+        destination_address,
+        neighbours,
+        -1,
+        constellation_data,
+        distance_mode,
+        weight_model,
+    )
+    if decision is None or (isinstance(decision, tuple) and decision[:1] == ("GSL",)):
+        return None
+    if _is_local_detour_entry(decision):
+        return [decision[1], decision[2], decision[3]]
+    hops = [
+        neighbor_id
+        for neighbor_id, interface, _address, _weight in neighbours
+        if interface == decision
+    ][:1]
+    return hops or None
+
+
+def _walk_fixed_topological_address(
+    source_satellite: int,
+    destination_satellite: int,
+    destination_address: TopologicalNetworkAddress,
+    satellite_addresses: dict[int, TopologicalNetworkAddress],
+    neighbor_candidates: dict[int, list],
+    constellation_data: ConstellationData,
+    distance_mode: str,
+    weight_model: dict | None,
+    forwarding_guard: str,
+    exceptions: dict[tuple[int, int], int] | None = None,
+    rule_steps: dict[int, list[int] | None] | None = None,
+    delivering: set[int] | None = None,
+    potentials: dict[int, float] | None = None,
+) -> tuple[list[int], str | None]:
+    """Realise rule forwarding for one already-selected destination address.
+
+    ``exceptions`` maps (satellite, destination satellite) to the next hop an
+    exception entry installed there; a satellite holding one follows it
+    instead of the rule. ``rule_steps`` caches the rule's decision per
+    satellite for this destination. ``delivering`` holds satellites already
+    known to deliver under the same entries: a walk reaching one stops there
+    with success, and a delivering walk adds the satellites it decided at.
+    The returned path is then truncated at that satellite, so callers that
+    need whole paths leave it out.
+    """
+    current = source_satellite
+    path = [current]
+    seen = {current}
+    decided: list[int] = []
+    hop_budget = len(satellite_addresses) + 1
+
+    while current != destination_satellite and len(path) <= hop_budget:
+        if delivering is not None and current in delivering:
+            break
+        decided.append(current)
+        entry = exceptions.get((current, destination_satellite)) if exceptions else None
+        if entry is not None:
+            physical_hops = [entry]
+        else:
+            if rule_steps is not None and current in rule_steps:
+                physical_hops = rule_steps[current]  # type: ignore[assignment]
+            else:
+                physical_hops = _fixed_rule_step(  # type: ignore[assignment]
+                    current,
+                    destination_address,
+                    satellite_addresses,
+                    neighbor_candidates,
+                    constellation_data,
+                    distance_mode,
+                    weight_model,
+                    forwarding_guard,
+                    potentials,
+                )
+                if rule_steps is not None:
+                    rule_steps[current] = physical_hops
+            if not physical_hops:
+                return path, "dead_end"
+        for next_satellite in physical_hops:
+            if next_satellite in seen:
+                path.append(next_satellite)
+                return path, "loop"
+            path.append(next_satellite)
+            seen.add(next_satellite)
+        current = physical_hops[-1]
+
+    if current == destination_satellite or (delivering is not None and current in delivering):
+        if delivering is not None:
+            delivering.update(decided)
+        return path, None
+    return path, "hop_limit"
+
+
+class _LiveDistances(dict):
+    """Shortest live distance to each destination satellite, for one snapshot.
+
+    Maps a destination to {satellite: distance}, filled on demand from scipy's
+    compiled Dijkstra (the same distances as networkx's): entries toward every
+    destination need one run per satellite in the shell. The sparse matrix is
+    built on first use and lives as long as this object, one snapshot.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.matrix: tuple | None = None
+
+
+def _live_distances_to(
+    destination_satellite: int, live_graph: nx.Graph, toward: dict[int, dict[int, float]]
+) -> dict[int, float]:
+    """Shortest live distance from every satellite to one destination, memoised."""
+    if destination_satellite in toward:
+        return toward[destination_satellite]
+    if isinstance(toward, _LiveDistances):
+        if toward.matrix is None:
+            nodes = list(live_graph.nodes())
+            matrix = nx.to_scipy_sparse_array(live_graph, nodelist=nodes, weight="weight")
+            toward.matrix = (nodes, {n: i for i, n in enumerate(nodes)}, sparse.csr_matrix(matrix))
+        nodes, index, matrix = toward.matrix
+        row = csgraph.dijkstra(matrix, directed=False, indices=index[destination_satellite])
+        toward[destination_satellite] = {
+            nodes[i]: float(d) for i, d in enumerate(row) if math.isfinite(d)
+        }
+    else:
+        toward[destination_satellite] = nx.single_source_dijkstra_path_length(
+            live_graph, destination_satellite, weight="weight"
+        )
+    return toward[destination_satellite]
+
+
+def _next_on_shortest_live_path(
+    satellite: int | None, live_graph: nx.Graph, distance: dict[int, float]
+) -> int | None:
+    """Neighbour on the shortest live path toward the destination of ``distance``."""
+    if satellite is None or satellite not in distance:
+        return None
+    options = [
+        (live_graph.edges[satellite, n].get("weight", 1.0) + distance[n], n)
+        for n in live_graph.neighbors(satellite)
+        if n in distance and distance[n] < distance[satellite]
+    ]
+    return min(options)[1] if options else None
+
+
+def _breaking_satellite(
+    path: list[int],
+    failure: str,
+    destination_satellite: int,
+    exceptions: dict[tuple[int, int], int],
+) -> int | None:
+    """Where a failed walk gets its next entry: the dead end, or the first
+    satellite of the loop without one; ``None`` if every candidate has one."""
+    if failure == "loop":
+        first = path.index(path[-1])
+        candidates = path[first:-1]
+    else:
+        candidates = path[-1:]
+    return next((s for s in candidates if (s, destination_satellite) not in exceptions), None)
+
+
+def _walk_with_exception_entries(
+    walk_args: tuple,
+    destination_satellite: int,
+    live_graph: nx.Graph,
+    exceptions: dict[tuple[int, int], int],
+    toward: dict[int, dict[int, float]],
+) -> tuple[list[int], str | None]:
+    """Walk toward a fixed address, growing exception entries where it breaks.
+
+    The same rule as ``exception_policy: grow`` under station addressing, keyed
+    on the destination address instead of the station: an entry goes only to
+    the satellite where a walk dead-ends, or to the first satellite of a loop
+    that has none yet, pointing along the shortest live path to the
+    destination satellite; then the walk restarts. Entries are shared by every
+    flow toward that address in the snapshot. Each restart adds an entry, so
+    the walk ends within as many restarts as there are satellites.
+    """
+    distance = _live_distances_to(destination_satellite, live_graph, toward)
+    for _attempt in range(live_graph.number_of_nodes() + 1):
+        path, failure = _walk_fixed_topological_address(*walk_args, exceptions=exceptions)  # type: ignore[misc]
+        if failure is None:
+            return path, None
+        breaking = _breaking_satellite(path, failure, destination_satellite, exceptions)
+        hop = _next_on_shortest_live_path(breaking, live_graph, distance)
+        if hop is None:
+            return path, failure
+        exceptions[(breaking, destination_satellite)] = hop  # type: ignore[index]
+    return path, "hop_limit"
+
+
+def _one_pass_fixed_address_exceptions(
+    rule_args: tuple,
+    live_graph: nx.Graph,
+    nominal_graph: nx.Graph | None,
+    exceptions: dict[tuple[int, int], int],
+    toward: dict[int, dict[int, float]],
+    work: dict[str, float],
+) -> None:
+    """Install the one-pass exception set toward every destination satellite.
+
+    A satellite holds an entry for a destination exactly when its own guarded,
+    rule-only walk toward it fails, pointing along the shortest live path. The
+    rule is local and order-independent: each satellite can decide alone, from
+    the geometry and the flooded failures, which entries are its own.
+
+    Under the progress guard a rule-only walk cannot loop, since every hop
+    strictly decreases (distance, id); it fails only at a dead end, and only a
+    satellite that lost an ISL can be one, because the intact grid needs no
+    entries. So the computation starts from those dead ends and searches
+    backwards through the rule's next hops for every satellite whose walk ends
+    in one (its basin). The set is loop-free by construction: an entry moves a
+    packet strictly closer along a shortest live path, and a satellite outside
+    the basin delivers by rule without meeting an entry.
+
+    ``work`` accumulates what the computation costs, which every satellite
+    would repeat: rule decisions evaluated and shortest-path runs needed.
+    """
+    satellite_addresses = rule_args[0]
+    if rule_args[5] != "progress":
+        raise ValueError("exception_policy one_pass needs the progress guard")
+    if nominal_graph is not None:
+        candidates = sorted(
+            sat
+            for sat in live_graph.nodes()
+            if nominal_graph.has_node(sat) and live_graph.degree(sat) < nominal_graph.degree(sat)
+        )
+    else:
+        candidates = sorted(live_graph.nodes())
+    if not candidates:
+        return
+    for destination in sorted(live_graph.nodes()):
+        destination_address = satellite_addresses.get(destination)
+        if destination_address is None:
+            continue
+        steps: dict[int, list[int] | None] = {}
+        potentials: dict[int, float] = {}
+
+        def rule_step(sat: int) -> list[int] | None:
+            if sat not in steps:
+                steps[sat] = _fixed_rule_step(  # type: ignore[misc]
+                    sat, destination_address, *rule_args, potentials=potentials
+                )
+            return steps[sat]
+
+        dead_ends = [sat for sat in candidates if sat != destination and not rule_step(sat)]
+        if dead_ends:
+            basin = set(dead_ends)
+            frontier = list(dead_ends)
+            while frontier:
+                sat = frontier.pop()
+                for neighbour in live_graph.neighbors(sat):
+                    if neighbour in basin or neighbour == destination:
+                        continue
+                    step = rule_step(neighbour)
+                    if step and step[-1] == sat:
+                        basin.add(neighbour)
+                        frontier.append(neighbour)
+            distance = _live_distances_to(destination, live_graph, toward)
+            work["shortest_path_runs"] += 1
+            for sat in basin:
+                hop = _next_on_shortest_live_path(sat, live_graph, distance)
+                if hop is not None:
+                    exceptions[(sat, destination)] = hop
+        work["rule_steps"] += len(steps)
+
+
+def _grow_fixed_address_exceptions(
+    destination_satellite: int,
+    destination_address: TopologicalNetworkAddress,
+    rule_args: tuple,
+    live_graph: nx.Graph,
+    exceptions: dict[tuple[int, int], int],
+    toward: dict[int, dict[int, float]],
+    sources: list[int] | None = None,
+    work: dict[str, float] | None = None,
+) -> int:
+    """Grow entries toward one destination address until every live walk delivers.
+
+    A satellite does not know which flows exist, so the entries it computes
+    after a failure flood must serve a packet entering anywhere: every live
+    satellite with a live path to the destination, as under station
+    addressing. Entries go where a walk breaks (the grow rule), so the set is
+    the same one per-flow growth would reach if every satellite sourced a
+    flow. Returns how many such walks still fail, which should be none.
+
+    ``rule_args`` is the walk's arguments after the destination address:
+    addresses, neighbour candidates, constellation, distance mode, weight
+    model and guard. ``sources`` restricts the walks checked, when the
+    caller knows the others cannot break. ``work`` accumulates the rule
+    decisions evaluated and the shortest-path runs, as for ``one_pass``.
+    """
+    if work is not None and destination_satellite not in toward:
+        work["shortest_path_runs"] += 1
+    distance = _live_distances_to(destination_satellite, live_graph, toward)
+    satellite_addresses = rule_args[0]
+    sources = sorted(
+        sat
+        for sat in (distance if sources is None else sources)
+        if sat != destination_satellite and sat in satellite_addresses and sat in distance
+    )
+    rule_steps: dict[int, list[int] | None] = {}
+    potentials: dict[int, float] = {}
+    # A walk is a function of the satellite it is at, so a satellite whose walk
+    # delivers stays delivering when an entry is added at one whose walk fails.
+    delivering: set[int] = set()
+    while True:
+        added = False
+        unresolved = 0
+        for sat in sources:
+            if sat in delivering:
+                continue
+            path, failure = _walk_fixed_topological_address(  # type: ignore[misc]
+                sat,
+                destination_satellite,
+                destination_address,
+                *rule_args,
+                exceptions=exceptions,
+                rule_steps=rule_steps,
+                delivering=delivering,
+                potentials=potentials,
+            )
+            if failure is None:
+                continue
+            breaking = _breaking_satellite(path, failure, destination_satellite, exceptions)
+            hop = _next_on_shortest_live_path(breaking, live_graph, distance)
+            if hop is None:
+                unresolved += 1
+                continue
+            exceptions[(breaking, destination_satellite)] = hop  # type: ignore[index]
+            added = True
+        if not added:
+            if work is not None:
+                work["rule_steps"] += len(rule_steps)
+            return unresolved
 
 
 def _set_sixgrupa_addresses_to_all_nodes(
@@ -405,6 +1247,46 @@ def _detect_gsl_changes(
             gs.previous_attached_satellite_id = current_sat_id
 
     return gsl_changes
+
+
+def _update_gs_attachment_sets(
+    ground_stations: list[GroundStation],
+    ground_station_satellites_in_range: list,
+    attachment_count: int,
+) -> dict[str, int]:
+    """Track changes to the K satellite addresses advertised by each station.
+
+    A station renumbers when its advertised set changes. The first snapshot
+    establishes the set and costs no update, matching the K=1 accounting used
+    before multihoming was introduced.
+    """
+    changed_stations = 0
+    additions = 0
+    removals = 0
+    for gs_idx, gs in enumerate(ground_stations):
+        visible = (
+            ground_station_satellites_in_range[gs_idx]
+            if gs_idx < len(ground_station_satellites_in_range)
+            else []
+        )
+        current = tuple(
+            item[1]
+            for item in sorted(visible, key=lambda item: (item[0], item[1]))[:attachment_count]
+        )
+        previous = gs.previous_advertised_satellite_ids
+        if previous is not None:
+            previous_set = set(previous)
+            current_set = set(current)
+            if previous_set != current_set:
+                changed_stations += 1
+                additions += len(current_set - previous_set)
+                removals += len(previous_set - current_set)
+        gs.previous_advertised_satellite_ids = current
+    return {
+        "stations": changed_stations,
+        "additions": additions,
+        "removals": removals,
+    }
 
 
 def _assign_gs_address_from_satellite(
@@ -579,6 +1461,7 @@ def _calculate_sat_to_gs_fstate(
     per_satellite_work: dict | None = None,
     potential: "_EgressPotential | None" = None,
     forwarding_guard: str = "none",
+    selected_egresses: dict[tuple[int, int], int] | None = None,
 ):
     """
     Calculate satellite-to-ground-station forwarding state using topological routing.
@@ -616,6 +1499,7 @@ def _calculate_sat_to_gs_fstate(
 
             # Find the best destination satellite using topological distance
             best_destination_address = None
+            best_destination_sat_id = None
             best_total_distance = float("inf")
             heuristic_costs = _estimate_axis_step_costs(
                 curr_satellite_address,
@@ -641,12 +1525,15 @@ def _calculate_sat_to_gs_fstate(
                     if total_distance < best_total_distance:
                         best_total_distance = total_distance
                         best_destination_address = dest_sat_address
+                        best_destination_sat_id = visible_sat_id
                 except Exception as e:
                     log.warning(f"Failed to process destination satellite {visible_sat_id}: {e}")
                     continue
 
             if best_destination_address is None:
                 continue
+            if selected_egresses is not None and best_destination_sat_id is not None:
+                selected_egresses[(curr_sat_id, dst_gs_node_id)] = best_destination_sat_id
 
             if per_satellite_work is not None:
                 # What this satellite alone evaluates for this destination: one
@@ -1108,7 +1995,88 @@ def _routing_topological_distance(
     )
 
 
-GEOMETRY_SOURCES = ("observed", "nominal")
+GS_ADDRESSING = ("visibility", "attachment")
+
+
+def _select_gs_attachments(
+    gs_destination_candidates: list,
+    attachment_count: int = 1,
+    attachment_policy: str = "independent",
+) -> list:
+    """Reduce each ground station's egress candidates to its K attachments.
+
+    Under ``attachment`` addressing a ground station's 6G-RUPA address names the
+    satellite it is attached to, so the destination a packet carries is that one
+    satellite rather than the ground station itself. A forwarding satellite then
+    has nothing to choose and nothing to know about where the ground station sits
+    on the surface: it forwards toward the address. The attachment is the live
+    visible satellite with the shortest ground link, the same rule
+    ``_detect_gsl_changes`` uses to decide when the address has to change, and
+    failed satellites have already left the visibility list, so a dead attachment
+    is replaced at the next snapshot rather than stranding the ground station.
+
+    Under ``visibility`` addressing the address is stable and every satellite
+    minimises over all visible egresses instead, which needs the ground station's
+    position on board.
+    """
+    selected, _stats = select_multihoming_attachments(
+        gs_destination_candidates,
+        attachment_count,
+        attachment_policy,
+    )
+    return selected
+
+
+def _exception_egresses(
+    ground_station_satellites_in_range: list,
+    gs_destination_candidates: list,
+    gs_addressing: str,
+) -> list:
+    """Satellites an exception entry may deliver through, per ground station.
+
+    Exceptions must end where the rule does. Under ``attachment`` addressing that
+    is the attached satellite alone: the station holds no ground link to any other,
+    so an entry delivering through another visible satellite would use a link that
+    does not exist. Under ``visibility`` every visible satellite is an egress.
+    """
+    if gs_addressing != "attachment":
+        return ground_station_satellites_in_range
+    return [
+        [(dist_gs_to_sat_m, sat_id) for dist_gs_to_sat_m, sat_id, _address in candidates]
+        for candidates in gs_destination_candidates
+    ]
+
+
+def _build_gs_destination_candidates(
+    ground_station_satellites_in_range: list,
+    satellite_addresses: dict,
+    gs_addressing: str,
+    gs_attachment_count: int = 1,
+    gs_attachment_policy: str = "independent",
+) -> list:
+    """Egress candidates per ground station, under the chosen addressing policy."""
+    if gs_addressing not in GS_ADDRESSING:
+        raise ValueError(
+            f"Unknown gs_addressing {gs_addressing!r}, expected one of {GS_ADDRESSING}"
+        )
+    candidates_per_gs = [
+        [
+            (dist_gs_to_sat_m, visible_sat_id, satellite_addresses[visible_sat_id])
+            for dist_gs_to_sat_m, visible_sat_id in visible
+            if visible_sat_id in satellite_addresses
+        ]
+        for visible in ground_station_satellites_in_range
+    ]
+    if gs_addressing == "attachment":
+        return _select_gs_attachments(
+            candidates_per_gs,
+            gs_attachment_count,
+            gs_attachment_policy,
+        )
+    return candidates_per_gs
+
+
+GEOMETRY_SOURCES = ("observed", "nominal", "derived")
 
 
 def _geometry_subgraph(
@@ -1116,22 +2084,85 @@ def _geometry_subgraph(
     satellite_node_ids: list[int],
     satellite_only_subgraph: nx.Graph,
     geometry_source: str,
+    satellite_addresses: dict[int, TopologicalNetworkAddress] | None = None,
+    constellation_data: ConstellationData | None = None,
+    time_s: float = 0.0,
 ) -> nx.Graph:
     """Graph the pivot geometry is built from.
 
     ``observed`` is the snapshot graph as routed, so an injected link failure
     reaches every satellite's distance estimates at once: global failure
     knowledge the design never distributes. ``nominal`` is the failure-free
-    graph, as a satellite deriving geometry from ephemerides would see it,
-    while next hops still consider only live neighbours. Without injected
-    failures the two are the same graph.
+    graph with its SGP4-measured lengths, as if every satellite knew every
+    ISL's length. ``derived`` keeps the failure-free wiring but computes each
+    length from the shell's Walker constants and the clock, which is all a
+    satellite needs to hold. Next hops always consider only live neighbours,
+    over their measured first-hop lengths.
     """
     if geometry_source not in GEOMETRY_SOURCES:
         raise ValueError(f"Unknown geometry source: {geometry_source}")
     nominal_graph = getattr(topology_with_isls, "nominal_graph", None)
-    if geometry_source == "observed" or nominal_graph is None:
+    if geometry_source == "observed":
         return satellite_only_subgraph
-    return nominal_graph.subgraph(satellite_node_ids)
+    wiring = (
+        satellite_only_subgraph
+        if nominal_graph is None
+        else nominal_graph.subgraph(satellite_node_ids)
+    )
+    if geometry_source == "nominal":
+        return wiring
+    walker = getattr(constellation_data, "walker", None)
+    if walker is None or satellite_addresses is None:
+        raise ValueError("geometry_source=derived needs the shell's Walker constants")
+    return _derived_geometry_graph(wiring, satellite_addresses, walker, time_s)
+
+
+def _derived_geometry_graph(
+    wiring: nx.Graph,
+    satellite_addresses: dict[int, TopologicalNetworkAddress],
+    walker,
+    time_s: float,
+) -> nx.Graph:
+    """The designed ISLs, each weighted by its Walker-derived length."""
+    derived = nx.Graph()
+    derived.add_nodes_from(wiring.nodes())
+    for sat_a_id, sat_b_id in wiring.edges():
+        addr_a = satellite_addresses.get(sat_a_id)
+        addr_b = satellite_addresses.get(sat_b_id)
+        if addr_a is None or addr_b is None:
+            continue
+        a = addr_a.get_satellite_address()
+        b = addr_b.get_satellite_address()
+        length = walker.distance_m((a.plane_id, a.sat_index), (b.plane_id, b.sat_index), time_s)
+        derived.add_edge(sat_a_id, sat_b_id, weight=length)
+    return derived
+
+
+# Planes, satellites per plane, inclination, mean motion, node spread, phasing
+# and epoch: what a satellite holds to derive every ISL length in its shell.
+WALKER_CONSTANT_COUNT = 7
+
+
+def _describe_geometry_source(
+    geometry_source: str, constellation_data: ConstellationData | None
+) -> dict:
+    """What a satellite must hold to know the geometry, apart from any cache.
+
+    Under ``observed`` and ``nominal`` the estimator uses every ISL length in
+    the shell, which would have to be measured and flooded: one entry per
+    rail and per rung. Under ``derived`` it holds the Walker constants only.
+    The path-cost tables built from either are a cache on top.
+    """
+    if geometry_source == "derived":
+        required = float(WALKER_CONSTANT_COUNT)
+    elif constellation_data is not None:
+        required = float(2 * constellation_data.n_orbits * constellation_data.n_sats_per_orbit)
+    else:
+        required = float("nan")
+    return {
+        "geometry_derived": 1.0 if geometry_source == "derived" else 0.0,
+        "geometry_required_entries": required,
+    }
 
 
 def _build_reported_torus_weight_model(
@@ -1139,18 +2170,20 @@ def _build_reported_torus_weight_model(
     satellite_addresses: dict[int, TopologicalNetworkAddress],
     constellation_data: ConstellationData,
     state_report: dict | None,
+    wiring: str = "plus_grid",
 ) -> dict:
     """Build the pivot weight model, recording its cost when a report is requested.
 
-    The pivot estimator rebuilds its geometry every snapshot. Reviewers asked
-    for that cost, so both the build time and the resident size of each
-    structure are recorded rather than left implicit.
+    The pivot estimator rebuilds its geometry every snapshot, so both the build
+    time and the resident size of each structure are recorded rather than left
+    implicit.
     """
     build_start = time.perf_counter()
     weight_model = _build_torus_weight_model(
         satellite_only_subgraph,
         satellite_addresses,
         constellation_data,
+        wiring=wiring,
     )
     build_ms = (time.perf_counter() - build_start) * 1000.0
     if state_report is not None:
@@ -1233,11 +2266,17 @@ def _describe_weight_model(weight_model: dict, build_ms: float) -> dict:
     }
 
 
+ISL_WIRINGS = ("plus_grid", "brick_a", "brick_b")
+
+
 def _build_torus_weight_model(
     satellite_only_subgraph: nx.Graph,
     satellite_addresses: dict[int, TopologicalNetworkAddress],
     constellation_data: ConstellationData,
+    wiring: str = "plus_grid",
 ) -> dict:
+    if wiring not in ISL_WIRINGS:
+        raise ValueError(f"Unknown ISL wiring {wiring!r}, expected one of {ISL_WIRINGS}")
     plane_modulus = constellation_data.n_orbits
     sat_modulus = constellation_data.n_sats_per_orbit
     row_edge_costs = [[float("inf")] * sat_modulus for _ in range(plane_modulus)]
@@ -1290,13 +2329,19 @@ def _build_torus_weight_model(
         for row_index in range(sat_modulus)
     ]
 
+    brick = None
+    if wiring in ("brick_a", "brick_b"):
+        brick = _brick_lengths(row_edge_costs, plane_edge_costs, wiring)
+
     return {
         "plane_modulus": plane_modulus,
         "sat_modulus": sat_modulus,
+        "wiring": wiring,
         "row_edge_costs": row_edge_costs,
         "plane_edge_costs": plane_edge_costs,
         "row_path_costs": row_path_costs,
         "plane_path_costs": plane_path_costs,
+        "brick": brick,
         "pivot_distance_cache": {},
     }
 
@@ -1344,6 +2389,11 @@ def _torus_weighted_pivot_distance(
     if cached_distance is not None:
         return cached_distance
 
+    if weight_model.get("brick") is not None:
+        best_distance = _brick_pivot_distance(source_sat, destination_sat, weight_model)
+        distance_cache[cache_key] = best_distance
+        return best_distance
+
     row_path_costs = weight_model["row_path_costs"]
     plane_path_costs = weight_model["plane_path_costs"]
     sat_modulus = int(weight_model["sat_modulus"])
@@ -1362,6 +2412,142 @@ def _torus_weighted_pivot_distance(
 
     distance_cache[cache_key] = best_distance
     return best_distance
+
+
+def _brick_lengths(
+    row_edge_costs: list[list[float]],
+    plane_edge_costs: list[list[float]],
+    wiring: str,
+) -> dict:
+    """Link lengths a brick-wall estimate needs, per row.
+
+    Every rail of a circular shell has the same length, so one mean serves. A
+    rung's length depends on its row, so each row keeps the mean of its rungs;
+    under split a a row only carries rungs of one plane parity anyway.
+    """
+
+    def mean(values: list[float]) -> float:
+        finite = [v for v in values if math.isfinite(v)]
+        return sum(finite) / len(finite) if finite else math.inf
+
+    rail = mean([cost for plane in row_edge_costs for cost in plane])
+    return {
+        "rail": rail,
+        "rung_by_row": [mean(row) for row in plane_edge_costs],
+        "plane_wrap": (
+            all(math.isfinite(row[-1]) for row in plane_edge_costs)
+            if wiring == "brick_b"
+            else any(math.isfinite(row[-1]) for row in plane_edge_costs)
+        ),
+    }
+
+
+def _brick_hops(
+    start: int,
+    start_row: int,
+    end: int,
+    end_row: int,
+    crossings_modulus: int,
+    rows_modulus: int,
+    crossing_wraps: bool,
+    rows_wrap: bool,
+) -> tuple[int, int] | None:
+    """Fewest (staggered crossings, complete-axis moves) between two satellites.
+
+    The closed form of docs/isl-topology.md, verified against BFS: crossing a
+    staggered link needs start + row to be even (going up) or odd (going down),
+    and each crossing flips that parity, so the path zigzags one row per
+    crossing. Zigzag rows it wanted anyway are free; the rest are paid twice.
+    It is exact when both ring sizes are even. With an odd ring, stepping
+    across its wrap keeps the parity instead of flipping it, and the result is
+    an estimate; no shell evaluated with a brick wall has an odd ring.
+    Returns (crossings, moves) for the cheaper direction, or None if neither
+    direction is allowed (a cylinder never crosses its seam).
+    """
+    if rows_wrap:
+        row_steps = (end_row - start_row) % rows_modulus
+        row_distance = min(row_steps, rows_modulus - row_steps)
+    else:
+        row_distance = abs(end_row - start_row)
+    best = None
+    for crossings, needs_shift, wraps in (
+        ((end - start) % crossings_modulus, (start + start_row) % 2 == 1, end < start),
+        ((start - end) % crossings_modulus, (start + start_row) % 2 == 0, end > start),
+    ):
+        if wraps and crossings and not crossing_wraps:
+            continue
+        if crossings == 0:
+            candidate = (0, row_distance)
+        else:
+            span = max(row_distance, (crossings - 1) + (1 if needs_shift else 0))
+            if (span - row_distance) % 2:
+                span += 1
+            candidate = (crossings, span)
+        if best is None or sum(candidate) < sum(best):
+            best = candidate
+    return best
+
+
+def _brick_pivot_distance(source_sat, destination_sat, weight_model: dict) -> float:
+    """Pivot distance on a three-terminal brick wall.
+
+    Split a (rungs staggered): walk the source plane to a pivot row, then take
+    the closed-form staircase to the destination, its rungs priced at the mean
+    rung length and its rails at the rail length. Split b swaps the roles of
+    planes and rows. With unit link costs this is exactly the hop distance.
+
+    The staircase is priced at one mean rung length rather than the pivot
+    row's own. Pricing it per row would let the estimate prefer short
+    high-latitude rungs, but a satellite's best pivot row then shifts as the
+    packet moves, the estimate stops being consistent between neighbours, and
+    greedy forwarding loops: on Starlink that lost 71% of pairs.
+    """
+    planes = int(weight_model["plane_modulus"])
+    sats = int(weight_model["sat_modulus"])
+    brick = weight_model["brick"]
+    rail, rungs = brick["rail"], brick["rung_by_row"]
+    finite_rungs = [r for r in rungs if math.isfinite(r)]
+    mean_rung = sum(finite_rungs) / len(finite_rungs) if finite_rungs else math.inf
+    best = math.inf
+    if weight_model["wiring"] == "brick_a":
+        leg = weight_model["row_path_costs"][source_sat.plane_id][source_sat.sat_index]
+        for pivot_row in range(sats):
+            hops = _brick_hops(
+                source_sat.plane_id,
+                pivot_row,
+                destination_sat.plane_id,
+                destination_sat.sat_index,
+                planes,
+                sats,
+                crossing_wraps=brick["plane_wrap"],
+                rows_wrap=True,
+            )
+            if hops is None:
+                continue
+            crossings, moves = hops
+            best = min(best, leg[pivot_row] + crossings * mean_rung + moves * rail)
+    else:
+        leg = weight_model["plane_path_costs"][source_sat.sat_index][source_sat.plane_id]
+        for pivot_plane in range(planes):
+            if not math.isfinite(leg[pivot_plane]):
+                continue
+            # Transposed: the staggered links are rails, crossed along the slot
+            # ring; the zigzag moves between planes, over rungs.
+            hops = _brick_hops(
+                source_sat.sat_index,
+                pivot_plane,
+                destination_sat.sat_index,
+                destination_sat.plane_id,
+                sats,
+                planes,
+                crossing_wraps=True,
+                rows_wrap=brick["plane_wrap"],
+            )
+            if hops is None:
+                continue
+            crossings, moves = hops
+            best = min(best, leg[pivot_plane] + crossings * rail + moves * mean_rung)
+    return best
 
 
 def _torus_path_cost(edge_costs: list[float], start_index: int, end_index: int) -> float:

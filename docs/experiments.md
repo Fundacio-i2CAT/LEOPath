@@ -107,6 +107,53 @@ python -m leopath.experiments.summarize_failure_sweep --input /path/to/sweep --o
 
 writes one row per run, a per-cell summary with 95% intervals across seeds, and Markdown tables per constellation.
 
+`ISL_SCENARIO=brick_a` (or `brick_b`, `grid_seam`, `ring`) runs the whole sweep on another wiring, and `CONFIGS="shells/kuiper_610 shells/starlink_gen2_525"` on per-shell configs.
+
+## Estimator cost per shell
+
+```bash
+python scripts/benchmark_pivot_estimators.py            # every config in leopath/config/shells
+python scripts/benchmark_pivot_estimators.py kuiper_610 # one shell
+```
+
+For each shell it builds the pivot tables from derived ISL lengths, times a table lookup against a table-free `DerivedPivotEstimator` query, and checks the two agree on 200 random pairs. Timings are single-threaded CPython and only comparable with each other; the entries a satellite holds and the O(S) operations per query are what carry over. On the Gen2 shells the tables reach 497 280 entries and take over 20 s to build per snapshot on a busy server, against 7 constants for the derived estimator at about twice the lookup time.
+
+## Real constellations
+
+Two scripts compare a CelesTrak TLE snapshot with the grids the configs assume. Both read a TLE file and propagate every satellite to the same instant with SGP4.
+
+```bash
+curl -o starlink.tle "https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle"
+python scripts/celestrak_shell_geometry.py starlink.tle 43 480 --alt-tol 10
+python scripts/celestrak_lattice_fit.py
+```
+
+`celestrak_shell_geometry.py` keeps one inclination and altitude window, groups planes by clustering node angles, and reports plane count, occupancy and how evenly planes and slots are spread. `celestrak_lattice_fit.py` asks the sharper question of whether satellites sit on a slot lattice with empty slots or scatter: per plane it fits the slot count and phase and measures the residual to the nearest slot. On the 29 September 2026 snapshot the residual was about 20 km, far below what scattered satellites would give, so the irregularity in flying shells comes mostly from empty slots. The fitted slot count is ambiguous up to multiples; the residual isn't.
+
+## How long a failure report takes to spread
+
+`scripts/flood_time.py` builds each shell's +Grid from its seven Walker constants, weights every link by its propagation delay, and reports how long a flood from one satellite takes to reach the last one (eccentricity), the worst case (diameter), and both in hops so per-hop processing can be added:
+
+```bash
+python scripts/flood_time.py --samples 12 > flood_time.csv
+```
+
+Both routing families learn about a failure by flooding it, so this is the floor on convergence for either. On the four main constellations and the 12 FCC shells it comes to 78-191 ms on +Grid and up to 308 ms with the seam open, over 19-89 hops: even with a millisecond of processing per hop it stays under half a second, well inside a one-minute snapshot. What happens after the flood differs, and the simulator counts that part: link-state recomputes routes to every destination, the topological scheme adds exception entries only where walks break.
+
+## Ground-terminal population
+
+The routing runs use a handful of ground stations. `scripts/terminal_population.py` asks what happens to addressing with many more terminals, without routing any packet: it places N terminals, attaches each to one satellite every snapshot, and reports how many terminals the busiest satellite carries, how many bits the endpoint index x then needs, how often terminals change address and the directory updates per second that implies.
+
+```bash
+python scripts/fetch_population_points.py data/population
+python scripts/terminal_population.py leopath/config/starlink.yaml \
+  --layout census uniform --population data/population/population_points.csv \
+  --policy nearest stay_while_visible --speed-kmh 0 250 \
+  --terminals 1000 10000 100000 1000000
+```
+
+`fetch_population_points.py` downloads census population for North America from the national statistics offices: US Census Bureau county estimates for 2024 placed at the 2024 Gazetteer county points, INEGI's 2020 census localities for Mexico, and Statistics Canada's 2021 dissemination blocks placed at their dissemination area's point. It writes one CSV of population points and records each source file's SHA-256 in `SOURCES.txt`; the totals match the three censuses exactly. `--layout census` draws terminals in proportion to that population, `uniform` spreads them evenly, the optimistic case for the busiest satellite. `nearest` moves a terminal to its nearest satellite every snapshot, `stay_while_visible` keeps its satellite until it sets. `--speed-kmh` moves every terminal on its own heading; at 250 km/h the address-change rate moves by at most about 1% either way, within run-to-run noise, since the satellites move a hundred times faster than any vehicle. At one-minute sampling the rate can't exceed one change per terminal-minute; Starlink's Gen2 525 km shell, whose satellites sit about 360 km apart along their orbits, reaches that ceiling under `nearest`, so its true rate may be higher.
+
 ## Notes
 
 - Use the same time step across every algorithm in a matrix, otherwise churn numbers are not comparable: a tighter sampling interval mechanically raises the link-state update rate while leaving topological forwarding untouched.

@@ -89,7 +89,9 @@ leopath --config leopath/config/ether_simple.yaml
 | How often does forwarding state change? | Per-step churn metrics |
 | How much state does each satellite need? | Forwarding-state size metrics |
 | How expensive is route recomputation? | Per-step compute-time metrics |
-| How does topology shape behavior? | Ring and +grid ISL scenarios |
+| How does topology shape behavior? | Ring, +grid and three-laser brick-wall ISL scenarios |
+| Does per-satellite state grow with the constellation? | Per-shell runs on FCC-filed shells, and geometry derived from shell constants instead of measured |
+| What does a ground station attached to several satellites cost? | Address changes, flow-update messages and stretch per address policy |
 
 ## Routing Algorithms
 

@@ -30,12 +30,55 @@ Reachability is decided from the topology before any algorithm runs, so every al
 | `deliverable` | a path exists, so the pair counts toward `delivery_rate` |
 | `delivered` | the algorithm got a packet there; the shortfall is `forwarding_failure` |
 
-A ground station is reachable through **any** satellite above its horizon, not only its nearest one. The baseline for stretch is therefore the best end-to-end route to any of them, which makes it identical for every algorithm. Two stretch families are written:
+A ground station is reachable through **any** satellite above its horizon, not only its nearest one. The baseline for stretch is therefore the best end-to-end route to any of them, which makes it identical for every algorithm and independent of what any algorithm does.
 
-- `stretch_hop` / `stretch_dist` grade an algorithm against a shortest path to whichever egress satellite it happened to reach. An algorithm that delivers through a poor egress still scores near 1.0, because the baseline follows it there. Kept for continuity with earlier runs.
-- `stretch_hop_shared` / `stretch_dist_shared` grade every algorithm against the same lower bound. Use these for comparisons between algorithms.
+Falling short of that baseline has two separate causes, so stretch is one headline figure and two factors that multiply to it:
 
-`delivery_non_optimal_egress_rate` reports how often an algorithm delivered through an egress other than the optimal one, which is what separates the two families. A shortest-path algorithm scores 1.000000 on the shared basis by construction, so link-state doubles as a correctness check on the metric itself.
+```
+  end-to-end  =  egress choice   x   forwarding
+
+  stretch_dist_shared    stretch_dist_egress    stretch_dist_forwarding
+  stretch_hop_shared     stretch_hop_egress     stretch_hop_forwarding
+```
+
+| factor | question it answers | what sets it |
+| --- | --- | --- |
+| `_shared` | how much worse than the best possible? | both causes together |
+| `_egress` | did it aim at the right satellite? | the attachment policy |
+| `_forwarding` | given that target, was the path good? | the distance estimator, guard, repair and exceptions |
+
+The egress factor exists because "nearest to the ground station" and "best for this particular source" are different questions:
+
+```
+     S = source
+      \
+       \                  e2    ..... a longer route, but the station
+        \                /  \          did not attach here
+         \______________/    ~~~~ g
+                             /
+                       e1 ~~/    nearest to g, so the address names it
+                      /
+        ............./  the best route from S
+```
+
+Under `gs_addressing: visibility` every satellite minimises over all visible egresses, so the egress factor is 1.000 and the headline equals the forwarding factor. Under `attachment` the address fixes the egress, so a poor choice and a poor path become two distinct causes that one number cannot separate. Reporting only the headline would make a change of destination model look like a regression in forwarding that never happened.
+
+`delivery_non_optimal_egress_rate` counts how often an algorithm delivered through an egress other than the optimal one, which is the discrete version of the same thing. Plain link-state scores 1.000000 on all three by construction, so it doubles as a correctness check on the metric itself.
+
+Attachment addressing gives a ground station one ground link, and it would be an uneven comparison if topological routing were held to that link while link-state kept every visible one. Link-state therefore also accepts `gs_addressing: attachment`, which routes it to the same single satellite. Its forwarding factor stays at 1.000 (still a shortest path, just to a fixed egress), while its egress factor now carries the same attachment cost topological routing pays. In the failure sweep that variant is `link_state_attach`: set it beside the `*_attach` topological variants to compare forwarding like for like, and keep `link_state` as the any-egress optimum that every algorithm is scored against.
+
+`aux_gs_renumberings` counts the stations whose advertised addresses changed in a snapshot, which is what the directory has to be told. Under `visibility` it stays at zero, because the address never moves.
+
+The multihoming experiment varies `gs_attachment_count` over K=1, 2 and 4 and crosses it with `gs_address_policy` (see [Routing Algorithms](algorithms.md#a-station-with-several-attachments)); in the failure sweep those runs are the `*_addr_*` variants. Under attachment addressing every flow runs a fixed-address walk, with its source and destination addresses set when the flow is allocated and never changed by a transit satellite. Stretch for these walks uses the same lower bound as every other variant, source at its nearest attachment and destination at any satellite it can see, so a K=1 run reproduces the single-attachment numbers exactly. The columns to read:
+
+- `fixed_address_forwarding` is 1 when a snapshot ran the fixed-address walk. Topological runs with an exception policy still use the older walk, in which every satellite minimises over all K attachments, and report 0; keep them apart from the fixed-address rows.
+- `aux_gs_current_address_changes` counts stations that moved their current address.
+- `aux_flow_updates` and `aux_flow_update_messages` are what those moves cost. Every station has a flow to every other station in the evaluation, so one renumbering sends G-1 updates.
+- `delivery_switched_egress_rate` stays at 0 on fixed-address walks. It's the check that no packet left the constellation at a satellite its address didn't name.
+
+Every run also reports one-way propagation delay over the paths it delivered: `delay_ms` for the path taken, GSL legs included, `delay_best_ms` for the same lower bound the shared stretch uses, and `delay_extra_ms` for the gap between them, each as a per-snapshot distribution. It's path length divided by the speed of light, so it says what a routing choice costs in milliseconds; queueing, processing and transmission delay aren't modelled. The sweep summaries pool them as `delay_ms`, `delay_extra_ms` and `delay_extra_p95_ms`.
+
+The `independent` attachment policy lets one satellite serve several stations; `exclusive` allows each satellite one station at most, a deliberately pessimistic case. The CSV also reports assignment shortfall, unconstrained conflicts and address-set additions and removals.
 
 Optional metrics to add later:
 
@@ -48,6 +91,9 @@ Optional metrics to add later:
 - OneWeb (synthetic)
 - Telesat (synthetic)
 - Dense LEO (synthetic, stress case)
+- The individual shells of Starlink Gen1, Kuiper and Starlink Gen2 as filed with the FCC, one config each under `leopath/config/shells/` (see [Configuration](configuration.md#per-shell-configs)). A constellation reaches tens of thousands of satellites only by adding shells, and each shell runs as its own 6G-RUPA layer, so per-shell runs measure what a satellite holds at that scale.
+
+All of them model the geometry an operator filed, not the constellation as it flies on a given day. The two can differ a lot: on 29 September 2026 most of Starlink flew 80-90 km below its filings, in different plane counts (`scripts/celestrak_shell_geometry.py` measures that from a CelesTrak snapshot).
 
 ## Algorithms
 
@@ -59,7 +105,9 @@ Optional metrics to add later:
 ## ISL scenarios
 
 - `ring`: intra-plane only
-- `grid`: intra-plane + inter-plane (+grid)
+- `grid`: intra-plane + inter-plane (+grid), four terminals per satellite; a Walker star builds it as a cylinder
+- `grid_seam`: +grid with the wrap from the last plane to the first removed, a stress test on delta shells
+- `brick_a`, `brick_b`: three terminals per satellite, cross-plane (a) or in-plane (b) links staggered on (plane + slot) parity; see [ISL Topology](isl-topology.md)
 
 ## Failure injection
 
@@ -128,6 +176,10 @@ When a deliverable pair isn't delivered, `delivery_failure_*` records why, and t
 | `link_down` | an entry or a planned adjacency pointed over a link missing from the snapshot, which is how stale state meets a failure |
 | `hop_limit` | the walk ran out of hops |
 | `egress_lost` | forwarding finished at a satellite that can't see the destination ground station |
+
+### Links slower than their geometry
+
+`--isl-delay-spread s` gives every ISL a fixed extra delay of up to `s` times its geometric delay, drawn per link as `1 + s * U(0, 1)` from `--isl-delay-seed`, so every algorithm meets the same slow links. The factor only adds delay, since light can't cross a link faster than its length allows; think of it as processing, pointing or hardware differences the geometry doesn't know about. Routing, link-state and the metrics all see the slowed links, but a `geometry_source: derived` estimator doesn't, which is the point: it measures what assuming ideal Walker geometry costs when the real network disagrees. The graph has one weight per link, so delays differ between links but not between the two directions of one link. In the sweep runner, pass it to every job with `EXTRA_ARGS="--isl-delay-spread 0.3"`.
 
 ## Evaluation checklist
 

@@ -691,6 +691,196 @@ def _derive_gs_to_gs_next_hop(
 FORWARDING_FAILURE_CAUSES = ("loop", "dead_end", "link_down", "hop_limit", "egress_lost")
 
 
+SPEED_OF_LIGHT_M_S = 299_792_458.0
+
+
+def _record_delays(
+    path_m: float,
+    best_m: float | None,
+    delays_ms: list[float],
+    best_delays_ms: list[float],
+    extra_delays_ms: list[float],
+) -> None:
+    """One-way propagation delay of a delivered path, GSL legs included.
+
+    The lower bound is the same any-egress shortest path the shared stretch is
+    measured against, so the extra delay is the shared stretch in milliseconds.
+    Queueing, processing and transmission delay are not modelled.
+    """
+    delay = float(path_m) / SPEED_OF_LIGHT_M_S * 1000.0
+    delays_ms.append(delay)
+    if best_m is not None and best_m > 0.0:
+        best = float(best_m) / SPEED_OF_LIGHT_M_S * 1000.0
+        best_delays_ms.append(best)
+        extra_delays_ms.append(delay - best)
+
+
+def compute_fixed_address_path_stretch(  # noqa: C901
+    fixed_address_routes: dict[tuple[int, int], dict],
+    topology_graph: nx.Graph,
+    satellite_ids: list[int],
+    ground_station_ids: list[int],
+    ground_station_satellites_in_range: list[list[tuple[float, int]]],
+    attachments: list[tuple[int | None, float | None]],
+) -> dict:
+    """Score walks whose source and destination synonyms were fixed at ingress.
+
+    The shared lower bound is the one ``compute_path_stretch`` uses, so these
+    rows compare with every other variant: from the source's nearest
+    attachment to the best of any satellite the destination can see.  Forwarding is instead graded
+    against the shortest live path between the exact selected satellites.  The
+    address-choice factor therefore includes both the K-attachment constraint
+    and the routing policy's one-time selection; transit forwarding cannot
+    improve it by changing the destination synonym.
+    """
+    sat_graph = topology_graph.subgraph(satellite_ids)
+    distances = _SourceDistanceCache(sat_graph)
+    visibility = {
+        gs_id: ground_station_satellites_in_range[index]
+        for index, gs_id in enumerate(ground_station_ids)
+        if index < len(ground_station_satellites_in_range)
+    }
+
+    hop_stretches: list[float] = []
+    # One-way propagation delay over the delivered path, its lower bound, and the gap.
+    delays_ms: list[float] = []
+    best_delays_ms: list[float] = []
+    extra_delays_ms: list[float] = []
+    dist_stretches: list[float] = []
+    shared_hop_stretches: list[float] = []
+    shared_dist_stretches: list[float] = []
+    egress_hop_stretches: list[float] = []
+    egress_dist_stretches: list[float] = []
+    total_pairs = 0
+    no_src_visibility = 0
+    no_dst_visibility = 0
+    disconnected = 0
+    deliverable = 0
+    delivered = 0
+    non_optimal_egress = 0
+    source_selected_egress = 0
+    failure_causes = dict.fromkeys(FORWARDING_FAILURE_CAUSES, 0)
+
+    for src_gs_id in ground_station_ids:
+        for dst_gs_id in ground_station_ids:
+            if src_gs_id == dst_gs_id:
+                continue
+            total_pairs += 1
+            src_index = ground_station_ids.index(src_gs_id)
+            nearest_sat, nearest_gsl = (
+                attachments[src_index] if src_index < len(attachments) else (None, None)
+            )
+            destination_visibility = visibility.get(dst_gs_id, [])
+            if nearest_sat is None or nearest_sat not in sat_graph:
+                no_src_visibility += 1
+                continue
+            if not destination_visibility:
+                no_dst_visibility += 1
+                continue
+            _hop_sat, best_hops, _dist_sat, best_distance = _best_reachable_egress(
+                distances, nearest_sat, nearest_gsl, destination_visibility  # type: ignore[arg-type]
+            )
+            if best_distance is None:
+                disconnected += 1
+                continue
+            deliverable += 1
+
+            route = fixed_address_routes.get((src_gs_id, dst_gs_id))
+            if not route:
+                failure_causes["dead_end"] += 1
+                continue
+            source_selected_egress += 1
+            src_sat = route.get("source_satellite")
+            dst_sat = route.get("destination_satellite")
+            src_gsl = route.get("source_gsl_distance")
+            dst_gsl = route.get("destination_gsl_distance")
+            path = route.get("satellite_path") or []
+            failure = route.get("failure")
+            if failure in failure_causes:
+                failure_causes[failure] += 1
+                continue
+            if (
+                not isinstance(src_sat, int)
+                or not isinstance(dst_sat, int)
+                or src_gsl is None
+                or dst_gsl is None
+                or not path
+                or path[0] != src_sat
+                or path[-1] != dst_sat
+            ):
+                failure_causes["dead_end"] += 1
+                continue
+
+            selected_hops, selected_distance = distances.lengths(src_sat, dst_sat)
+            if selected_hops is None or selected_distance is None:
+                failure_causes["egress_lost"] += 1
+                continue
+            selected_hops_total = selected_hops + 2
+            selected_dist_total = float(selected_distance) + float(src_gsl) + float(dst_gsl)
+
+            path_distance = 0.0
+            broken = False
+            for current, next_hop in zip(path, path[1:]):
+                if not sat_graph.has_edge(current, next_hop):
+                    broken = True
+                    break
+                weight = sat_graph.edges[current, next_hop].get("weight")
+                if weight is None or math.isinf(weight):
+                    broken = True
+                    break
+                path_distance += float(weight)
+            if broken:
+                failure_causes["link_down"] += 1
+                continue
+
+            algorithm_hops = len(path) - 1 + 2
+            algorithm_distance = path_distance + float(src_gsl) + float(dst_gsl)
+            delivered += 1
+            if selected_dist_total > best_distance + 1e-9:
+                non_optimal_egress += 1
+            if selected_hops_total > 0:
+                hop_stretches.append(algorithm_hops / selected_hops_total)
+            if selected_dist_total > 0.0:
+                dist_stretches.append(algorithm_distance / selected_dist_total)
+            if best_hops:
+                shared_hop_stretches.append(algorithm_hops / best_hops)
+                egress_hop_stretches.append(selected_hops_total / best_hops)
+            if best_distance > 0.0:
+                shared_dist_stretches.append(algorithm_distance / best_distance)
+                egress_dist_stretches.append(selected_dist_total / best_distance)
+            _record_delays(
+                algorithm_distance, best_distance, delays_ms, best_delays_ms, extra_delays_ms
+            )
+
+    return {
+        "delay_ms": summarize_distribution(delays_ms),
+        "delay_best_ms": summarize_distribution(best_delays_ms),
+        "delay_extra_ms": summarize_distribution(extra_delays_ms),
+        "hop": summarize_distribution(hop_stretches),
+        "distance": summarize_distribution(dist_stretches),
+        "hop_shared": summarize_distribution(shared_hop_stretches),
+        "distance_shared": summarize_distribution(shared_dist_stretches),
+        "hop_egress": summarize_distribution(egress_hop_stretches),
+        "distance_egress": summarize_distribution(egress_dist_stretches),
+        "delivery": {
+            "total_pairs": float(total_pairs),
+            "no_src_visibility": float(no_src_visibility),
+            "no_dst_visibility": float(no_dst_visibility),
+            "disconnected": float(disconnected),
+            "deliverable": float(deliverable),
+            "delivered": float(delivered),
+            "forwarding_failure": float(deliverable - delivered),
+            **{f"failure_{cause}": float(count) for cause, count in failure_causes.items()},
+            "delivery_rate": (delivered / deliverable) if deliverable else 0.0,
+            "non_optimal_egress": float(non_optimal_egress),
+            "non_optimal_egress_rate": ((non_optimal_egress / delivered) if delivered else 0.0),
+            "source_selected_egress": float(source_selected_egress),
+            "switched_egress": 0.0,
+            "switched_egress_rate": 0.0,
+        },
+    }
+
+
 def compute_path_stretch(
     fstate: dict,
     topology_graph: nx.Graph,
@@ -701,20 +891,36 @@ def compute_path_stretch(
     max_hops: int,
     route_plans: dict | None = None,
     ground_station_satellites_in_range: list | None = None,
+    selected_egresses: dict[tuple[int, int], int] | None = None,
 ) -> dict:
     route_plans = route_plans or {}
+    selected_egresses = selected_egresses or {}
     sat_set = set(satellite_ids)
     sat_graph = topology_graph.subgraph(satellite_ids)
     distances = _SourceDistanceCache(sat_graph)
 
-    # Legacy basis: each algorithm graded against a shortest path to whichever
-    # egress it happened to reach. Retained for continuity with earlier runs.
+    # Forwarding basis: the algorithm graded against a shortest path to the
+    # egress it actually reached, which isolates how well it forwarded once the
+    # egress was settled. On its own it is not a headline number, because the
+    # yardstick moves with the algorithm; it is the second factor of the shared
+    # basis below. Also the basis earlier runs reported.
     hop_stretches: list[float] = []
+    # One-way propagation delay over the delivered path, its lower bound, and the gap.
+    delays_ms: list[float] = []
+    best_delays_ms: list[float] = []
+    extra_delays_ms: list[float] = []
     dist_stretches: list[float] = []
     # Shared basis: every algorithm graded against the same lower bound, the
     # best end-to-end route to any satellite the destination can see.
     shared_hop_stretches: list[float] = []
     shared_dist_stretches: list[float] = []
+    # Egress-choice basis: the best route to the egress reached, over the best
+    # route to any egress. It prices the choice of egress rather than the
+    # forwarding, which matters under attachment addressing, where the egress is
+    # fixed by the destination address instead of minimised at every satellite.
+    # shared = egress x forwarding, exactly.
+    egress_hop_stretches: list[float] = []
+    egress_dist_stretches: list[float] = []
 
     total_pairs = 0
     no_src_visibility = 0
@@ -723,6 +929,8 @@ def compute_path_stretch(
     deliverable = 0
     delivered = 0
     non_optimal_egress = 0
+    switched_egress = 0
+    source_selected_egress = 0
     failure_causes = dict.fromkeys(FORWARDING_FAILURE_CAUSES, 0)
 
     for src_index, src_gs_id in enumerate(ground_station_ids):
@@ -813,6 +1021,11 @@ def compute_path_stretch(
             delivered += 1
             if dst_sat != best_dist_sat:
                 non_optimal_egress += 1
+            selected_at_source = selected_egresses.get((src_sat, dst_gs_id))
+            if selected_at_source is not None:
+                source_selected_egress += 1
+                if dst_sat != selected_at_source:
+                    switched_egress += 1
 
             if opt_hops_total > 0:
                 hop_stretches.append(algo_hops / opt_hops_total)
@@ -820,14 +1033,22 @@ def compute_path_stretch(
                 dist_stretches.append(algo_dist / opt_dist_total)
             if best_hops_total:
                 shared_hop_stretches.append(algo_hops / best_hops_total)
+                egress_hop_stretches.append(opt_hops_total / best_hops_total)
             if best_dist_total > 0.0:
                 shared_dist_stretches.append(algo_dist / best_dist_total)
+                egress_dist_stretches.append(opt_dist_total / best_dist_total)
+            _record_delays(algo_dist, best_dist_total, delays_ms, best_delays_ms, extra_delays_ms)
 
     return {
+        "delay_ms": summarize_distribution(delays_ms),
+        "delay_best_ms": summarize_distribution(best_delays_ms),
+        "delay_extra_ms": summarize_distribution(extra_delays_ms),
         "hop": summarize_distribution(hop_stretches),
         "distance": summarize_distribution(dist_stretches),
         "hop_shared": summarize_distribution(shared_hop_stretches),
         "distance_shared": summarize_distribution(shared_dist_stretches),
+        "hop_egress": summarize_distribution(egress_hop_stretches),
+        "distance_egress": summarize_distribution(egress_dist_stretches),
         "delivery": {
             "total_pairs": float(total_pairs),
             "no_src_visibility": float(no_src_visibility),
@@ -840,6 +1061,11 @@ def compute_path_stretch(
             "delivery_rate": (delivered / deliverable) if deliverable else 0.0,
             "non_optimal_egress": float(non_optimal_egress),
             "non_optimal_egress_rate": ((non_optimal_egress / delivered) if delivered else 0.0),
+            "source_selected_egress": float(source_selected_egress),
+            "switched_egress": float(switched_egress),
+            "switched_egress_rate": (
+                (switched_egress / source_selected_egress) if source_selected_egress else 0.0
+            ),
         },
     }
 

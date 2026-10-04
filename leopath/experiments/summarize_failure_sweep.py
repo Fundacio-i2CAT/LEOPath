@@ -52,6 +52,12 @@ CONDITION_ORDER = [
 ]
 VARIANT_ORDER = [
     "link_state",
+    "link_state_attach",
+    "link_state_attach_k2",
+    "link_state_attach_k4",
+    "link_state_attach_k1_exclusive",
+    "link_state_attach_k2_exclusive",
+    "link_state_attach_k4_exclusive",
     "explicit_r1",
     "explicit_r15",
     "dra",
@@ -60,6 +66,14 @@ VARIANT_ORDER = [
     "topological_nominal_progress_repair",
     "topological_nominal_progress_exceptions",
     "topological_nominal_progress_repair_exceptions",
+    "topological_nominal_attach",
+    "topological_nominal_attach_k2",
+    "topological_nominal_attach_k4",
+    "topological_nominal_attach_k1_exclusive",
+    "topological_nominal_attach_k2_exclusive",
+    "topological_nominal_attach_k4_exclusive",
+    "topological_nominal_progress_exceptions_attach",
+    "topological_nominal_progress_repair_exceptions_attach",
     "topological_observed",
     "topological_observed_progress",
 ]
@@ -69,7 +83,29 @@ METRICS = (
     "delivery_rate",
     "delivery_gap_vs_link_state",
     "stretch_dist_shared",
+    # shared = egress x forwarding, so the two factors say how much of the gap
+    # comes from the egress the destination address names and how much from the
+    # forwarding itself. Under visibility addressing the egress factor is 1.
+    "stretch_dist_egress",
+    "stretch_dist_forwarding",
+    "delay_ms",
+    "delay_extra_ms",
+    "delay_extra_p95_ms",
     "non_optimal_egress_rate",
+    "fixed_address_forwarding",
+    "switched_egress_rate",
+    "gs_renumberings_per_snapshot",
+    "gs_address_additions_per_snapshot",
+    "gs_address_removals_per_snapshot",
+    # Fixed-address flows move only when a synonym they carry is withdrawn;
+    # each moved end is one flow-update message.
+    "gs_current_address_changes_per_snapshot",
+    "flow_updates_per_snapshot",
+    "flow_update_messages_per_snapshot",
+    "gs_attachments_assigned_per_snapshot",
+    "gs_attachment_shortfall_per_snapshot",
+    "gs_fully_attached_per_snapshot",
+    "gs_attachment_conflicts_unconstrained_per_snapshot",
     "isls_removed_per_snapshot",
     "satellites_down_per_snapshot",
     "fstate_updates_per_snapshot",
@@ -81,10 +117,25 @@ METRICS = (
     "exception_entries_per_snapshot",
     "exception_entries_one_pass_per_snapshot",
     "exception_satellites_per_snapshot",
+    "exception_destinations_per_snapshot",
+    "exception_entries_on_flow_paths_per_snapshot",
+    "exception_entries_max_per_satellite",
+    "exception_entries_in_use_per_snapshot",
+    "exception_region_entries_per_snapshot",
+    "exception_region_max_per_satellite",
+    "exception_rule_steps_per_snapshot",
+    "exception_shortest_path_runs_per_snapshot",
+    "exception_compute_ms",
+    "live_isls_per_snapshot",
+    "exception_entries_added_per_snapshot",
+    "exception_entries_removed_per_snapshot",
+    "exception_entries_rewired_per_snapshot",
+    "exception_satellites_touched_per_snapshot",
     "exception_share_of_link_state",
     "exception_hops_to_failure_mean",
     "exception_hops_to_failure_max",
     "exception_unresolved_total",
+    "exception_unresolved_walks_total",
     *(f"failure_share_{cause}" for cause in FORWARDING_FAILURE_CAUSES),
 )
 # Two-sided 95% Student t quantiles by degrees of freedom.
@@ -120,6 +171,20 @@ def summarize_run(run_dir: Path) -> dict[str, float | None]:
         "loop_pairs_per_snapshot": column_mean(rows, "delivery_failure_loop"),
         "live_minima_per_snapshot": _live_minima(rows, metadata),
         "detour_entries_per_snapshot": column_mean(rows, "aux_local_detour_entries"),
+        "gs_renumberings_per_snapshot": column_mean(rows, "aux_gs_renumberings"),
+        "gs_address_additions_per_snapshot": column_mean(rows, "aux_gs_address_additions"),
+        "gs_address_removals_per_snapshot": column_mean(rows, "aux_gs_address_removals"),
+        "gs_current_address_changes_per_snapshot": column_mean(
+            rows, "aux_gs_current_address_changes"
+        ),
+        "flow_updates_per_snapshot": column_mean(rows, "aux_flow_updates"),
+        "flow_update_messages_per_snapshot": column_mean(rows, "aux_flow_update_messages"),
+        "gs_attachments_assigned_per_snapshot": column_mean(rows, "aux_gs_attachment_assigned"),
+        "gs_attachment_shortfall_per_snapshot": column_mean(rows, "aux_gs_attachment_shortfall"),
+        "gs_fully_attached_per_snapshot": column_mean(rows, "aux_gs_fully_attached"),
+        "gs_attachment_conflicts_unconstrained_per_snapshot": column_mean(
+            rows, "aux_gs_attachment_conflicts_unconstrained"
+        ),
         "failure_events_per_snapshot": column_mean(rows, "failure_events"),
         **_exception_state(rows, metadata),
     }
@@ -172,10 +237,25 @@ def _exception_state(rows: list[dict[str, str]], metadata: dict[str, Any]) -> di
             "exception_entries_per_snapshot": None,
             "exception_entries_one_pass_per_snapshot": None,
             "exception_satellites_per_snapshot": None,
+            "exception_destinations_per_snapshot": None,
+            "exception_entries_on_flow_paths_per_snapshot": None,
+            "exception_entries_max_per_satellite": None,
+            "exception_entries_in_use_per_snapshot": None,
+            "exception_region_entries_per_snapshot": None,
+            "exception_region_max_per_satellite": None,
+            "exception_rule_steps_per_snapshot": None,
+            "exception_shortest_path_runs_per_snapshot": None,
+            "exception_compute_ms": None,
+            "live_isls_per_snapshot": None,
+            "exception_entries_added_per_snapshot": None,
+            "exception_entries_removed_per_snapshot": None,
+            "exception_entries_rewired_per_snapshot": None,
+            "exception_satellites_touched_per_snapshot": None,
             "exception_share_of_link_state": None,
             "exception_hops_to_failure_mean": None,
             "exception_hops_to_failure_max": None,
             "exception_unresolved_total": None,
+            "exception_unresolved_walks_total": None,
         }
     satellites = _satellite_count(metadata)
     # Link-state installs one entry per satellite per ground station.
@@ -188,6 +268,44 @@ def _exception_state(rows: list[dict[str, str]], metadata: dict[str, Any]) -> di
             rows, "aux_exception_entries_one_pass"
         ),
         "exception_satellites_per_snapshot": column_mean(rows, "aux_exception_satellites"),
+        # Fixed-address runs only: the destination addresses holding entries, and
+        # the entries the flows' own walks pass through, out of the set grown
+        # from every live satellite.
+        "exception_destinations_per_snapshot": column_mean(rows, "aux_exception_destinations"),
+        "exception_entries_on_flow_paths_per_snapshot": column_mean(
+            rows, "aux_exception_entries_on_flow_paths"
+        ),
+        "exception_entries_max_per_satellite": column_max(
+            rows, "aux_exception_entries_max_per_satellite"
+        ),
+        # Fixed-address runs grow entries toward every destination satellite;
+        # these split out the addresses in use and the exact region aggregation.
+        "exception_entries_in_use_per_snapshot": column_mean(rows, "aux_exception_entries_in_use"),
+        "exception_region_entries_per_snapshot": column_mean(rows, "aux_exception_region_entries"),
+        "exception_region_max_per_satellite": column_max(
+            rows, "aux_exception_region_max_per_satellite"
+        ),
+        # one_pass cost: rule decisions and shortest-path runs per snapshot,
+        # the computation every satellite would repeat; live ISLs bound a
+        # link-state shortest-path run (each edge relaxed at most twice).
+        "exception_rule_steps_per_snapshot": column_mean(rows, "aux_exception_rule_steps"),
+        "exception_shortest_path_runs_per_snapshot": column_mean(
+            rows, "aux_exception_shortest_path_runs"
+        ),
+        "exception_compute_ms": column_mean(rows, "aux_exception_compute_ms"),
+        "live_isls_per_snapshot": column_mean(rows, "aux_live_isls"),
+        # Churn between consecutive snapshots: the table writes failures cause,
+        # which fstate_updates (station-keyed state) does not include.
+        "exception_entries_added_per_snapshot": column_mean(rows, "aux_exception_entries_added"),
+        "exception_entries_removed_per_snapshot": column_mean(
+            rows, "aux_exception_entries_removed"
+        ),
+        "exception_entries_rewired_per_snapshot": column_mean(
+            rows, "aux_exception_entries_rewired"
+        ),
+        "exception_satellites_touched_per_snapshot": column_mean(
+            rows, "aux_exception_satellites_touched"
+        ),
         "exception_share_of_link_state": ratio(
             column_sum(rows, "aux_exception_entries"), link_state_entries
         ),
@@ -196,6 +314,11 @@ def _exception_state(rows: list[dict[str, str]], metadata: dict[str, Any]) -> di
         ),
         "exception_hops_to_failure_max": column_max(rows, "aux_exception_hops_to_failure_max"),
         "exception_unresolved_total": column_sum(rows, "aux_exception_unresolved"),
+        "exception_unresolved_walks_total": (
+            column_sum(rows, "aux_exception_unresolved_walks")
+            if "aux_exception_unresolved_walks" in rows[0]
+            else None
+        ),
     }
 
 
@@ -312,10 +435,18 @@ def _cause_cell(row: dict[str, Any]) -> str:
     return f"{cause} {100 * shares[cause]:.0f}%"
 
 
-def _count_cell(metric: str) -> Callable[[dict[str, Any]], str]:
+def _count_cell(metric: str, digits: int = 1) -> Callable[[dict[str, Any]], str]:
     def render(row: dict[str, Any]) -> str:
         value = row[f"{metric}_mean"]
-        return "—" if value is None else f"{value:.1f}"
+        return "—" if value is None else f"{value:.{digits}f}"
+
+    return render
+
+
+def _percent_cell(metric: str, digits: int = 1) -> Callable[[dict[str, Any]], str]:
+    def render(row: dict[str, Any]) -> str:
+        value = row[f"{metric}_mean"]
+        return "—" if value is None else f"{100 * value:.{digits}f}"
 
     return render
 
@@ -337,6 +468,31 @@ TABLES: tuple[tuple[str, Callable[[dict[str, Any]], str]], ...] = (
     ("Delivery rate, % of deliverable pairs", _delivery_cell),
     ("Delivery gap to link-state, percentage points, paired by seed", _gap_cell),
     ("Distance stretch, shared basis", _stretch_cell),
+    (
+        "Distance stretch, egress-choice factor",
+        _count_cell("stretch_dist_egress", digits=3),
+    ),
+    (
+        "Distance stretch, forwarding factor",
+        _count_cell("stretch_dist_forwarding", digits=3),
+    ),
+    (
+        "Ground station renumberings per snapshot",
+        _count_cell("gs_renumberings_per_snapshot"),
+    ),
+    (
+        "Assigned ground-station links per snapshot",
+        _count_cell("gs_attachments_assigned_per_snapshot"),
+    ),
+    (
+        "Requested attachment shortfall per snapshot",
+        _count_cell("gs_attachment_shortfall_per_snapshot"),
+    ),
+    (
+        "Unconstrained satellite-radio conflicts per snapshot",
+        _count_cell("gs_attachment_conflicts_unconstrained_per_snapshot"),
+    ),
+    ("Transit egress switches, %", _percent_cell("switched_egress_rate")),
     ("Dominant forwarding-failure cause, share of failures", _cause_cell),
     ("Forwarding loops, looping pairs per snapshot", _count_cell("loop_pairs_per_snapshot")),
     ("Exception entries per snapshot, one-pass bound in brackets", _exception_cell),

@@ -22,8 +22,14 @@ ISL_SCENARIO=${ISL_SCENARIO:-grid}
 END_TIME_HOURS=${END_TIME_HOURS:-1}
 TIME_STEP_MINUTES=${TIME_STEP_MINUTES:-1}
 SEEDS=${SEEDS:-"1 2 3 4 5"}
+# Space-separated variant names to run; empty runs every variant below.
+VARIANT_FILTER=${VARIANT_FILTER:-}
+# Space-separated condition names to run; empty runs every condition below.
+CONDITION_FILTER=${CONDITION_FILTER:-}
 GS_CONFIG=${GS_CONFIG:-/app/leopath/config/ground_stations_dense.yaml}
 EXPLICIT_SLOW_REFRESH_STEPS=${EXPLICIT_SLOW_REFRESH_STEPS:-15}
+# Extra harness flags applied to every job, e.g. "--isl-delay-spread 0.3".
+EXTRA_ARGS=${EXTRA_ARGS:-}
 
 # name|harness flags. Random conditions run once per seed.
 RANDOM_CONDITIONS=(
@@ -49,6 +55,15 @@ FIXED_CONDITIONS=(
 )
 VARIANTS=(
   "link_state|--algorithm shortest_path_link_state"
+  # Link-state held to the one ground link attachment addressing gives a station,
+  # so it is the like-for-like peer of the *_attach variants below; link_state
+  # above stays the any-egress optimum everything is scored against.
+  "link_state_attach|--algorithm shortest_path_link_state --gs-addressing attachment"
+  "link_state_attach_k2|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 2"
+  "link_state_attach_k4|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 4"
+  "link_state_attach_k1_exclusive|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 1 --gs-attachment-policy exclusive"
+  "link_state_attach_k2_exclusive|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 2 --gs-attachment-policy exclusive"
+  "link_state_attach_k4_exclusive|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 4 --gs-attachment-policy exclusive"
   "explicit_r1|--algorithm explicit_path_routing --segment-refresh-interval-steps 1 --explicit-final-egress-mode dynamic --explicit-backup-adjacencies"
   "explicit_r${EXPLICIT_SLOW_REFRESH_STEPS}|--algorithm explicit_path_routing --segment-refresh-interval-steps ${EXPLICIT_SLOW_REFRESH_STEPS} --explicit-final-egress-mode dynamic --explicit-backup-adjacencies"
   "dra|--algorithm dra_routing"
@@ -59,6 +74,83 @@ VARIANTS=(
   "topological_nominal_progress_repair|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --local-repair square"
   "topological_nominal_progress_exceptions|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --exception-policy grow"
   "topological_nominal_progress_repair_exceptions|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --local-repair square --exception-policy grow"
+  # Attachment addressing, paired against the two variants above it that differ
+  # only in the destination model: the ground station's address names the
+  # satellite it is attached to, so satellites forward on the address instead of
+  # minimising over every visible egress. The bare pair isolates what the
+  # attachment policy costs in stretch; the full-stack pair shows what it costs
+  # under failures, where a dead attachment has to be replaced.
+  "topological_nominal_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment"
+  "topological_nominal_attach_k2|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 2"
+  "topological_nominal_attach_k4|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 4"
+  "topological_nominal_attach_k1_exclusive|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 1 --gs-attachment-policy exclusive"
+  "topological_nominal_attach_k2_exclusive|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 2 --gs-attachment-policy exclusive"
+  "topological_nominal_attach_k4_exclusive|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 4 --gs-attachment-policy exclusive"
+  "topological_nominal_progress_repair_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --local-repair square --exception-policy grow --gs-addressing attachment"
+  # The scheme as presented: the guarded rule plus exception entries, no repair.
+  "topological_nominal_progress_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --forwarding-guard progress --exception-policy grow --gs-addressing attachment"
+  # Derived geometry: the pivot estimator computes every ISL length beyond the
+  # first hop from the shell's Walker constants and the clock, holding no
+  # P*S^2 + S*P^2 tables. Each variant is the twin of a nominal one above; the
+  # pair measures what deriving instead of measuring costs in stretch and delivery.
+  "topological_derived|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived"
+  "topological_derived_progress_repair_exceptions|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --forwarding-guard progress --local-repair square --exception-policy grow"
+  "topological_derived_progress_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --forwarding-guard progress --exception-policy grow --gs-addressing attachment"
+  "topological_derived_progress_repair_exceptions_attach|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --forwarding-guard progress --local-repair square --exception-policy grow --gs-addressing attachment"
+  # Pass-direction-aware attachment (notes/gs-address-policy.md). On a Walker
+  # delta shell northbound and southbound satellites sit half the grid apart;
+  # these variants pick which half a station's addresses land on, and with
+  # requester_aware the directory resolves each flow to the synonym on the
+  # half that suits its source.
+  "link_state_dir_k1|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 1"
+  "link_state_dir_asc|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 1 --gs-attachment-order nearest_ascending"
+  "link_state_dir_half|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy sticky_nearest"
+  "link_state_dir_half_req|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy requester_aware"
+  "topological_derived_dir_k1|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --gs-attachment-count 1"
+  "topological_derived_dir_asc|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --gs-attachment-count 1 --gs-attachment-order nearest_ascending"
+  "topological_derived_dir_half|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy sticky_nearest"
+  "topological_derived_dir_half_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy requester_aware"
+  # The scheme as the revised paper presents it: derived geometry, attachment
+  # addressing, the guarded rule plus exception entries keyed on the destination
+  # address, under the two attachment policies the paper reports.
+  "topological_scheme_asc|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 1 --gs-attachment-order nearest_ascending"
+  "topological_scheme_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy requester_aware"
+  # The same two configurations with the local exception rule: a satellite
+  # holds an entry for a destination exactly when its own rule walk toward it
+  # fails (one_pass). Order-independent, so each satellite computes its own.
+  "topological_scheme_asc_1p|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy one_pass --gs-attachment-count 1 --gs-attachment-order nearest_ascending"
+  "topological_scheme_req_1p|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy one_pass --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy requester_aware"
+  # Attachment-count sweep: K nearest attachments, the directory resolving each
+  # flow to the synonym that suits the requester (and that it can reach). Shows
+  # how reachability on Ring and the attachment cost on +Grid change with K.
+  "topological_k1_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 1 --gs-attachment-order nearest --gs-address-policy requester_aware"
+  "topological_k2_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 2 --gs-attachment-order nearest --gs-address-policy requester_aware"
+  "topological_k3_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 3 --gs-attachment-order nearest --gs-address-policy requester_aware"
+  "topological_k4_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 4 --gs-attachment-order nearest --gs-address-policy requester_aware"
+  "topological_k6_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 6 --gs-attachment-order nearest --gs-address-policy requester_aware"
+  "topological_k8_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 8 --gs-attachment-order nearest --gs-address-policy requester_aware"
+  # DRA under the same model as the scheme, so the comparison differs only in
+  # the distance function (DRA's hop count against the pivot estimator).
+  "dra_scheme_asc|--algorithm dra_routing --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 1 --gs-attachment-order nearest_ascending"
+  "dra_scheme_req|--algorithm dra_routing --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy requester_aware"
+  "explicit_r3|--algorithm explicit_path_routing --segment-refresh-interval-steps 3 --explicit-final-egress-mode dynamic --explicit-backup-adjacencies"
+  "explicit_r3_strict|--algorithm explicit_path_routing --segment-refresh-interval-steps 3 --explicit-final-egress-mode strict --explicit-backup-adjacencies"
+  # GS address policies (notes/gs-address-policy.md in the paper repo). Every
+  # flow carries one fixed address pair; the policy decides which of a station's
+  # K synonyms that is. At K=1 sticky and nearest coincide, so K1 runs once.
+  # per_flow_pair goes beyond RINA and is only a labelled bound.
+  "link_state_addr_k1|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 1"
+  "link_state_addr_k2_sticky|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 2 --gs-address-policy sticky_nearest"
+  "link_state_addr_k2_nearest|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 2 --gs-address-policy nearest"
+  "link_state_addr_k4_sticky|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 4 --gs-address-policy sticky_nearest"
+  "link_state_addr_k4_nearest|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 4 --gs-address-policy nearest"
+  "link_state_addr_k2_perflow|--algorithm shortest_path_link_state --gs-addressing attachment --gs-attachment-count 2 --gs-address-policy per_flow_pair"
+  "topological_nominal_addr_k1|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 1"
+  "topological_nominal_addr_k2_sticky|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 2 --gs-address-policy sticky_nearest"
+  "topological_nominal_addr_k2_nearest|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 2 --gs-address-policy nearest"
+  "topological_nominal_addr_k4_sticky|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 4 --gs-address-policy sticky_nearest"
+  "topological_nominal_addr_k4_nearest|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 4 --gs-address-policy nearest"
+  "topological_nominal_addr_k2_perflow|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source nominal --gs-addressing attachment --gs-attachment-count 2 --gs-address-policy per_flow_pair"
 )
 
 TIMING_CSV="$OUTPUT_BASE/job_timings.csv"
@@ -76,7 +168,7 @@ run_job() {
   rm -rf "$out"; mkdir -p "$out"
 
   local args
-  read -r -a args <<< "$flags"
+  read -r -a args <<< "$flags $EXTRA_ARGS"
   local start
   start=$(date +%s)
   echo "[$(date +%H:%M:%S)] start $cfg/$condition/seed$seed/$variant"
@@ -111,6 +203,9 @@ launch_cell() {
   local cfg=$1 condition=$2 seed=$3 condition_flags=$4
   local variant_entry
   for variant_entry in "${VARIANTS[@]}"; do
+    if [ -n "$VARIANT_FILTER" ] && [[ " $VARIANT_FILTER " != *" ${variant_entry%%|*} "* ]]; then
+      continue
+    fi
     while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do wait -n; done
     run_job "$cfg" "$condition" "$seed" "${variant_entry%%|*}" \
       "$condition_flags ${variant_entry#*|}" &
@@ -123,9 +218,15 @@ echo "    ${ISL_SCENARIO}, ${END_TIME_HOURS}h at ${TIME_STEP_MINUTES}min steps, 
 
 for cfg in $CONFIGS; do
   for condition_entry in "${FIXED_CONDITIONS[@]}"; do
+    if [ -n "$CONDITION_FILTER" ] && [[ " $CONDITION_FILTER " != *" ${condition_entry%%|*} "* ]]; then
+      continue
+    fi
     launch_cell "$cfg" "${condition_entry%%|*}" "${seed_list[0]}" "${condition_entry#*|}"
   done
   for condition_entry in "${RANDOM_CONDITIONS[@]}"; do
+    if [ -n "$CONDITION_FILTER" ] && [[ " $CONDITION_FILTER " != *" ${condition_entry%%|*} "* ]]; then
+      continue
+    fi
     for seed in "${seed_list[@]}"; do
       launch_cell "$cfg" "${condition_entry%%|*}" "$seed" "${condition_entry#*|}"
     done

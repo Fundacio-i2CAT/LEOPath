@@ -99,3 +99,21 @@ Near-polar shells fly as stars, because at about 88 degrees a node at RAAN and o
 - `leopath/config/oneweb.yaml`
 - `leopath/config/telesat.yaml`
 - `leopath/config/dense_synthetic.yaml`
+- `leopath/config/shells/*.yaml`, one per real shell, see below
+
+## Per-shell configs
+
+`scripts/make_shell_configs.py` writes one config per shell of the multi-shell constellations, with every parameter taken from an FCC order: Starlink Gen1 from FCC 21-48 para 4, Kuiper from FCC 20-102 footnote 3, Starlink Gen2 from FCC 22-91 para 7. Edit the script, not the generated files.
+
+| config | planes x satellites | altitude, inclination |
+|---|---|---|
+| `starlink_gen1_550`, `starlink_gen1_540` | 72 x 22 | 550 km 53°, 540 km 53.2° |
+| `starlink_gen1_570` | 36 x 20 | 570 km, 70° |
+| `starlink_gen1_560a`, `starlink_gen1_560b` | 6 x 58, 4 x 43 | 560 km, 97.6° |
+| `kuiper_590`, `kuiper_610`, `kuiper_630` | 28 x 28, 36 x 36, 34 x 34 | 590 km 33°, 610 km 42°, 630 km 51.9° |
+| `starlink_gen2_525`, `_530`, `_535` | 28 x 120 | 525 km 53°, 530 km 43°, 535 km 33° |
+| `starlink_gen2_360` | 30 x 120 | 360 km, 96.9°, the largest shell filed |
+
+FCC 20-102 gives Kuiper's 610 km shell as "42 orbital planes with 36 satellites per plane for a total of 1296". That can't be right, since 42 × 36 is 1 512, and the order totals 98 planes elsewhere; the config uses 36 × 36. Gen2's three authorised shells hold 10 080 slots of which the FCC authorised 7 500, so those configs carry the filed geometry, not the authorised count. Shells above 80° inclination are laid out as Walker stars, following the rule in `generate_tles_from_scratch`; the filings don't give the node spread.
+
+The script also checks each shell's longest cross-plane link against line of sight. `starlink_gen1_560b` fails it: four planes spread over 180° are 45° apart, and the longest rung, 5 390 km, exceeds the 5 072 km limit, so that shell can't form a cross-plane grid at all.

@@ -178,3 +178,59 @@ def test_failure_sweep_reports_exception_state_and_corrects_old_minima(tmp_path:
     summarize_failure_sweep.add_baseline_gaps(list(runs.values()))
     summary = summarize_failure_sweep.combine_seeds(list(runs.values()))
     assert "2.0 (5)" in summarize_failure_sweep.render_markdown(summary)
+
+
+def test_failure_sweep_reports_the_stretch_factors_and_renumberings(tmp_path: Path) -> None:
+    # shared = egress x forwarding. A run that forwards optimally toward a
+    # worse egress carries the whole gap in the egress factor.
+    def snapshot(shared: float, egress: float, forwarding: float, renumberings: float) -> dict:
+        return {
+            **_snapshot(12, 12, stretch=shared),
+            "stretch_dist_egress_mean": egress,
+            "stretch_dist_egress_count": 12,
+            "stretch_dist_forwarding_mean": forwarding,
+            "stretch_dist_forwarding_count": 12,
+            "aux_gs_renumberings": renumberings,
+        }
+
+    cell = tmp_path / "starlink" / "none" / "seed1"
+    _run(cell / "topological_nominal", [snapshot(1.074, 1.0, 1.074, 0.0)])
+    _run(cell / "topological_nominal_attach", [snapshot(1.16, 1.08, 1.074, 3.0)])
+
+    runs = {run["variant"]: run for run in summarize_failure_sweep.discover_runs(tmp_path)}
+    visibility, attachment = runs["topological_nominal"], runs["topological_nominal_attach"]
+
+    # Minimising over every visible egress leaves nothing for the egress factor.
+    assert visibility["stretch_dist_egress"] == pytest.approx(1.0)
+    assert visibility["gs_renumberings_per_snapshot"] == pytest.approx(0.0)
+
+    # Naming the attachment in the address costs an egress penalty and some
+    # renumbering, and leaves forwarding untouched.
+    assert attachment["stretch_dist_egress"] == pytest.approx(1.08)
+    assert attachment["stretch_dist_forwarding"] == pytest.approx(
+        visibility["stretch_dist_forwarding"]
+    )
+    assert attachment["gs_renumberings_per_snapshot"] == pytest.approx(3.0)
+
+
+def test_pooled_delivery_reports_the_share_of_fixed_address_snapshots() -> None:
+    fixed = {**_as_text(_snapshot(10, 9, stretch=1.0)), "fixed_address_forwarding": "1.0"}
+    legacy = _as_text(_snapshot(10, 9, stretch=1.0))
+
+    assert pooled_delivery([fixed, fixed])["fixed_address_forwarding"] == pytest.approx(1.0)
+    # Runs written before the column existed walked any attachment.
+    assert pooled_delivery([legacy])["fixed_address_forwarding"] == pytest.approx(0.0)
+
+
+def test_pooling_skips_values_that_are_not_measurements() -> None:
+    from leopath.experiments.run_pooling import column_mean
+
+    rows = [{"x": "2.0"}, {"x": "nan"}, {"x": ""}, {"x": "4.0"}, {"x": "inf"}]
+    assert column_mean(rows, "x") == 3.0
+
+
+def test_weighted_pooling_skips_rows_without_a_measurement() -> None:
+    from leopath.experiments.run_pooling import weighted_mean
+
+    rows = [{"v": "2.0", "w": "1"}, {"v": "nan", "w": "5"}, {"v": "4.0", "w": "1"}]
+    assert weighted_mean(rows, "v", "w") == 3.0

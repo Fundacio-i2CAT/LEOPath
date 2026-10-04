@@ -203,3 +203,18 @@ def test_inject_counts_failure_events_since_the_previous_snapshot() -> None:
 
     assert first["events"] == 1.0  # the static void appears once
     assert second["events"] == 0.0  # and nothing changes afterwards
+
+
+def test_exception_churn_counts_writes_between_snapshots() -> None:
+    from leopath.experiments.eval_harness import compute_exception_churn
+
+    previous = {(1, 9): 2, (3, 9): 4, (5, 7): 6}
+    current = {(1, 9): 2, (3, 9): 8, (6, 7): 5}
+    churn = compute_exception_churn(previous, current)
+    assert churn == {
+        "entries_added": 1.0,  # (6, 7)
+        "entries_removed": 1.0,  # (5, 7)
+        "entries_rewired": 1.0,  # (3, 9): 4 -> 8
+        "satellites_touched": 3.0,  # 3, 5, 6
+    }
+    assert compute_exception_churn(current, current)["satellites_touched"] == 0.0

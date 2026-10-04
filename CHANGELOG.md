@@ -6,7 +6,81 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.2.0] - 2026-10-05
+
+The simulator behind the revised Computer Networks manuscript (COMNET-D-26-04044).
+The data and the commands that regenerate every table and figure are in the
+companion dataset, release 1.2.0.
+
+### Added
+- `--geometry-source derived`: every ISL length beyond the first hop is computed
+  from the shell's seven Walker constants and the clock with SGP4's secular rates;
+  `DerivedPivotEstimator` answers a pivot query in O(S) without tables, and a test
+  checks it against the tabled estimator on every pair.
+- Three-terminal brick-wall wiring (`isl_wiring: brick_a | brick_b`) with a
+  closed-form staircase estimator; per-shell configs from the FCC filings
+  (`leopath/config/shells/`); CelesTrak lattice-fit scripts.
+- Exception entries toward every destination address, computed from flooded
+  failures and aggregated into address regions (`--exception-policy grow`), and a
+  `one_pass` alternative, with work counters and exception-entry churn per snapshot.
+- Ground-station address policies: pass-direction-aware attachment
+  (`nearest_ascending`, `one_per_half`) and the requester-aware address choice of
+  the destination's flow allocator (`gs_address_policy: requester_aware`), resolved
+  without the caller's ground-link lengths; pairs split by a partition are skipped.
+- `--isl-delay-spread` for per-link delay the estimator does not know; one-way
+  delay metrics; terminal-population, renumbering-loss and flood-time scripts.
+- Sweep variants for the attachment-count study (`topological_k{1,2,3,4,6,8}_req`)
+  and the DRA baseline under the same guard, exceptions and addresses.
+
+### Added
+- Ground-station attachment addressing now accepts `gs_attachment_count` and
+  `gs_attachment_policy`. The `exclusive` policy uses a minimum-cost bipartite
+  assignment so each station can advertise up to K satellite addresses while
+  each satellite serves at most one station; `independent` remains an explicit
+  unconstrained upper bound. The sweep reports assignment shortfall, conflicts,
+  address-set churn, and whether forwarding switched away from the egress chosen
+  at the source.
+- `--gs-addressing attachment` makes a ground station's 6G-RUPA address name the
+  satellite it is attached to, which is what the addressing scheme describes: a
+  forwarding satellite reads the address and forwards toward that slot. It then
+  needs nothing about where the ground station sits on the surface, and stops
+  evaluating one distance per visible egress on every decision. The attachment is
+  the nearest live visible satellite, the rule `_detect_gsl_changes` already used,
+  and failed satellites leave the visibility list before routing runs, so a dead
+  attachment is replaced at the next snapshot rather than stranding the station.
+  The default, `visibility`, keeps the previous behaviour, where the address is
+  stable and every satellite minimises over every visible egress instead.
+- Stretch is reported as two factors that multiply to it. `stretch_*_egress`
+  prices the choice of egress, the best route to the egress an algorithm reached
+  over the best route to any egress the destination can see. `stretch_*` prices
+  the forwarding, what the algorithm did once that egress was settled. Their
+  product is `stretch_*_shared`, which stays the single headline figure against
+  an unmoving baseline. The split matters under attachment addressing, where the
+  egress follows from the destination address rather than being minimised at
+  every satellite, so a suboptimal egress would otherwise be read as a
+  forwarding penalty. `stretch_*` is the basis earlier runs reported, now named
+  for what it measures rather than kept for continuity alone.
+- Link-state accepts `gs_addressing: attachment` too, routing to the station's
+  single attachment instead of any visible satellite, and the failure sweep gains
+  a `link_state_attach` variant. Without it, topological routing under attachment
+  addressing was held to one ground link while link-state kept every visible
+  one, so part of any difference between them was the destination model rather
+  than forwarding. Plain `link_state` remains the any-egress optimum.
+- `aux_gs_renumberings` reports attachment changes per snapshot. Under attachment
+  addressing each one costs a directory update and a flow update to the far end
+  of every active flow, so it is the price paid for dropping the ground station
+  table, and it belongs in the accounting rather than in an assumption.
+
 ### Fixed
+- Under attachment addressing, exception entries still treated every satellite
+  the ground station could see as an egress, so a stuck walk could be handed a
+  ground link through a satellite the station is not attached to, a link that
+  does not exist. Exceptions now deliver only through the attachment, the same
+  egress the rule forwards toward. Visibility addressing is unchanged.
+- The address assigned to a ground station at t=0 came from the first satellite
+  in its visibility list, while every later snapshot used the nearest one, so a
+  station could renumber immediately after starting. Both now use the nearest.
 - Three of the four evaluation constellations did not match their sources.
   Starlink was built as 22 planes of 72 satellites; FCC 21-48 authorises the
   550 km shell as 72 planes of 22, which is also what Hypatia uses. Mean

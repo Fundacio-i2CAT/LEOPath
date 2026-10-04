@@ -2,9 +2,10 @@
 
 LEOPath builds inter-satellite links as a `+Grid`: four laser terminals per satellite, two along the orbit and two across to the neighbouring planes. Every published result uses it, and so does most of the literature LEOPath compares against.
 
-Starlink's own technology page says each satellite carries three space lasers, not four. That single missing terminal changes the shape of the network enough to break the pivot distance estimator outright, and this page works out why, what the repair looks like, and what it would cost to build.
+Starlink's own progress reports say each satellite carries three space lasers, not four. That single missing terminal changes the shape of the network enough to break the pivot distance estimator outright. This page works out why and what the repair looks like, then shows what the simulator does with it: both three-terminal layouts are ISL scenarios (`--isl-scenario brick_a` and `brick_b`), and the topological estimator has a brick form. [Using it](#using-it) and [Results](#results) are at the end.
 
-**Nothing on this page is implemented.** There is no `brick` ISL topology and no row-pair estimator in the simulator. Every number below comes from all-pairs BFS on the logical torus, and they exist to decide whether the work is worth doing.
+
+![Ring, +Grid, +Grid with the seam open, and the three-laser brick wall](assets/diagrams/isl-wirings.svg)
 
 ## Four terminals, and what they buy
 
@@ -301,9 +302,9 @@ An idealised estimator that fails gracefully instead, plain Manhattan with no kn
                                        no neighbour is closer, so N is stuck
 ```
 
-## The repair: pivot row pairs
+## The repair: a closed-form staircase
 
-Drop the assumption that one row can carry the whole crossing. Use two adjacent rows, and the staircase is always available:
+Drop the assumption that one row can carry the whole crossing. Crossing a plane needs a rung, crossing it flips the parity that decides where the next rung sits, so a packet crossing several planes zigzags one row per crossing:
 
 ```
          p0    p1    p2    p3    p4
@@ -312,9 +313,22 @@ Drop the assumption that one row can carry the whole crossing. Use two adjacent 
    r+1     o     o=====o     o=====o
 ```
 
-Every rung on that staircase exists by construction, for any starting row. Split B needs the same staircase turned ninety degrees, pairing planes rather than rows, which the transposed closed form already gives. Crossing one plane costs a rung plus a vertical hop, and the vertical hops come out of `row_edge_costs`, which the weight model already builds. The pivot loop at `fstate_calculation.py:1352` iterates row pairs instead of rows; table sizes and query cost don't change.
+That picture suggests pivoting over pairs of adjacent rows. It's the wrong generalisation, and the simulator tried it first: a two-row band forces the zigzag to go back and forth, while the shortest path usually lets it drift toward the destination row and gets the row movement for free.
 
-In closed form, crossing `a` planes with a row ring-distance of `rd`:
+```
+   destination two rows down, three planes right
+
+   band of two rows               drifting staircase
+   (0,0)=(1,0)                    (0,0)=(1,0)
+          |                              |
+         (1,1)=(2,1)                    (1,1)=(2,1)
+                |                              |
+         (2,0)=(3,0)   back up                (2,2)=(3,2)   <- arrives
+                |
+               ...  two rows down again: 7 hops        5 hops
+```
+
+On Starlink's 72 × 22 split a, a band of two rows gets the hop distance right on 28% of pairs and overestimates by 12% on average, by up to 48%. The closed form below counts the drift instead. Crossing `a` planes with a row ring distance of `rd`:
 
 ```
 L = max(rd, (a - 1) + [first crossing needs a shift])
@@ -323,9 +337,9 @@ if (L - rd) is odd:
 distance = a + L        # take the cheaper way round the torus
 ```
 
-Checked against BFS over 4 269 904 ordered pairs across OneWeb, Kuiper, Starlink and two small tori, with zero mismatches. It evaluates in constant time, same as Manhattan.
+Checked against BFS over 4 269 904 ordered pairs across OneWeb, Kuiper, Starlink and two small tori, with zero mismatches. It evaluates in constant time, same as Manhattan. It's exact when both ring sizes are even; with an odd ring, stepping across its wrap keeps the parity instead of flipping it, and the result becomes an estimate.
 
-| shell | current pivot model | Manhattan on brick | row-pair closed form |
+| shell | single-row pivot | Manhattan on brick | closed form |
 |---|---|---|---|
 | 28 x 14 (even stand-in for Telesat) | unreachable | 3.32% stuck | **0.0000%** |
 | OneWeb 36 x 18 | unreachable | 2.63% stuck | **0.0000%** |
@@ -334,35 +348,63 @@ Checked against BFS over 4 269 904 ordered pairs across OneWeb, Kuiper, Starlink
 
 Greedy forwarding on an exact hop metric always finds a strictly closer neighbour, so the local minima go away entirely rather than getting rarer.
 
+### With lengths instead of hops
+
+The estimator the simulator runs keeps the pivot idea from `+Grid`: walk the source plane to a pivot row, then take the closed-form staircase from there to the destination. For split a:
+
+```
+estimate = min over pivot rows r of
+             rails(source slot -> r)          walked along the source plane, exact
+           + a * mean rung length             the a crossings the closed form needs
+           + L * rail length                  its L row moves, drift included
+```
+
+Split b is the same with planes and rows swapped. With unit costs this is exactly the hop distance. The rungs are priced at one mean length, not at the pivot row's own, and that isn't a simplification anyone should undo: pricing them per row let the estimate chase short high-latitude rungs, a satellite's best pivot row then shifted from hop to hop, the estimate stopped being consistent between neighbours, and greedy walks looped on 71% of Starlink pairs. `tests/forwarding_state/topological_routing/test_brick_wall.py` keeps a regression test for that on real link lengths.
+
 ## Why it's worth building
 
 Whether a rung exists is `(plane_id + sat_index) mod 2`, and a satellite already carries both fields in its topological address. No table, no flooding, no extra per-satellite state: one bit of arithmetic over something the satellite knows about itself.
 
 So a three-laser shell isn't a case where structured addressing gives up and falls back to topology state. The grid stops being uniform, forwarding still comes out of the address, and state stays flat. Degree-4 `+Grid` was the easy instance of that claim; this is the harder one.
 
-Keep the two costs apart when reporting. The 17% to 56% path penalty is what the missing third laser costs *anyone* routing on that graph, and link-state pays it in full on the same topology. LEOPath's stretch metric compares topological forwarding against shortest path on the brick graph itself, and with the row-pair model it should sit near 1.0. Reporting the two together would be wrong.
+Keep the two costs apart when reporting. The 17% to 56% path penalty is what the missing third laser costs *anyone* routing on that graph, and link-state pays it in full on the same topology. LEOPath's stretch metric compares topological forwarding against shortest path on the brick graph itself, which is the number that says how well the estimator copes. Reporting the two together would be wrong.
 
 ## Where this sits in the architecture
 
-RINA splits the two things this page keeps conflating. The RMT is a stateless function that takes a PDU, reads its address field, and either delivers it locally or consults the forwarding table and posts it to an `(N-1)`-port (`rmt-spec-0002`, l.56-90), with that table keyed on `[destination-address, QoS-id]` (`rmt-spec-0003`, l.92-139). Building the table belongs to the Forwarding Table Generator, "sometimes called routing" (`rina-spec-overview-0005` section 5.3.2; Part 3-1 section 2.6.2.2, `rina-refmodel-part3-1-0015`, l.1176-1235). Interior routers do nothing beyond relaying: a border router is distinguished only by an extra level of multiplexing and PDU aggregation (`rina-refmodel-part3-1-0012`, l.935-1022).
+6G-RUPA, following the RINA reference model, splits the two things this page keeps conflating. The RMT is a stateless function that takes a PDU, reads its address field, and either delivers it locally or consults the forwarding table and posts it to an `(N-1)`-port (`rmt-spec-0002`, l.56-90), with that table keyed on `[destination-address, QoS-id]` (`rmt-spec-0003`, l.92-139). Building the table belongs to the Forwarding Table Generator, "sometimes called routing" (`rina-spec-overview-0005` section 5.3.2; Part 3-1 section 2.6.2.2, `rina-refmodel-part3-1-0015`, l.1176-1235). Interior routers do nothing beyond relaying: a border router is distinguished only by an extra level of multiplexing and PDU aggregation (`rina-refmodel-part3-1-0012`, l.935-1022).
 
 Cutting a laser therefore touches one component. The distance estimator is an FTG policy, the brick wall needs a different policy, and the relay, the PDU format and the address layout all stay as they are. An interior satellite still holds forwarding state proportional to its degree, which on a brick wall is three.
 
-Two things not to overclaim. The reference model has the RMT consult a table, so a policy that computes the next hop from the address rather than storing it per destination is compatible with the model rather than prescribed by it. And the policy detects nothing: `distance_mode` is configured, and in RINA terms selected per DIF at enrollment or by management, so "adapts to the topology" would be wrong.
+Two things not to overclaim. The reference model has the RMT consult a table, so a policy that computes the next hop from the address rather than storing it per destination is compatible with the model rather than prescribed by it. And the policy detects nothing: `distance_mode` is configured, and in 6G-RUPA terms selected per layer at enrollment or by management, so "adapts to the topology" would be wrong.
 
 ## Caveats
 
-The closed form is exact for unit hops. Under measured kilometre weights it becomes an approximation, the same way the single-row model is already an approximation today, and `forwarding_guard: progress` covers whatever residual error is left. Parity has to close, which rules out Telesat unless someone writes a seam variant. SpaceX publishes the laser count but not the wiring, so the brick wall is an argued assumption rather than a disclosure, and any paper text should carry the counting argument alongside it. How the three terminals get split is a second, separate guess on top of that one, which is why both layouts belong in the sweep.
+Parity has to close around whichever ring the staggered links run along: split a needs an even plane count unless the shell is a cylinder, split b an even number of satellites per plane. `generate_brick_isls` refuses the others, which rules out Telesat (27 × 13) entirely and OneWeb (12 × 49) for split b. SpaceX publishes the laser count but not the wiring, so the brick wall is an argued assumption rather than a disclosure, and any text built on these results should carry the counting argument alongside it. How the three terminals get split is a second guess on top of that one, which is why both layouts get run.
 
-## Effort
+## Using it
 
-Roughly a day and a half, plus a couple of hours of runs:
+```bash
+python -m leopath.experiments.eval_harness --config leopath/config/starlink.yaml \
+  --output-dir out/brick --isl-scenario brick_a --algorithm topological_routing \
+  --distance-mode torus_weighted_pivot --geometry-source derived
+```
 
-- an `--isl-topology brick` flag in the link builder, dropping rungs where `(p + s)` is odd, which is an hour or two
-- `_build_torus_weight_model` computing plane costs per pivot row pair rather than per row, which is the bulk of it
-- the pivot loop in `_torus_weighted_pivot_distance` iterating pairs, roughly an hour
-- tests against a BFS reference, which already exists and already verified clean
-- a sweep variant covering Starlink, Kuiper and OneWeb
+The harness passes the wiring to topological routing as `isl_wiring` (`plus_grid`, `brick_a` or `brick_b`), and the pivot estimator picks its brick form from that. A satellite doesn't detect its wiring; it's a property of the layer, set when the satellite joins it, the same way the distance mode is. A Walker star builds its brick wall as a cylinder, like its `+Grid`. For the failure sweep, `ISL_SCENARIO=brick_a ./scripts/run-failure-sweep.sh ...` runs every variant on the brick wall.
+
+## Results
+
+One-hour runs at one-minute steps, geometry derived from the shell constants. Without failures, on Starlink, both layouts deliver every deliverable pair; hop stretch is 1.0000 and distance stretch 1.003 (split a) and 1.002 (split b). The failure sweep covers split a on Starlink, Kuiper and OneWeb and split b on Starlink and Kuiper, under every condition in [Evaluation](evaluation.md#failure-injection):
+
+| | split a | split b | `+Grid`, for comparison |
+|---|---|---|---|
+| full scheme, attachment addressing | delivers exactly what link-state delivers with the same addresses, every cell | same | same |
+| full scheme, visibility addressing | 1.0000, every cell | 1.0000, every cell | 1.0000 |
+| forwarding stretch, 5% ISL loss | 1.027-1.035 | 1.019-1.021 | 1.02-1.03 |
+| exception entries, 5% ISL loss, share of link-state's table | 4.2-4.6% | 4.0-4.3% | 0.6-0.9% |
+| exception entries, 20% ISL loss | 20.5-22.1% | 21.5-21.8% | 7-9% |
+| plain rule without guard or exceptions, 5% ISL loss | 0.62-0.72 delivered | 0.66-0.68 | 0.82-0.89 |
+
+Losing the fourth laser leaves fewer ways around a failure, so the rule gets stuck more often and the exception table carries roughly five times as much. Delivery doesn't suffer.
 
 ## Reproducing the numbers
 

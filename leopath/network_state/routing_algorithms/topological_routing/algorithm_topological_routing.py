@@ -42,6 +42,14 @@ def algorithm_topological_routing(
 
     # Calculate forwarding state using topological routing
     state_report: dict = {}
+    selected_egresses: dict[tuple[int, int], int] = {}
+    fixed_address_routes: dict[tuple[int, int], dict] = {}
+    # (satellite, destination satellite) -> next hop, as installed this snapshot.
+    fixed_address_exceptions: dict[tuple[int, int], int] = {}
+    params = algorithm_params or {}
+    # Every attachment-addressed flow walks one fixed address; exception entries,
+    # when enabled, are keyed on that address.
+    use_fixed_addresses = params.get("gs_addressing") == "attachment"
     fstate = calculate_fstate_topological_routing_no_gs_relay(
         topology_with_isls,
         ground_stations,
@@ -52,6 +60,9 @@ def algorithm_topological_routing(
         graph_has_changed,
         algorithm_params=algorithm_params,
         state_report=state_report,
+        selected_egresses=selected_egresses,
+        fixed_address_routes=fixed_address_routes if use_fixed_addresses else None,
+        fixed_address_exceptions=fixed_address_exceptions if use_fixed_addresses else None,
     )
 
     # Add GS -> GS entries (used by churn/stretches in evaluation)
@@ -66,6 +77,10 @@ def algorithm_topological_routing(
         "fstate": fstate,
         "bandwidth": bandwidth_state,
         "auxiliary_state": state_report,
+        "selected_egresses": selected_egresses,
+        "fixed_address_routes": fixed_address_routes,
+        "fixed_address_exceptions": fixed_address_exceptions,
+        "fixed_address_forwarding": use_fixed_addresses,
     }
 
 

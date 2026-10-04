@@ -2,6 +2,10 @@ from astropy import units as astro_units
 from astropy.time import Time
 
 from leopath.network_state.gsl_attachment.gsl_attachment_factory import GSLAttachmentFactory
+from leopath.network_state.gsl_attachment.multihoming import (
+    select_multihoming_attachments,
+)
+from leopath.network_state.routing_algorithms.flow_allocation import DEFAULT_GS_ADDRESS_POLICY
 from leopath.network_state.routing_algorithms.routing_algorithm import RoutingAlgorithm
 
 # Import to trigger strategy registration
@@ -9,6 +13,37 @@ from leopath.network_state.routing_algorithms.routing_algorithm import RoutingAl
 from leopath.topology.topology import ConstellationData, GroundStation, LEOTopology
 
 from .one_iface_free_bw_allocation_only_over_isls import algorithm_free_one_only_over_isls
+
+GS_ADDRESSING = ("visibility", "attachment")
+
+
+def egresses_for_addressing(
+    ground_station_satellites_in_range: list,
+    gs_addressing: str,
+    attachment_count: int = 1,
+    attachment_policy: str = "independent",
+) -> list:
+    """Satellites each ground station can be reached through, under the addressing policy.
+
+    Under ``visibility`` every satellite above the station's horizon is an egress.
+    Under ``attachment`` the station holds one ground link, to its nearest live
+    visible satellite, the rule topological routing uses to pick the attachment,
+    so link-state routes to the same single egress. That makes it the like-for-like
+    peer of topological routing under attachment addressing; ``visibility`` stays
+    the any-egress optimum both are scored against.
+    """
+    if gs_addressing not in GS_ADDRESSING:
+        raise ValueError(
+            f"Unknown gs_addressing {gs_addressing!r}, expected one of {GS_ADDRESSING}"
+        )
+    if gs_addressing == "visibility":
+        return ground_station_satellites_in_range
+    selected, _stats = select_multihoming_attachments(
+        ground_station_satellites_in_range,
+        attachment_count,
+        attachment_policy,
+    )
+    return selected
 
 
 class ShortestPathLinkStateRoutingAlgorithm(RoutingAlgorithm):
@@ -41,7 +76,9 @@ class ShortestPathLinkStateRoutingAlgorithm(RoutingAlgorithm):
         # Route toward the ground station, not toward one chosen satellite:
         # any satellite currently above the destination's horizon is a valid
         # egress, and the fstate calculation picks whichever minimises path
-        # length plus GSL length.
+        # length plus GSL length. Attachment addressing narrows that to the one
+        # satellite the station is attached to.
+        params = algorithm_params or {}
         return algorithm_free_one_only_over_isls(
             time_since_epoch_ns,
             constellation_data,
@@ -50,5 +87,12 @@ class ShortestPathLinkStateRoutingAlgorithm(RoutingAlgorithm):
             gsl_strategy,
             current_time,
             list_gsl_interfaces_info,
-            ground_station_satellites_in_range,
+            egresses_for_addressing(
+                ground_station_satellites_in_range,
+                str((algorithm_params or {}).get("gs_addressing", "visibility")),
+                int((algorithm_params or {}).get("gs_attachment_count", 1)),
+                str((algorithm_params or {}).get("gs_attachment_policy", "independent")),
+            ),
+            build_fixed_address_routes=params.get("gs_addressing") == "attachment",
+            gs_address_policy=str(params.get("gs_address_policy", DEFAULT_GS_ADDRESS_POLICY)),
         )

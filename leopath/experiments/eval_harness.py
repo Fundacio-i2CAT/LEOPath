@@ -1,7 +1,9 @@
 import argparse
 import datetime
 import logging
+import math
 import os
+import random
 import time
 
 import yaml
@@ -15,6 +17,7 @@ from astropy import units as astro_units
 from leopath import logger
 from leopath.main import (
     calculate_link_params,
+    generate_brick_isls,
     generate_plus_grid_isls,
     setup_ground_stations,
     setup_isls_in_the_same_orbit,
@@ -22,20 +25,28 @@ from leopath.main import (
 )
 from leopath.network_state.generate_network_state import _build_topologies
 from leopath.network_state.gsl_attachment.gsl_attachment_strategies import *  # noqa: F403, F401
+from leopath.network_state.gsl_attachment.multihoming import (
+    ATTACHMENT_ORDERS,
+    ATTACHMENT_POLICIES,
+    select_multihoming_attachments,
+)
 from leopath.network_state.helpers import (
     _compute_ground_station_satellites_in_range,
     _compute_isls,
 )
+from leopath.network_state.routing_algorithms.flow_allocation import GS_ADDRESS_POLICIES
 from leopath.network_state.routing_algorithms.routing_algorithm_factory import (
     get_routing_algorithm,
 )
 from leopath.topology.topology import ConstellationData
+from leopath.topology.walker_geometry import walker_shell_from_config
 
 from .failures import FAILURE_TYPES, FailureConfig, FailureProcess, satellite_latitudes_deg
 from .metrics import (
     build_interface_neighbor_map,
     compute_explicit_failover_stats,
     compute_explicit_header_stats,
+    compute_fixed_address_path_stretch,
     compute_forwarding_state_stats,
     compute_gs_handover_rate,
     compute_gs_renumbering_stats,
@@ -50,6 +61,26 @@ from .metrics import (
 )
 
 log = logger.get_logger(__name__)
+
+
+def compute_exception_churn(previous: dict, current: dict) -> dict[str, float]:
+    """Exception entries added, removed and rewired between two snapshots.
+
+    Entries are keyed on (satellite, destination satellite) and map to a next
+    hop. A rewired entry keeps its key and changes its next hop. Each counts
+    as one table write at one satellite; ``satellites_touched`` is how many
+    satellites write anything.
+    """
+    added = [key for key in current if key not in previous]
+    removed = [key for key in previous if key not in current]
+    rewired = [key for key in current if key in previous and current[key] != previous[key]]
+    touched = {sat for sat, _dst in (*added, *removed, *rewired)}
+    return {
+        "entries_added": float(len(added)),
+        "entries_removed": float(len(removed)),
+        "entries_rewired": float(len(rewired)),
+        "satellites_touched": float(len(touched)),
+    }
 
 
 def load_config(config_path: str) -> dict:
@@ -107,7 +138,64 @@ def select_isls(
             idx_offset=0,
             seam=True,
         )
+    if scenario in ("brick_a", "brick_b"):
+        # Three terminals per satellite; like grid, a star shell stays a cylinder.
+        return generate_brick_isls(
+            n_orbits=constellation.n_orbits,
+            n_sats_per_orbit=constellation.n_sats_per_orbit,
+            split=scenario[-1],
+            idx_offset=0,
+            seam=has_counter_rotating_seam(raan_spread_degree),
+        )
     raise ValueError(f"Unknown ISL scenario: {scenario}")
+
+
+def northbound_satellites(
+    constellation_data: ConstellationData, time_since_epoch_ns: int
+) -> set[int]:
+    """Satellites currently on the northbound (ascending) half of their orbit."""
+    shell = constellation_data.walker
+    if shell is None:
+        raise ValueError("Pass-direction-aware attachment needs the shell's Walker constants")
+    time_s = time_since_epoch_ns / 1e9
+    return {
+        plane * shell.sats_per_plane + slot
+        for plane in range(shell.planes)
+        for slot in range(shell.sats_per_plane)
+        if math.cos(shell.argument_of_latitude_rad(plane, slot, time_s)) > 0.0
+    }
+
+
+def isl_delay_factor(sat_a: int, sat_b: int, spread: float, seed: int) -> float:
+    """Fixed extra-delay factor of one ISL, the same whichever end asks.
+
+    Light can't cross a link faster than its geometry allows, so the factor
+    only adds delay: 1 + spread * U(0, 1), drawn from the link and the seed
+    alone so that every algorithm meets the same slow links.
+    """
+    low, high = min(sat_a, sat_b), max(sat_a, sat_b)
+    return 1.0 + spread * random.Random(f"{seed}:{low}:{high}").random()
+
+
+def apply_isl_delay_factors(graph, satellite_count: int, spread: float, seed: int) -> None:
+    """Scale every satellite-to-satellite edge weight by its fixed delay factor.
+
+    Satellites hold ids 0 .. satellite_count - 1; ground-station links are left alone.
+    """
+    for sat_a, sat_b, data in graph.edges(data=True):
+        if sat_a < satellite_count and sat_b < satellite_count and "weight" in data:
+            data["weight"] = float(data["weight"]) * isl_delay_factor(sat_a, sat_b, spread, seed)
+
+
+def isl_wiring(scenario: str) -> str:
+    """The wiring policy a topological estimator is configured with.
+
+    Which neighbours a satellite's terminals point at is a property of the
+    layer, set when a satellite joins it, not something it detects. The pivot
+    estimator needs it: on a brick wall no single row or plane carries a
+    crossing, so it pivots over a band of two.
+    """
+    return {"brick_a": "brick_a", "brick_b": "brick_b"}.get(scenario, "plus_grid")
 
 
 def flatten_distribution(prefix: str, stats: dict) -> dict:
@@ -119,6 +207,51 @@ def flatten_distribution(prefix: str, stats: dict) -> dict:
         f"{prefix}_p95": stats["p95"],
         f"{prefix}_count": stats["count"],
     }
+
+
+def _set_gs_addressing_params(
+    algorithm_params: dict,
+    algorithm_name: str,
+    gs_addressing: str | None,
+    gs_attachment_count: int | None,
+    gs_attachment_policy: str | None,
+    gs_address_policy: str | None = None,
+    gs_attachment_order: str | None = None,
+) -> None:
+    if algorithm_name not in (*TOPOLOGICAL_FAMILY, "shortest_path_link_state"):
+        return
+    if gs_addressing is not None:
+        algorithm_params["gs_addressing"] = gs_addressing
+    if gs_attachment_count is not None:
+        if gs_attachment_count < 1:
+            raise ValueError("gs_attachment_count must be at least 1")
+        algorithm_params["gs_attachment_count"] = gs_attachment_count
+    if gs_attachment_policy is not None:
+        if gs_attachment_policy not in ATTACHMENT_POLICIES:
+            raise ValueError(
+                f"Unknown gs_attachment_policy {gs_attachment_policy!r}, "
+                f"expected one of {ATTACHMENT_POLICIES}"
+            )
+        algorithm_params["gs_attachment_policy"] = gs_attachment_policy
+    if gs_address_policy is not None:
+        if gs_address_policy not in GS_ADDRESS_POLICIES:
+            raise ValueError(
+                f"Unknown gs_address_policy {gs_address_policy!r}, "
+                f"expected one of {GS_ADDRESS_POLICIES}"
+            )
+        algorithm_params["gs_address_policy"] = gs_address_policy
+    if gs_attachment_order is not None:
+        if gs_attachment_order not in ATTACHMENT_ORDERS:
+            raise ValueError(
+                f"Unknown gs_attachment_order {gs_attachment_order!r}, "
+                f"expected one of {ATTACHMENT_ORDERS}"
+            )
+        algorithm_params["gs_attachment_order"] = gs_attachment_order
+
+
+# DRA is the topological rule with a hop-count distance, so it takes every
+# topological option except the distance mode, which it fixes itself.
+TOPOLOGICAL_FAMILY = ("topological_routing", "dra_routing")
 
 
 def prepare_algorithm_params(
@@ -137,6 +270,11 @@ def prepare_algorithm_params(
     forwarding_guard: str | None = None,
     local_repair: str | None = None,
     exception_policy: str | None = None,
+    gs_addressing: str | None = None,
+    gs_attachment_count: int | None = None,
+    gs_attachment_policy: str | None = None,
+    gs_address_policy: str | None = None,
+    gs_attachment_order: str | None = None,
 ) -> dict:
     algorithm_params = dict(simulation_config.get("algorithm_params") or {})
 
@@ -161,14 +299,23 @@ def prepare_algorithm_params(
         algorithm_params["distance_mode"] = distance_mode
     if explicit_final_egress_mode is not None and algorithm_name == "explicit_path_routing":
         algorithm_params["final_egress_mode"] = explicit_final_egress_mode
-    if geometry_source is not None and algorithm_name == "topological_routing":
+    if geometry_source is not None and algorithm_name in TOPOLOGICAL_FAMILY:
         algorithm_params["geometry_source"] = geometry_source
-    if forwarding_guard is not None and algorithm_name == "topological_routing":
+    if forwarding_guard is not None and algorithm_name in TOPOLOGICAL_FAMILY:
         algorithm_params["forwarding_guard"] = forwarding_guard
-    if local_repair is not None and algorithm_name == "topological_routing":
+    if local_repair is not None and algorithm_name in TOPOLOGICAL_FAMILY:
         algorithm_params["local_repair"] = local_repair
-    if exception_policy is not None and algorithm_name == "topological_routing":
+    if exception_policy is not None and algorithm_name in TOPOLOGICAL_FAMILY:
         algorithm_params["exception_policy"] = exception_policy
+    _set_gs_addressing_params(
+        algorithm_params,
+        algorithm_name,
+        gs_addressing,
+        gs_attachment_count,
+        gs_attachment_policy,
+        gs_address_policy,
+        gs_attachment_order,
+    )
     if explicit_backup_adjacencies and algorithm_name == "explicit_path_routing":
         algorithm_params["include_backup_adjacencies"] = True
 
@@ -200,6 +347,13 @@ def run_evaluation(
     forwarding_guard: str | None = None,
     local_repair: str | None = None,
     exception_policy: str | None = None,
+    gs_addressing: str | None = None,
+    gs_attachment_count: int | None = None,
+    gs_attachment_policy: str | None = None,
+    gs_address_policy: str | None = None,
+    gs_attachment_order: str | None = None,
+    isl_delay_spread: float = 0.0,
+    isl_delay_seed: int = 1,
 ) -> None:
     config = load_config(config_path)
     gs_override = load_ground_station_override(gs_override_path)
@@ -228,7 +382,14 @@ def run_evaluation(
         forwarding_guard=forwarding_guard,
         local_repair=local_repair,
         exception_policy=exception_policy,
+        gs_addressing=gs_addressing,
+        gs_attachment_count=gs_attachment_count,
+        gs_attachment_policy=gs_attachment_policy,
+        gs_address_policy=gs_address_policy,
+        gs_attachment_order=gs_attachment_order,
     )
+    if effective_algorithm_name in TOPOLOGICAL_FAMILY:
+        algorithm_params["isl_wiring"] = isl_wiring(isl_scenario)
     if algorithm_params:
         config["simulation"]["algorithm_params"] = algorithm_params
 
@@ -247,6 +408,7 @@ def run_evaluation(
         max_gsl_length_m=max_gsl,
         max_isl_length_m=max_isl,
         satellites=sim_satellites,
+        walker=walker_shell_from_config(config["constellation"]),
     )
 
     raan_spread_degree = float(config["constellation"].get("raan_spread_degree", 360.0))
@@ -294,6 +456,7 @@ def run_evaluation(
     prev_attachments: list[tuple[int | None, float]] | None = None
     prev_route_plans: dict | None = None
     prev_interface_neighbor_map: dict[int, dict[int, int]] | None = None
+    prev_fixed_exceptions: dict | None = None
 
     progress_iter = time_steps
     if tqdm is not None:
@@ -311,6 +474,13 @@ def run_evaluation(
         topology_with_isls, _ = _build_topologies(constellation_data, ground_stations)
         topology_with_isls.gsl_interfaces_info = list_gsl_interfaces_info
         _compute_isls(topology_with_isls, undirected_isls, time_absolute)
+        if isl_delay_spread:
+            apply_isl_delay_factors(
+                topology_with_isls.graph,
+                constellation_data.number_of_satellites,
+                isl_delay_spread,
+                isl_delay_seed,
+            )
         gs_sat_visibility = _compute_ground_station_satellites_in_range(
             topology_with_isls, time_absolute
         )
@@ -318,27 +488,47 @@ def run_evaluation(
 
         interface_neighbor_map = build_interface_neighbor_map(topology_with_isls.sat_neighbor_to_if)
         algorithm_params = sim_config.get("algorithm_params") or {}
+        routing_gs_visibility = gs_sat_visibility
+        attachment_assignment_stats: dict[str, float] = {}
+        if algorithm_params.get("gs_addressing") == "attachment":
+            attachment_order = str(algorithm_params.get("gs_attachment_order", "nearest"))
+            routing_gs_visibility, attachment_assignment_stats = select_multihoming_attachments(
+                gs_sat_visibility,
+                int(algorithm_params.get("gs_attachment_count", 1)),
+                str(algorithm_params.get("gs_attachment_policy", "independent")),
+                order=attachment_order,
+                ascending=(
+                    None
+                    if attachment_order == "nearest"
+                    else northbound_satellites(constellation_data, time_since_epoch_ns)
+                ),
+            )
         compute_start = time.perf_counter()
         fstate_output = algorithm.compute_state(
             time_since_epoch_ns=time_since_epoch_ns,
             constellation_data=constellation_data,
             ground_stations=ground_stations,
             topology_with_isls=topology_with_isls,
-            ground_station_satellites_in_range=gs_sat_visibility,
+            ground_station_satellites_in_range=routing_gs_visibility,
             list_gsl_interfaces_info=topology_with_isls.gsl_interfaces_info,
             algorithm_params=algorithm_params,
         )
         compute_duration_ms = (time.perf_counter() - compute_start) * 1000.0
         fstate = fstate_output.get("fstate", {})
         route_plans = fstate_output.get("route_plans", {})
+        selected_egresses = fstate_output.get("selected_egresses", {})
+        fixed_address_routes = fstate_output.get("fixed_address_routes", {})
+        fixed_address_forwarding = bool(fstate_output.get("fixed_address_forwarding", False))
+        fixed_address_exceptions = fstate_output.get("fixed_address_exceptions")
         # Per-category auxiliary state: geometry and path-cost tables the
         # distance estimator maintains, reported separately from installed
         # forwarding entries rather than folded into them.
         auxiliary_state = fstate_output.get("auxiliary_state") or {}
+        auxiliary_state.update(attachment_assignment_stats)
         if control_plane_sample is None and fstate_output.get("control_plane"):
             control_plane_sample = fstate_output["control_plane"]
 
-        attachments = get_gs_attachments(gs_sat_visibility)
+        attachments = get_gs_attachments(routing_gs_visibility)
         fstate_stats = compute_forwarding_state_stats(
             fstate,
             topology_with_isls.graph,
@@ -373,17 +563,28 @@ def run_evaluation(
             gs_sat_visibility,
             attachments,
         )
-        stretch_stats = compute_path_stretch(
-            fstate,
-            topology_with_isls.graph,
-            satellite_ids,
-            ground_station_ids,
-            attachments,
-            interface_neighbor_map,
-            max_hops,
-            route_plans,
-            gs_sat_visibility,
-        )
+        if fixed_address_forwarding:
+            stretch_stats = compute_fixed_address_path_stretch(
+                fixed_address_routes,
+                topology_with_isls.graph,
+                satellite_ids,
+                ground_station_ids,
+                gs_sat_visibility,
+                attachments,  # type: ignore[arg-type]
+            )
+        else:
+            stretch_stats = compute_path_stretch(
+                fstate,
+                topology_with_isls.graph,
+                satellite_ids,
+                ground_station_ids,
+                attachments,
+                interface_neighbor_map,
+                max_hops,
+                route_plans,
+                gs_sat_visibility,
+                selected_egresses,
+            )
 
         timestep_rows.append(
             {
@@ -395,10 +596,15 @@ def run_evaluation(
                 **flatten_distribution("fstate_neighbors", installed_state["neighbor_entries"]),
                 **flatten_distribution("strict_header_bytes", explicit_header_stats),
                 **flatten_distribution("srv6_srh_bytes", explicit_srv6_srh_stats),
+                **flatten_distribution("delay_ms", stretch_stats["delay_ms"]),
+                **flatten_distribution("delay_best_ms", stretch_stats["delay_best_ms"]),
+                **flatten_distribution("delay_extra_ms", stretch_stats["delay_extra_ms"]),
                 **flatten_distribution("stretch_hop", stretch_stats["hop"]),
                 **flatten_distribution("stretch_dist", stretch_stats["distance"]),
                 **flatten_distribution("stretch_hop_shared", stretch_stats["hop_shared"]),
                 **flatten_distribution("stretch_dist_shared", stretch_stats["distance_shared"]),
+                **flatten_distribution("stretch_hop_egress", stretch_stats["hop_egress"]),
+                **flatten_distribution("stretch_dist_egress", stretch_stats["distance_egress"]),
                 **{f"delivery_{key}": value for key, value in stretch_stats["delivery"].items()},
                 **{f"aux_{key}": value for key, value in auxiliary_state.items()},
                 **{
@@ -406,6 +612,7 @@ def run_evaluation(
                     for key, value in explicit_failover_stats.items()
                 },
                 **{f"failure_{key}": value for key, value in failure_stats.items()},
+                "fixed_address_forwarding": float(fixed_address_forwarding),
                 "compute_time_ms": compute_duration_ms,
             }
         )
@@ -473,6 +680,23 @@ def run_evaluation(
                 }
             )
 
+        # Exception-entry churn: what satellites rewrite between snapshots as
+        # failures come and go. These entries live outside the station-keyed
+        # fstate, so fstate_updates does not see them.
+        if fixed_address_exceptions is not None:
+            # The first snapshot has nothing to compare with: NaN, which the
+            # summaries skip, keeps the CSV's columns the same on every row.
+            churn = (
+                compute_exception_churn(prev_fixed_exceptions, fixed_address_exceptions)
+                if prev_fixed_exceptions is not None
+                else dict.fromkeys(compute_exception_churn({}, {}), float("nan"))
+            )
+            timestep_rows[-1].update(
+                {f"aux_exception_{key}": value for key, value in churn.items()}
+            )
+        prev_fixed_exceptions = (
+            dict(fixed_address_exceptions) if fixed_address_exceptions is not None else None
+        )
         prev_fstate = fstate
         prev_attachments = attachments
         prev_route_plans = route_plans
@@ -483,10 +707,12 @@ def run_evaluation(
         "isl_scenario": isl_scenario,
         # Whether the +Grid wrap between the last and first plane was built. It is
         # absent for ring and grid_seam, and for grid on a Walker star shell.
-        "isl_seam_wrap": isl_scenario == "grid"
+        "isl_seam_wrap": isl_scenario in ("grid", "brick_a", "brick_b")
         and not has_counter_rotating_seam(raan_spread_degree),
         "raan_spread_degree": raan_spread_degree,
         "failure_model": failure_process.describe(),
+        "isl_delay_spread": isl_delay_spread,
+        "isl_delay_seed": isl_delay_seed,
         # Set by the runner scripts to the image tag, so outputs from different
         # builds sharing one output tree can be told apart.
         "code_version": os.environ.get("LEOPATH_CODE_VERSION"),
@@ -556,9 +782,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", required=True, help="Output directory for CSV/JSON")
     parser.add_argument(
         "--isl-scenario",
-        choices=("ring", "grid", "grid_seam"),
+        choices=("ring", "grid", "grid_seam", "brick_a", "brick_b"),
         default="grid",
-        help="ISL scenario to evaluate",
+        help=(
+            "ISL scenario to evaluate: ring, +Grid (four terminals), +Grid with the "
+            "plane wrap removed, or a three-terminal brick wall with its cross-plane "
+            "(a) or in-plane (b) links staggered"
+        ),
     )
     parser.add_argument("--algorithm", default=None, help="Routing algorithm name override")
     parser.add_argument("--gs-config", default=None, help="Ground station list override YAML")
@@ -582,15 +812,70 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--geometry-source",
-        choices=("observed", "nominal"),
+        choices=("observed", "nominal", "derived"),
         default=None,
-        help="Graph the topological pivot geometry is built from under failures",
+        help=(
+            "Where the topological pivot geometry comes from: the live snapshot graph, "
+            "the failure-free graph, or ISL lengths derived from the shell's Walker "
+            "constants and the clock"
+        ),
     )
     parser.add_argument(
         "--forwarding-guard",
         choices=("none", "progress"),
         default=None,
         help="Topological routing: forward only to neighbours that lower the egress potential",
+    )
+    parser.add_argument(
+        "--gs-addressing",
+        choices=("visibility", "attachment"),
+        default=None,
+        help=(
+            "Topological routing and link-state: 'attachment' makes a ground station's "
+            "address name the satellite it is attached to, so satellites forward toward that "
+            "address and need nothing about where the ground station sits, and link-state "
+            "routes to that same single egress; 'visibility' keeps the address stable and "
+            "minimises over every visible egress instead"
+        ),
+    )
+    parser.add_argument(
+        "--gs-attachment-count",
+        type=int,
+        default=None,
+        help=(
+            "With --gs-addressing attachment, advertise the K nearest live "
+            "satellite addresses for each ground station (default: 1)"
+        ),
+    )
+    parser.add_argument(
+        "--gs-attachment-policy",
+        choices=ATTACHMENT_POLICIES,
+        default=None,
+        help=(
+            "How K satellite addresses are assigned: 'independent' is the top-K "
+            "upper bound; 'exclusive' lets each satellite serve at most one station"
+        ),
+    )
+    parser.add_argument(
+        "--gs-attachment-order",
+        choices=ATTACHMENT_ORDERS,
+        default=None,
+        help=(
+            "With --gs-addressing attachment, which visible satellites a station prefers: "
+            "'nearest' (default), 'nearest_ascending' (northbound first) or 'one_per_half' "
+            "(the nearest northbound and the nearest southbound satellite first)"
+        ),
+    )
+    parser.add_argument(
+        "--gs-address-policy",
+        choices=GS_ADDRESS_POLICIES,
+        default=None,
+        help=(
+            "With --gs-addressing attachment, which of a station's K addresses flows "
+            "use: 'sticky_nearest' (default, RINA: one current address, moved only "
+            "when its attachment is lost), 'nearest', or 'per_flow_pair' (extension "
+            "beyond RINA: each flow pins its own best pair)"
+        ),
     )
     parser.add_argument(
         "--local-repair",
@@ -600,9 +885,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--exception-policy",
-        choices=("none", "grow"),
+        choices=("none", "grow", "one_pass"),
         default=None,
-        help="Topological routing: install exception entries where the rules cannot deliver",
+        help="Topological routing: install exception entries where the rules cannot deliver "
+        "(one_pass: every satellite whose own rule walk fails; attachment addressing only)",
     )
     parser.add_argument("--failure-type", choices=FAILURE_TYPES, default="none")
     parser.add_argument(
@@ -612,6 +898,16 @@ def parse_args() -> argparse.Namespace:
         help="Stationary probability that an ISL or satellite is down",
     )
     parser.add_argument("--failure-seed", type=int, default=0)
+    parser.add_argument(
+        "--isl-delay-spread",
+        type=float,
+        default=0.0,
+        help=(
+            "Give every ISL a fixed extra delay of up to this fraction of its geometric delay "
+            "(factor 1 + s*U(0,1)); routing and metrics see it, a derived-geometry estimator does not"
+        ),
+    )
+    parser.add_argument("--isl-delay-seed", type=int, default=1)
     parser.add_argument(
         "--failure-mean-duration-minutes",
         type=float,
@@ -645,6 +941,13 @@ def main() -> None:
         forwarding_guard=args.forwarding_guard,
         local_repair=args.local_repair,
         exception_policy=args.exception_policy,
+        gs_addressing=args.gs_addressing,
+        gs_attachment_count=args.gs_attachment_count,
+        gs_attachment_policy=args.gs_attachment_policy,
+        gs_address_policy=args.gs_address_policy,
+        gs_attachment_order=args.gs_attachment_order,
+        isl_delay_spread=args.isl_delay_spread,
+        isl_delay_seed=args.isl_delay_seed,
         failure_config=FailureConfig(
             failure_type=args.failure_type,
             rate=args.failure_rate,
