@@ -2,10 +2,10 @@ from astropy import units as astro_units
 from astropy.time import Time
 
 from leopath.network_state.gsl_attachment.gsl_attachment_factory import GSLAttachmentFactory
-from leopath.network_state.routing_algorithms.flow_allocation import DEFAULT_GS_ADDRESS_POLICY
 from leopath.network_state.gsl_attachment.multihoming import (
     select_multihoming_attachments,
 )
+from leopath.network_state.routing_algorithms.flow_allocation import DEFAULT_GS_ADDRESS_POLICY
 from leopath.network_state.routing_algorithms.routing_algorithm import RoutingAlgorithm
 
 # Import to trigger strategy registration

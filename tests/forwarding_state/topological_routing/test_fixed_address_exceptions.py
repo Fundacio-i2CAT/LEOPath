@@ -258,9 +258,7 @@ def _one_pass(live, addresses, model, neighbours):
     rule_args = (addresses, neighbours, CONSTELLATION, MODE, model, "progress")
     exceptions: dict = {}
     work = {"rule_steps": 0.0, "shortest_path_runs": 0.0}
-    _one_pass_fixed_address_exceptions(
-        rule_args, live, _grid(), exceptions, _LiveDistances(), work
-    )
+    _one_pass_fixed_address_exceptions(rule_args, live, _grid(), exceptions, _LiveDistances(), work)
     return exceptions, work
 
 

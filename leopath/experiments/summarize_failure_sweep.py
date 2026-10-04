@@ -281,9 +281,7 @@ def _exception_state(rows: list[dict[str, str]], metadata: dict[str, Any]) -> di
         # Fixed-address runs grow entries toward every destination satellite;
         # these split out the addresses in use and the exact region aggregation.
         "exception_entries_in_use_per_snapshot": column_mean(rows, "aux_exception_entries_in_use"),
-        "exception_region_entries_per_snapshot": column_mean(
-            rows, "aux_exception_region_entries"
-        ),
+        "exception_region_entries_per_snapshot": column_mean(rows, "aux_exception_region_entries"),
         "exception_region_max_per_satellite": column_max(
             rows, "aux_exception_region_max_per_satellite"
         ),

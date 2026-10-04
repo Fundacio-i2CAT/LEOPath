@@ -715,7 +715,7 @@ def _record_delays(
         extra_delays_ms.append(delay - best)
 
 
-def compute_fixed_address_path_stretch(
+def compute_fixed_address_path_stretch(  # noqa: C901
     fixed_address_routes: dict[tuple[int, int], dict],
     topology_graph: nx.Graph,
     satellite_ids: list[int],
@@ -778,7 +778,7 @@ def compute_fixed_address_path_stretch(
                 no_dst_visibility += 1
                 continue
             _hop_sat, best_hops, _dist_sat, best_distance = _best_reachable_egress(
-                distances, nearest_sat, nearest_gsl, destination_visibility
+                distances, nearest_sat, nearest_gsl, destination_visibility  # type: ignore[arg-type]
             )
             if best_distance is None:
                 disconnected += 1

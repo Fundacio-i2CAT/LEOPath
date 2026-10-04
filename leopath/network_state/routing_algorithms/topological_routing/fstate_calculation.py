@@ -131,7 +131,7 @@ def _calculate_bandwidth_state(
     return bandwidth_state
 
 
-def calculate_fstate_topological_routing_no_gs_relay(
+def calculate_fstate_topological_routing_no_gs_relay(  # noqa: C901
     topology_with_isls: LEOTopology,
     ground_stations: list[GroundStation],
     ground_station_satellites_in_range: list,
@@ -417,7 +417,7 @@ def _station_exception_policy(algorithm_params: dict, fixed_addresses: bool) -> 
     return policy
 
 
-def _build_fixed_address_routes(
+def _build_fixed_address_routes(  # noqa: C901
     address_policy: str,
     ground_stations: list[GroundStation],
     gs_candidates: list,
@@ -518,7 +518,7 @@ def _build_fixed_address_routes(
         for _src_id, _dst_id, (_sd, _ss, _dd, dst_sat, dst_address) in selections:
             destinations.setdefault(dst_sat, dst_address)
         in_use = set(destinations)
-        for sat in live_graph.nodes():
+        for sat in live_graph.nodes():  # type: ignore[union-attr]
             if sat in satellite_addresses:
                 destinations.setdefault(sat, satellite_addresses[sat])
         # On the intact grid the rule needs no entries, so a walk can only break
@@ -527,15 +527,15 @@ def _build_fixed_address_routes(
         damaged = (
             sorted(
                 sat
-                for sat in live_graph.nodes()
+                for sat in live_graph.nodes()  # type: ignore[union-attr]
                 if nominal_graph.has_node(sat)
-                and live_graph.degree(sat) < nominal_graph.degree(sat)
+                and live_graph.degree(sat) < nominal_graph.degree(sat)  # type: ignore[union-attr]
             )
             if nominal_graph is not None
             else None
         )
         for dst_sat in sorted(destinations):
-            if dst_sat in satellite_addresses and live_graph.has_node(dst_sat):
+            if dst_sat in satellite_addresses and live_graph.has_node(dst_sat):  # type: ignore[union-attr]
                 unresolved_walks += _grow_fixed_address_exceptions(
                     dst_sat,
                     destinations[dst_sat],
@@ -554,16 +554,12 @@ def _build_fixed_address_routes(
             path, failure = _walk_with_exception_entries(
                 walk_args, dst_sat, live_graph, exceptions, toward
             )
-            used.update(
-                (sat, dst_sat) for sat in path[:-1] if (sat, dst_sat) in exceptions
-            )
+            used.update((sat, dst_sat) for sat in path[:-1] if (sat, dst_sat) in exceptions)
         elif one_pass:
             # The entries are complete before any packet moves; a flow that
             # still fails while its destination is reachable is counted below.
             path, failure = _walk_fixed_topological_address(*walk_args, exceptions=exceptions)
-            used.update(
-                (sat, dst_sat) for sat in path[:-1] if (sat, dst_sat) in exceptions
-            )
+            used.update((sat, dst_sat) for sat in path[:-1] if (sat, dst_sat) in exceptions)
         else:
             path, failure = _walk_fixed_topological_address(*walk_args)
         routes[(src_id, dst_id)] = {
@@ -599,9 +595,7 @@ def _build_fixed_address_routes(
             _hops_to_degraded_satellites(live_graph, nominal_graph) if exceptions else {}
         )
         distances = [hops_to_failure[sat] for sat, _dst in exceptions if sat in hops_to_failure]
-        region_entries, region_max = _region_entry_count(
-            exceptions, rule_args, constellation_data
-        )
+        region_entries, region_max = _region_entry_count(exceptions, rule_args, constellation_data)
         exception_report.update(
             {
                 # Entries keyed on addresses a station currently holds: what a
@@ -633,7 +627,7 @@ def _build_fixed_address_routes(
                 "exception_rule_steps": float(work["rule_steps"]),
                 "exception_shortest_path_runs": float(work["shortest_path_runs"]),
                 "exception_compute_ms": float(compute_ms),
-                "live_isls": float(live_graph.number_of_edges()),
+                "live_isls": float(live_graph.number_of_edges()),  # type: ignore[union-attr]
             }
         )
     return routes
@@ -698,9 +692,7 @@ def _region_entry_count(
                 low -= 1
 
             def whole_run(plane: int) -> bool:
-                return all(
-                    leaves_by(cell(plane, slot0 + k)) == hop for k in range(low, high + 1)
-                )
+                return all(leaves_by(cell(plane, slot0 + k)) == hop for k in range(low, high + 1))
 
             plane_low = plane_high = 0
             while plane_high - plane_low + 1 < planes and whole_run(plane0 + plane_high + 1):
@@ -889,9 +881,9 @@ def _walk_fixed_topological_address(
             physical_hops = [entry]
         else:
             if rule_steps is not None and current in rule_steps:
-                physical_hops = rule_steps[current]
+                physical_hops = rule_steps[current]  # type: ignore[assignment]
             else:
-                physical_hops = _fixed_rule_step(
+                physical_hops = _fixed_rule_step(  # type: ignore[assignment]
                     current,
                     destination_address,
                     satellite_addresses,
@@ -1007,14 +999,14 @@ def _walk_with_exception_entries(
     """
     distance = _live_distances_to(destination_satellite, live_graph, toward)
     for _attempt in range(live_graph.number_of_nodes() + 1):
-        path, failure = _walk_fixed_topological_address(*walk_args, exceptions=exceptions)
+        path, failure = _walk_fixed_topological_address(*walk_args, exceptions=exceptions)  # type: ignore[misc]
         if failure is None:
             return path, None
         breaking = _breaking_satellite(path, failure, destination_satellite, exceptions)
         hop = _next_on_shortest_live_path(breaking, live_graph, distance)
         if hop is None:
             return path, failure
-        exceptions[(breaking, destination_satellite)] = hop
+        exceptions[(breaking, destination_satellite)] = hop  # type: ignore[index]
     return path, "hop_limit"
 
 
@@ -1067,14 +1059,12 @@ def _one_pass_fixed_address_exceptions(
 
         def rule_step(sat: int) -> list[int] | None:
             if sat not in steps:
-                steps[sat] = _fixed_rule_step(
+                steps[sat] = _fixed_rule_step(  # type: ignore[misc]
                     sat, destination_address, *rule_args, potentials=potentials
                 )
             return steps[sat]
 
-        dead_ends = [
-            sat for sat in candidates if sat != destination and not rule_step(sat)
-        ]
+        dead_ends = [sat for sat in candidates if sat != destination and not rule_step(sat)]
         if dead_ends:
             basin = set(dead_ends)
             frontier = list(dead_ends)
@@ -1141,7 +1131,7 @@ def _grow_fixed_address_exceptions(
         for sat in sources:
             if sat in delivering:
                 continue
-            path, failure = _walk_fixed_topological_address(
+            path, failure = _walk_fixed_topological_address(  # type: ignore[misc]
                 sat,
                 destination_satellite,
                 destination_address,
@@ -1158,7 +1148,7 @@ def _grow_fixed_address_exceptions(
             if hop is None:
                 unresolved += 1
                 continue
-            exceptions[(breaking, destination_satellite)] = hop
+            exceptions[(breaking, destination_satellite)] = hop  # type: ignore[index]
             added = True
         if not added:
             if work is not None:

@@ -1,9 +1,9 @@
-import math
-import random
 import argparse
 import datetime
 import logging
+import math
 import os
+import random
 import time
 
 import yaml
@@ -30,11 +30,11 @@ from leopath.network_state.gsl_attachment.multihoming import (
     ATTACHMENT_POLICIES,
     select_multihoming_attachments,
 )
-from leopath.network_state.routing_algorithms.flow_allocation import GS_ADDRESS_POLICIES
 from leopath.network_state.helpers import (
     _compute_ground_station_satellites_in_range,
     _compute_isls,
 )
+from leopath.network_state.routing_algorithms.flow_allocation import GS_ADDRESS_POLICIES
 from leopath.network_state.routing_algorithms.routing_algorithm_factory import (
     get_routing_algorithm,
 )
@@ -570,7 +570,7 @@ def run_evaluation(
                 satellite_ids,
                 ground_station_ids,
                 gs_sat_visibility,
-                attachments,
+                attachments,  # type: ignore[arg-type]
             )
         else:
             stretch_stats = compute_path_stretch(
@@ -691,7 +691,9 @@ def run_evaluation(
                 if prev_fixed_exceptions is not None
                 else dict.fromkeys(compute_exception_churn({}, {}), float("nan"))
             )
-            timestep_rows[-1].update({f"aux_exception_{key}": value for key, value in churn.items()})
+            timestep_rows[-1].update(
+                {f"aux_exception_{key}": value for key, value in churn.items()}
+            )
         prev_fixed_exceptions = (
             dict(fixed_address_exceptions) if fixed_address_exceptions is not None else None
         )

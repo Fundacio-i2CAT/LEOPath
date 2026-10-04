@@ -5,8 +5,8 @@ snapshot counts in proportion to the pairs it contributed, and stretch is
 weighted by the number of pairs it was measured over.
 """
 
-import math
 import csv
+import math
 from pathlib import Path
 from typing import Any
 

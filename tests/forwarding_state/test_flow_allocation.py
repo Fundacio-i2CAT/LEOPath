@@ -2,9 +2,9 @@ from types import SimpleNamespace
 
 from leopath.network_state.routing_algorithms.flow_allocation import (
     allocate_address_pair,
+    new_flow_allocation_counters,
     resolve_flow_address_pair,
     update_current_addresses,
-    new_flow_allocation_counters,
 )
 
 

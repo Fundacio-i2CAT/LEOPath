@@ -9,13 +9,13 @@ import numpy as np
 from astropy.time import Time
 
 from leopath import logger
+from leopath.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
 from leopath.network_state.routing_algorithms.flow_allocation import (
     DEFAULT_GS_ADDRESS_POLICY,
     new_flow_allocation_counters,
     resolve_flow_address_pair,
     update_current_addresses,
 )
-from leopath.network_state.gsl_attachment.gsl_attachment_interface import GSLAttachmentStrategy
 from leopath.topology.topology import GroundStation, LEOTopology
 
 log = logger.get_logger(__name__)

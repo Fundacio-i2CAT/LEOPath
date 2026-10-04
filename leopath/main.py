@@ -13,10 +13,10 @@ from leopath.network_state.generate_network_state import generate_dynamic_state
 from leopath.network_state.gsl_attachment.gsl_attachment_strategies import *  # noqa: F403, F401
 from leopath.tles.generate_tles_from_scratch import generate_tles_from_scratch_with_sgp
 from leopath.tles.read_tles import read_tles
-from leopath.topology.walker_geometry import walker_shell_from_config
 from leopath.topology.distance_tools import geodetic2cartesian
 from leopath.topology.satellite.satellite import Satellite
 from leopath.topology.topology import ConstellationData, GroundStation
+from leopath.topology.walker_geometry import walker_shell_from_config
 
 log = logger.get_logger(__name__)
 
