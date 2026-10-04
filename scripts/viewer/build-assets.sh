@@ -4,7 +4,10 @@ viewer_root="$(cd "$(dirname "$0")/../.." && pwd)"
 viewer_tools="$viewer_root/scripts/viewer"
 npm ci --prefix "$viewer_tools" --ignore-scripts
 mkdir -p "$viewer_root/docs/cesium/brand"
-cp "$viewer_root/docs/assets/brand/"*.png "$viewer_root/docs/cesium/brand/"
+if test -d "$viewer_root/docs/assets/brand"; then
+  cp "$viewer_root/docs/assets/brand/"*.png "$viewer_root/docs/cesium/brand/"
+fi
+test -f "$viewer_root/docs/cesium/brand/leopath-logo.png"
 mkdir -p "$viewer_root/docs/cesium/vendor"
 cp -R "$viewer_tools/node_modules/cesium/Build/Cesium" "$viewer_root/docs/cesium/vendor/"
 cp "$viewer_tools/node_modules/satellite.js/dist/satellite.min.js" "$viewer_root/docs/cesium/vendor/satellite.min.js"

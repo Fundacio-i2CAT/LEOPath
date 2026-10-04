@@ -7,6 +7,7 @@ Regenerate scripts/export_viewer_replay.py first when shell/policy inputs change
 import argparse
 import json
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import sys
@@ -15,6 +16,7 @@ import yaml
 from viewer_dataset import REPOSITORY, digest, git, validate
 
 ROOT = Path(__file__).resolve().parents[1]
+SIMULATOR_ROOT = Path(os.environ.get("LEOPATH_SIMULATOR_ROOT", str(ROOT))).resolve()
 
 
 def export(dataset, output):
@@ -96,11 +98,11 @@ def export(dataset, output):
         "scope": "Synthetic single-shell models and controlled Python failure demonstrations. Evaluation CSVs remain separate; these are not recorded walks from the paper campaigns.",
         "simulator": {
             "repository": "Fundacio-i2CAT/LEOPath",
-            "commit": git(ROOT, "rev-parse", "HEAD"),
+            "commit": git(SIMULATOR_ROOT, "rev-parse", "HEAD"),
             "exporterSha256": digest(Path(__file__)),
             "replayExporterSha256": digest(ROOT / "scripts/export_viewer_replay.py"),
             "forwardingSha256": digest(
-                ROOT
+                SIMULATOR_ROOT
                 / "leopath/network_state/routing_algorithms/topological_routing/fstate_calculation.py"
             ),
         },

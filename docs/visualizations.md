@@ -64,7 +64,10 @@ No animation duration represents protocol convergence time. There is no simulate
 From the repository root, with LEOPath's Python dependencies installed:
 
 ```bash
-# Export the four principal shells from the current simulator.
+# Use the simulator revision recorded in viewer/bundle.json for offline exports.
+# This can be a separate checkout; it is not a dependency of the static site.
+export LEOPATH_SIMULATOR_ROOT=/path/to/matching-simulator-checkout
+# Export the four principal shells.
 python scripts/export_viewer_replay.py --shells telesat starlink kuiper oneweb
 
 # Optional topology examples.
@@ -112,6 +115,10 @@ the dataset version and commit, with links to its release and earlier datasets.
 These are controlled Python demonstrations alongside the evaluation results;
 aggregate campaign CSVs are not interpreted as recorded route walks. Live route
 previews continue to run in the browser. No Python backend is required.
+
+Offline export and simulator-comparison commands use `LEOPATH_SIMULATOR_ROOT`
+when the matching simulator revision is in another checkout. The published site
+and its build use only the validated JSON/TLE bundle.
 
 The first dataset release with `viewer/` must be published before enabling the
 release-based Pages workflow. Older dataset releases without a viewer asset are
