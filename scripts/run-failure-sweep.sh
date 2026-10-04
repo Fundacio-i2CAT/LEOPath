@@ -120,6 +120,15 @@ VARIANTS=(
   # fails (one_pass). Order-independent, so each satellite computes its own.
   "topological_scheme_asc_1p|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy one_pass --gs-attachment-count 1 --gs-attachment-order nearest_ascending"
   "topological_scheme_req_1p|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy one_pass --gs-attachment-count 2 --gs-attachment-order one_per_half --gs-address-policy requester_aware"
+  # Attachment-count sweep: K nearest attachments, the directory resolving each
+  # flow to the synonym that suits the requester (and that it can reach). Shows
+  # how reachability on Ring and the attachment cost on +Grid change with K.
+  "topological_k1_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 1 --gs-attachment-order nearest --gs-address-policy requester_aware"
+  "topological_k2_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 2 --gs-attachment-order nearest --gs-address-policy requester_aware"
+  "topological_k3_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 3 --gs-attachment-order nearest --gs-address-policy requester_aware"
+  "topological_k4_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 4 --gs-attachment-order nearest --gs-address-policy requester_aware"
+  "topological_k6_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 6 --gs-attachment-order nearest --gs-address-policy requester_aware"
+  "topological_k8_req|--algorithm topological_routing --distance-mode torus_weighted_pivot --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 8 --gs-attachment-order nearest --gs-address-policy requester_aware"
   # DRA under the same model as the scheme, so the comparison differs only in
   # the distance function (DRA's hop count against the pivot estimator).
   "dra_scheme_asc|--algorithm dra_routing --geometry-source derived --gs-addressing attachment --forwarding-guard progress --exception-policy grow --gs-attachment-count 1 --gs-attachment-order nearest_ascending"
