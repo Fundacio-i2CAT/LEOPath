@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.2.0] - 2026-10-05
+
+The simulator behind the revised Computer Networks manuscript (COMNET-D-26-04044).
+The data and the commands that regenerate every table and figure are in the
+companion dataset, release 1.2.0.
+
+### Added
+- `--geometry-source derived`: every ISL length beyond the first hop is computed
+  from the shell's seven Walker constants and the clock with SGP4's secular rates;
+  `DerivedPivotEstimator` answers a pivot query in O(S) without tables, and a test
+  checks it against the tabled estimator on every pair.
+- Three-terminal brick-wall wiring (`isl_wiring: brick_a | brick_b`) with a
+  closed-form staircase estimator; per-shell configs from the FCC filings
+  (`leopath/config/shells/`); CelesTrak lattice-fit scripts.
+- Exception entries toward every destination address, computed from flooded
+  failures and aggregated into address regions (`--exception-policy grow`), and a
+  `one_pass` alternative, with work counters and exception-entry churn per snapshot.
+- Ground-station address policies: pass-direction-aware attachment
+  (`nearest_ascending`, `one_per_half`) and the requester-aware address choice of
+  the destination's flow allocator (`gs_address_policy: requester_aware`), resolved
+  without the caller's ground-link lengths; pairs split by a partition are skipped.
+- `--isl-delay-spread` for per-link delay the estimator does not know; one-way
+  delay metrics; terminal-population, renumbering-loss and flood-time scripts.
+- Sweep variants for the attachment-count study (`topological_k{1,2,3,4,6,8}_req`)
+  and the DRA baseline under the same guard, exceptions and addresses.
+
 ### Added
 - Ground-station attachment addressing now accepts `gs_attachment_count` and
   `gs_attachment_policy`. The `exclusive` policy uses a minimum-cost bipartite
