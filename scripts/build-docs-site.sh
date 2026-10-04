@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+bash scripts/viewer/build-assets.sh
 zensical build --clean
-
-mkdir -p site/cesium/data
+mkdir -p site/cesium
 cp -R docs/cesium/. site/cesium/
 
-cp tles_starlink_550_sgp.txt site/cesium/data/tles_starlink_550_sgp.txt
-cp tles_kuiper_synth.txt site/cesium/data/tles_kuiper_synth.txt
-cp tles_oneweb_synth.txt site/cesium/data/tles_oneweb_synth.txt
-cp tles_telesat_synth.txt site/cesium/data/tles_telesat_synth.txt
-cp tles_dense_leo_synth.txt site/cesium/data/tles_dense_leo_synth.txt
+# Replace only build output; source examples and tracked configurations stay intact.
+if [[ "${LEOPATH_DATASET_RELEASE:-}" == "1" ]]; then
+  python scripts/fetch_viewer_release.py \
+    --tag "${LEOPATH_DATASET_TAG:-}" --commit "${LEOPATH_DATASET_COMMIT:-}" \
+    --target site/cesium
+  python scripts/verify_viewer_replays.py site/cesium/replays
+elif [[ -n "${LEOPATH_DATASET_DIR:-}" ]]; then
+  python scripts/viewer_dataset.py install "$LEOPATH_DATASET_DIR/viewer" --target site/cesium --preview
+  python scripts/verify_viewer_replays.py site/cesium/replays
+fi

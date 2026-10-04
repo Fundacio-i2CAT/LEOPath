@@ -48,3 +48,9 @@ __pycache__/
 
 # Personal sweep-analysis glue (hardcoded local paths)
 analyze_sampling_sweep.py
+
+# Rebuildable browser dependencies and recording output
+scripts/viewer/node_modules/
+docs/cesium/vendor/
+docs/cesium/data/
+viewer-recordings/
