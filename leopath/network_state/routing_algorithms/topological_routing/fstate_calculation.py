@@ -367,6 +367,11 @@ def calculate_fstate_topological_routing_no_gs_relay(  # noqa: C901
                 exception_report=fixed_exception_report,
                 nominal_graph=getattr(topology_with_isls, "nominal_graph", None),
                 exceptions_out=fixed_address_exceptions,
+                exception_cache=(
+                    _EXCEPTION_CACHES.setdefault(id(algorithm_params), {})
+                    if str(algorithm_params.get("exception_refresh", "snapshot")) == "event"
+                    else None
+                ),
             )
         )
         if state_report is not None:
@@ -433,6 +438,7 @@ def _build_fixed_address_routes(  # noqa: C901
     exception_report: dict | None = None,
     nominal_graph: nx.Graph | None = None,
     exceptions_out: dict | None = None,
+    exception_cache: dict | None = None,
 ) -> dict[tuple[int, int], dict]:
     """Select one address pair per flow and keep its destination fixed.
 
@@ -495,6 +501,19 @@ def _build_fixed_address_routes(  # noqa: C901
     )
     growing = exception_policy == "grow" and live_graph is not None
     one_pass = exception_policy == "one_pass" and live_graph is not None
+    # Event-driven refresh: entries are recomputed only when the set of failed
+    # elements changes; otherwise the table placed for that set is kept while
+    # the shell moves, as a deployment that reacts to flooded reports would.
+    cache: dict = exception_cache if exception_cache is not None else {}
+    signature = (
+        _failure_signature(live_graph, nominal_graph, set(satellite_addresses))
+        if growing and exception_cache is not None
+        else None
+    )
+    reused = signature is not None and cache.get("signature") == signature
+    if reused:
+        exceptions.update(cache["exceptions"])
+        growing = False
     in_use: set[int] = set()
     work = {"rule_steps": 0.0, "shortest_path_runs": 0.0}
     started = time.perf_counter()
@@ -555,9 +574,10 @@ def _build_fixed_address_routes(  # noqa: C901
                 walk_args, dst_sat, live_graph, exceptions, toward
             )
             used.update((sat, dst_sat) for sat in path[:-1] if (sat, dst_sat) in exceptions)
-        elif one_pass:
-            # The entries are complete before any packet moves; a flow that
-            # still fails while its destination is reachable is counted below.
+        elif one_pass or reused:
+            # The entries are complete before any packet moves (or were placed
+            # for this failure set at an earlier snapshot); a flow that still
+            # fails while its destination is reachable is counted below.
             path, failure = _walk_fixed_topological_address(*walk_args, exceptions=exceptions)
             used.update((sat, dst_sat) for sat in path[:-1] if (sat, dst_sat) in exceptions)
         else:
@@ -582,6 +602,9 @@ def _build_fixed_address_routes(  # noqa: C901
             if reachable:
                 unresolved += 1
     compute_ms = (time.perf_counter() - started) * 1000.0
+    if signature is not None and not reused:
+        cache["signature"] = signature
+        cache["exceptions"] = dict(exceptions)
     if exceptions_out is not None:
         exceptions_out.update(exceptions)
     if exception_report is not None and exception_policy in ("grow", "one_pass"):
@@ -627,10 +650,35 @@ def _build_fixed_address_routes(  # noqa: C901
                 "exception_rule_steps": float(work["rule_steps"]),
                 "exception_shortest_path_runs": float(work["shortest_path_runs"]),
                 "exception_compute_ms": float(compute_ms),
+                "exception_table_reused": float(reused),
                 "live_isls": float(live_graph.number_of_edges()),  # type: ignore[union-attr]
             }
         )
     return routes
+
+
+_EXCEPTION_CACHES: dict[int, dict] = {}
+
+
+def _failure_signature(
+    live_graph: nx.Graph | None, nominal_graph: nx.Graph | None, satellites: set[int]
+):
+    """The failed satellites and ISLs: what flooded reports tell a satellite.
+
+    Ground stations and their links change with every snapshot and are not
+    failures, so only satellite nodes and ISLs enter the signature.
+    """
+    if live_graph is None or nominal_graph is None:
+        return None
+    lost_nodes = frozenset(
+        n for n in nominal_graph.nodes() if n in satellites and not live_graph.has_node(n)
+    )
+    lost_edges = frozenset(
+        (min(a, b), max(a, b))
+        for a, b in nominal_graph.edges()
+        if a in satellites and b in satellites and not live_graph.has_edge(a, b)
+    )
+    return lost_nodes, lost_edges
 
 
 def _region_entry_count(
