@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-05
+
+Adds the exception-refresh study of the revised Computer Networks manuscript
+(COMNET-D-26-04044). Its data are in the companion dataset, release 1.3.1.
+
+### Added
+- `--exception-refresh event` recomputes fixed-address exception entries only when
+  the set of failed satellites and ISLs changes, and otherwise keeps the table
+  computed for that set while the shell moves, as a deployment reacting only to
+  flooded failure reports would. Per-snapshot `exception_table_reused`; sweep
+  variant `topological_scheme_asc_event`. The default (`snapshot`, recompute every
+  snapshot) is unchanged, so every 0.2.0 result reproduces as before.
+
 ## [0.2.0] - 2026-10-05
 
 The simulator behind the revised Computer Networks manuscript (COMNET-D-26-04044).

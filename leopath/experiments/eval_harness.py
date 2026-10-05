@@ -275,6 +275,7 @@ def prepare_algorithm_params(
     gs_attachment_policy: str | None = None,
     gs_address_policy: str | None = None,
     gs_attachment_order: str | None = None,
+    exception_refresh: str | None = None,
 ) -> dict:
     algorithm_params = dict(simulation_config.get("algorithm_params") or {})
 
@@ -307,6 +308,8 @@ def prepare_algorithm_params(
         algorithm_params["local_repair"] = local_repair
     if exception_policy is not None and algorithm_name in TOPOLOGICAL_FAMILY:
         algorithm_params["exception_policy"] = exception_policy
+    if exception_refresh is not None and algorithm_name in TOPOLOGICAL_FAMILY:
+        algorithm_params["exception_refresh"] = exception_refresh
     _set_gs_addressing_params(
         algorithm_params,
         algorithm_name,
@@ -354,6 +357,7 @@ def run_evaluation(
     gs_attachment_order: str | None = None,
     isl_delay_spread: float = 0.0,
     isl_delay_seed: int = 1,
+    exception_refresh: str | None = None,
 ) -> None:
     config = load_config(config_path)
     gs_override = load_ground_station_override(gs_override_path)
@@ -387,6 +391,7 @@ def run_evaluation(
         gs_attachment_policy=gs_attachment_policy,
         gs_address_policy=gs_address_policy,
         gs_attachment_order=gs_attachment_order,
+        exception_refresh=exception_refresh,
     )
     if effective_algorithm_name in TOPOLOGICAL_FAMILY:
         algorithm_params["isl_wiring"] = isl_wiring(isl_scenario)
@@ -890,6 +895,13 @@ def parse_args() -> argparse.Namespace:
         help="Topological routing: install exception entries where the rules cannot deliver "
         "(one_pass: every satellite whose own rule walk fails; attachment addressing only)",
     )
+    parser.add_argument(
+        "--exception-refresh",
+        choices=("snapshot", "event"),
+        default=None,
+        help="Topological routing: recompute exception entries at every snapshot (default) "
+        "or only when the set of failed satellites and ISLs changes",
+    )
     parser.add_argument("--failure-type", choices=FAILURE_TYPES, default="none")
     parser.add_argument(
         "--failure-rate",
@@ -948,6 +960,7 @@ def main() -> None:
         gs_attachment_order=args.gs_attachment_order,
         isl_delay_spread=args.isl_delay_spread,
         isl_delay_seed=args.isl_delay_seed,
+        exception_refresh=args.exception_refresh,
         failure_config=FailureConfig(
             failure_type=args.failure_type,
             rate=args.failure_rate,
